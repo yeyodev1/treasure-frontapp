@@ -1,0 +1,23 @@
+// Mobile-first: los estilos base son para celular; estos mixins amplían hacia arriba.
+@mixin tablet {
+  @media (min-width: 640px) {
+    @content;
+  }
+}
+
+@mixin desktop {
+  @media (min-width: 1024px) {
+    @content;
+  }
+}
+
+@mixin wide {
+  @media (min-width: 1440px) {
+    @content;
+  }
+}
+
+@mixin touch-target {
+  min-height: 48px;
+  min-width: 48px;
+}
