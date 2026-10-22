@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, shallowRef, useTemplateRef } from 'vue'
+import { useAnchoredPanel } from '@/composables/useAnchoredPanel'
 
 export interface SelectOption {
   value: string
@@ -17,22 +18,32 @@ const model = defineModel<string>({ default: '' })
 
 const open = shallowRef(false)
 const highlighted = shallowRef(-1)
-const root = useTemplateRef<HTMLElement>('root')
+const trigger = useTemplateRef<HTMLElement>('trigger')
 const list = useTemplateRef<HTMLElement>('list')
+
+const { style: panelStyle, openUp, bind, unbind } = useAnchoredPanel(trigger)
 
 const selected = computed(() => props.options.find((o) => o.value === model.value) ?? null)
 
 function toggle() {
   if (props.disabled) return
-  open.value = !open.value
   if (open.value) {
-    highlighted.value = props.options.findIndex((o) => o.value === model.value)
+    close()
+    return
   }
+  open.value = true
+  bind()
+  highlighted.value = props.options.findIndex((o) => o.value === model.value)
+}
+
+function close() {
+  open.value = false
+  unbind()
 }
 
 function choose(option: SelectOption) {
   model.value = option.value
-  open.value = false
+  close()
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -42,8 +53,8 @@ function onKeydown(e: KeyboardEvent) {
     return
   }
   if (!open.value) return
-  if (e.key === 'Escape') {
-    open.value = false
+  if (e.key === 'Escape' || e.key === 'Tab') {
+    close()
   } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault()
     const delta = e.key === 'ArrowDown' ? 1 : -1
@@ -63,9 +74,10 @@ function scrollToHighlighted() {
 }
 
 function onOutside(e: MouseEvent) {
-  if (open.value && root.value && !root.value.contains(e.target as Node)) {
-    open.value = false
-  }
+  if (!open.value) return
+  const target = e.target as Node
+  if (trigger.value?.contains(target) || list.value?.contains(target)) return
+  close()
 }
 
 onMounted(() => document.addEventListener('pointerdown', onOutside))
@@ -73,8 +85,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 </script>
 
 <template>
-  <div ref="root" class="select" :class="{ 'select--open': open, 'select--disabled': disabled }">
+  <div class="select" :class="{ 'select--open': open, 'select--disabled': disabled }">
     <button
+      ref="trigger"
       type="button"
       class="select-trigger"
       :disabled="disabled"
@@ -88,31 +101,40 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
       <i class="fa-solid fa-chevron-down select-caret" aria-hidden="true" />
     </button>
 
-    <Transition name="pop">
-      <ul v-if="open" ref="list" class="select-menu" role="listbox">
-        <li
-          v-for="(option, index) in options"
-          :key="option.value"
-          role="option"
-          :aria-selected="option.value === model"
-          class="select-option"
-          :class="{
-            'select-option--active': option.value === model,
-            'select-option--highlighted': index === highlighted,
-          }"
-          @pointerenter="highlighted = index"
-          @click="choose(option)"
+    <!-- El menú va al body con position:fixed: ningún modal lo recorta. -->
+    <Teleport to="body">
+      <Transition :name="openUp ? 'pop-up' : 'pop'">
+        <ul
+          v-if="open"
+          ref="list"
+          class="select-menu"
+          :style="panelStyle"
+          role="listbox"
         >
-          <span class="select-option-label">{{ option.label }}</span>
-          <span v-if="option.hint" class="select-option-hint">{{ option.hint }}</span>
-          <i
-            v-if="option.value === model"
-            class="fa-solid fa-check select-option-check"
-            aria-hidden="true"
-          />
-        </li>
-      </ul>
-    </Transition>
+          <li
+            v-for="(option, index) in options"
+            :key="option.value"
+            role="option"
+            :aria-selected="option.value === model"
+            class="select-option"
+            :class="{
+              'select-option--active': option.value === model,
+              'select-option--highlighted': index === highlighted,
+            }"
+            @pointerenter="highlighted = index"
+            @click="choose(option)"
+          >
+            <span class="select-option-label">{{ option.label }}</span>
+            <span v-if="option.hint" class="select-option-hint">{{ option.hint }}</span>
+            <i
+              v-if="option.value === model"
+              class="fa-solid fa-check select-option-check"
+              aria-hidden="true"
+            />
+          </li>
+        </ul>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -137,10 +159,11 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
   background: #fff;
   text-align: left;
   font-size: 0.95rem;
+  user-select: none;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 
   .select--open & {
-    border-color: var(--brass, var(--gold-500));
+    border-color: var(--gold-500);
     box-shadow: 0 0 0 3px rgba(195, 161, 105, 0.18);
   }
 
@@ -155,10 +178,10 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
 
-  &--placeholder {
-    color: var(--ink-400);
-  }
+.select-value--placeholder {
+  color: var(--ink-400);
 }
 
 .select-caret {
@@ -171,12 +194,16 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
   }
 }
 
+.select--disabled .select-trigger {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+</style>
+
+<style lang="scss">
+// Sin scoped: el menú vive teleportado en el body.
 .select-menu {
-  position: absolute;
-  z-index: 40;
-  top: calc(100% + 6px);
-  left: 0;
-  right: 0;
+  z-index: 90;
   margin: 0;
   padding: 0.3rem;
   list-style: none;
@@ -184,8 +211,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
   border: 1px solid var(--cream-200);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-lg);
-  max-height: 260px;
   overflow-y: auto;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .select-option {
@@ -226,13 +254,10 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
   color: var(--gold-500);
 }
 
-.select--disabled .select-trigger {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
 .pop-enter-active,
-.pop-leave-active {
+.pop-leave-active,
+.pop-up-enter-active,
+.pop-up-leave-active {
   transition: opacity 0.16s ease, transform 0.16s ease;
 }
 
@@ -240,5 +265,11 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 .pop-leave-to {
   opacity: 0;
   transform: translateY(-5px) scale(0.98);
+}
+
+.pop-up-enter-from,
+.pop-up-leave-to {
+  opacity: 0;
+  transform: translateY(5px) scale(0.98);
 }
 </style>
