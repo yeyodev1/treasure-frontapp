@@ -15,7 +15,12 @@ import {
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatDateTime } from '@/utils/format'
 import BaseModal from '@/components/ui/BaseModal.vue'
+import BaseSelect from '@/components/ui/BaseSelect.vue'
+import BaseSpinner from '@/components/ui/BaseSpinner.vue'
 import ProductIcon from '@/components/ui/ProductIcon.vue'
+import SkeletonList from '@/components/ui/SkeletonList.vue'
+import { useInfiniteScroll } from '@/composables/useInfiniteScroll'
+import { useSound } from '@/composables/useSound'
 import type { CruiseStockItem, StockMovement } from '@/types'
 
 const cruiseStore = useCruiseStore()
@@ -24,14 +29,26 @@ const toast = useToastStore()
 const { active: cruise } = storeToRefs(cruiseStore)
 const { products } = storeToRefs(catalogStore)
 
+const { play } = useSound()
+
 const stock = ref<CruiseStockItem[]>([])
 const movements = ref<StockMovement[]>([])
+const movementsHasMore = shallowRef(false)
+const loadingMore = shallowRef(false)
+const loading = shallowRef(true)
 const tab = shallowRef<'abordo' | 'bodega' | 'bitacora'>('abordo')
+const sentinel = shallowRef<HTMLElement | null>(null)
 
 type ModalKind = 'merma' | 'ajuste' | 'carga' | 'compra' | null
 const modal = shallowRef<ModalKind>(null)
 const form = ref({ productId: '', qty: 1, reason: '' })
 const saving = shallowRef(false)
+
+const productOptions = computed(() =>
+  products.value
+    .filter((p) => !p.isCocktail)
+    .map((p) => ({ value: p._id, label: p.name, hint: p.unit })),
+)
 
 const MOVEMENT_LABELS: Record<StockMovement['type'], string> = {
   carga: 'Carga',
@@ -52,11 +69,37 @@ async function refresh() {
     if (cruise.value) {
       stock.value = await apiCruiseStock(cruise.value._id)
     }
-    movements.value = await apiMovements(cruise.value ? { cruiseId: cruise.value._id } : {})
+    const data = await apiMovements(cruise.value ? { cruiseId: cruise.value._id } : {})
+    movements.value = data.movements
+    movementsHasMore.value = data.hasMore
   } catch (err) {
     toast.error(apiErrorMessage(err))
+  } finally {
+    loading.value = false
   }
 }
+
+/** Siguiente página de la bitácora (scroll infinito). */
+async function loadMoreMovements() {
+  if (loadingMore.value || !movementsHasMore.value) return
+  const last = movements.value[movements.value.length - 1]
+  if (!last) return
+  loadingMore.value = true
+  try {
+    const data = await apiMovements({
+      ...(cruise.value ? { cruiseId: cruise.value._id } : {}),
+      before: last.createdAt,
+    })
+    movements.value = [...movements.value, ...data.movements]
+    movementsHasMore.value = data.hasMore
+  } catch (err) {
+    toast.error(apiErrorMessage(err))
+  } finally {
+    loadingMore.value = false
+  }
+}
+
+useInfiniteScroll({ sentinel, onReach: loadMoreMovements })
 
 onMounted(refresh)
 
@@ -86,6 +129,7 @@ async function submitModal() {
     } else if (modal.value === 'compra') {
       await apiWarehousePurchase([{ productId, qty }])
     }
+    play('success')
     toast.success('Movimiento registrado')
     modal.value = null
     await refresh()
@@ -102,7 +146,8 @@ async function submitModal() {
     <h1 class="page-title">Inventario</h1>
 
     <div v-if="lowStock.length" class="alert">
-      ⚠️ Stock bajo a bordo:
+      <i class="fa-solid fa-triangle-exclamation" aria-hidden="true" />
+      Stock bajo a bordo:
       {{ lowStock.map((s) => s.product.name).join(', ') }}
     </div>
 
@@ -120,13 +165,25 @@ async function submitModal() {
     </div>
 
     <div class="actions">
-      <button type="button" class="btn btn-ghost" @click="openModal('carga')">Cargar crucero</button>
-      <button type="button" class="btn btn-ghost" @click="openModal('merma')">Merma</button>
-      <button type="button" class="btn btn-ghost" @click="openModal('ajuste')">Ajuste</button>
-      <button type="button" class="btn btn-ghost" @click="openModal('compra')">Compra bodega</button>
+      <button type="button" class="btn btn-ghost" @click="openModal('carga')">
+        <i class="fa-solid fa-dolly" aria-hidden="true" /> Cargar crucero
+      </button>
+      <button type="button" class="btn btn-ghost" @click="openModal('merma')">
+        <i class="fa-solid fa-wine-glass-empty" aria-hidden="true" /> Merma
+      </button>
+      <button type="button" class="btn btn-ghost" @click="openModal('ajuste')">
+        <i class="fa-solid fa-sliders" aria-hidden="true" /> Ajuste
+      </button>
+      <button type="button" class="btn btn-ghost" @click="openModal('compra')">
+        <i class="fa-solid fa-cart-plus" aria-hidden="true" /> Compra bodega
+      </button>
     </div>
 
-    <section v-if="tab === 'abordo'" class="card table-card">
+    <section v-if="loading" class="card table-card">
+      <SkeletonList variant="row" :rows="7" />
+    </section>
+
+    <section v-else-if="tab === 'abordo'" class="card table-card">
       <p v-if="!cruise" class="empty">No hay crucero activo.</p>
       <table v-else class="table">
         <thead>
@@ -204,18 +261,21 @@ async function submitModal() {
           </tr>
         </tbody>
       </table>
+      <div v-if="movementsHasMore" ref="sentinel" class="sentinel">
+        <BaseSpinner v-if="loadingMore" label="Cargando más movimientos…" />
+      </div>
     </section>
 
     <BaseModal v-if="modal" :title="MODAL_TITLES[modal]" @close="modal = null">
       <div class="modal-form">
         <div class="field">
-          <label for="mv-product">Producto</label>
-          <select id="mv-product" v-model="form.productId">
-            <option value="" disabled>Elige…</option>
-            <option v-for="p in products.filter((x) => !x.isCocktail)" :key="p._id" :value="p._id">
-              {{ p.name }}
-            </option>
-          </select>
+          <label id="mv-product-label">Producto</label>
+          <BaseSelect
+            v-model="form.productId"
+            :options="productOptions"
+            placeholder="Elige…"
+            aria-labelledby="mv-product-label"
+          />
         </div>
         <div class="field">
           <label for="mv-qty">
@@ -244,7 +304,10 @@ async function submitModal() {
 @use '@/styles/mixins' as *;
 
 .alert {
-  background: rgba(232, 161, 60, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: rgba(192, 138, 62, 0.14);
   border: 1.5px solid var(--warning);
   color: var(--navy-900);
   border-radius: var(--radius-sm);
@@ -252,6 +315,14 @@ async function submitModal() {
   font-size: 0.88rem;
   font-weight: 600;
   margin-bottom: 1rem;
+
+  i {
+    color: var(--warning);
+  }
+}
+
+.sentinel {
+  min-height: 12px;
 }
 
 .tabs {
