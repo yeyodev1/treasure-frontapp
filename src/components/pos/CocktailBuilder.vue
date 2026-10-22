@@ -2,6 +2,7 @@
 import { computed, ref, shallowRef } from 'vue'
 import type { Product } from '@/types'
 import BaseModal from '@/components/ui/BaseModal.vue'
+import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { apiCreateCustomCocktail } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatMoney } from '@/utils/format'
@@ -20,7 +21,11 @@ const saving = shallowRef(false)
 const error = shallowRef('')
 
 // Solo productos simples pueden ser ingredientes (no cócteles dentro de cócteles).
-const ingredientOptions = computed(() => props.products.filter((p) => !p.isCocktail))
+const ingredientOptions = computed(() =>
+  props.products
+    .filter((p) => !p.isCocktail)
+    .map((p) => ({ value: p._id, label: p.name, hint: `${formatMoney(p.price)}/${p.unit}` })),
+)
 
 const priceMap = computed(() => new Map(props.products.map((p) => [p._id, p.price])))
 
@@ -77,31 +82,28 @@ async function save() {
 
       <div class="ingredients">
         <p class="ingredients-title">Ingredientes</p>
-        <div v-for="(line, index) in ingredients" :key="index" class="ingredient">
-          <select v-model="line.productId" aria-label="Ingrediente">
-            <option value="" disabled>Elige…</option>
-            <option v-for="opt in ingredientOptions" :key="opt._id" :value="opt._id">
-              {{ opt.name }} ({{ formatMoney(opt.price) }}/{{ opt.unit }})
-            </option>
-          </select>
-          <input
-            v-model.number="line.qty"
-            type="number"
-            min="0.25"
-            step="0.25"
-            aria-label="Cantidad"
-          />
-          <button
-            type="button"
-            class="ingredient-remove"
-            aria-label="Quitar ingrediente"
-            @click="removeLine(index)"
-          >
-            ✕
-          </button>
-        </div>
+        <TransitionGroup name="list">
+          <div v-for="(line, index) in ingredients" :key="index" class="ingredient">
+            <BaseSelect v-model="line.productId" :options="ingredientOptions" placeholder="Elige…" />
+            <input
+              v-model.number="line.qty"
+              type="number"
+              min="0.25"
+              step="0.25"
+              aria-label="Cantidad"
+            />
+            <button
+              type="button"
+              class="ingredient-remove"
+              aria-label="Quitar ingrediente"
+              @click="removeLine(index)"
+            >
+              <i class="fa-solid fa-xmark" aria-hidden="true" />
+            </button>
+          </div>
+        </TransitionGroup>
         <button type="button" class="btn btn-ghost add-line" @click="addLine">
-          ＋ Agregar ingrediente
+          <i class="fa-solid fa-plus" aria-hidden="true" /> Agregar ingrediente
         </button>
       </div>
 
@@ -138,13 +140,14 @@ async function save() {
   grid-template-columns: 1fr 76px 44px;
   gap: 0.4rem;
   margin-bottom: 0.5rem;
+  align-items: start;
 
-  select,
   input {
     padding: 0.55rem 0.6rem;
     border: 1.5px solid var(--cream-200);
     border-radius: var(--radius-sm);
     min-height: 48px;
+    width: 100%;
   }
 }
 
