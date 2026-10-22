@@ -263,7 +263,7 @@ onBeforeUnmount(() => {
 }
 
 .feed-card {
-  max-width: 760px;
+  width: 100%;
 }
 
 .feed-empty {
