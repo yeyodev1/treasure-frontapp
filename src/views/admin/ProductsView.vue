@@ -6,22 +6,51 @@ import { apiCreateProduct, apiProducts, apiUpdateProduct } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatMoney } from '@/utils/format'
 import BaseModal from '@/components/ui/BaseModal.vue'
+import BaseSelect from '@/components/ui/BaseSelect.vue'
 import ProductIcon from '@/components/ui/ProductIcon.vue'
-import type { Product, ProductCategory } from '@/types'
+import SkeletonList from '@/components/ui/SkeletonList.vue'
+import { useConfirmStore } from '@/stores/confirm'
+import { useSound } from '@/composables/useSound'
+import type { Product } from '@/types'
 
 const toast = useToastStore()
 const catalogStore = useCatalogStore()
+const confirmStore = useConfirmStore()
+const { play } = useSound()
 
 const products = ref<Product[]>([])
 const editing = shallowRef<Product | null>(null)
 const showForm = shallowRef(false)
 const saving = shallowRef(false)
+const loading = shallowRef(true)
 
-const ICON_OPTIONS = ['beer', 'wine', 'bottle', 'shot', 'cocktail', 'soda', 'water', 'juice', 'snack', 'lime', 'glass']
+const ICON_LABELS: Record<string, string> = {
+  beer: 'Cerveza',
+  wine: 'Copa de vino',
+  bottle: 'Botella',
+  shot: 'Trago',
+  cocktail: 'Cóctel',
+  soda: 'Gaseosa',
+  water: 'Agua',
+  juice: 'Jugo',
+  snack: 'Snack',
+  lime: 'Cítrico',
+  glass: 'Vaso',
+}
 
-const form = ref({
+const categoryOptions = Object.entries(CATEGORY_LABELS).map(([value, label]) => ({ value, label }))
+const iconOptions = Object.entries(ICON_LABELS).map(([value, label]) => ({ value, label }))
+
+const form = ref<{
+  name: string
+  category: string
+  icon: string
+  price: number
+  unit: string
+  warehouseStock: number
+}>({
   name: '',
-  category: 'licor' as ProductCategory,
+  category: 'licor',
   icon: 'glass',
   price: 0,
   unit: 'unidad',
@@ -33,6 +62,8 @@ async function refresh() {
     products.value = await apiProducts(true)
   } catch (err) {
     toast.error(apiErrorMessage(err))
+  } finally {
+    loading.value = false
   }
 }
 
@@ -68,10 +99,12 @@ async function save() {
       await apiCreateProduct(form.value)
       toast.success('Producto creado')
     }
+    play('success')
     showForm.value = false
     await refresh()
     await catalogStore.load(true)
   } catch (err) {
+    play('error')
     toast.error(apiErrorMessage(err))
   } finally {
     saving.value = false
@@ -79,12 +112,26 @@ async function save() {
 }
 
 async function toggleActive(product: Product) {
+  const deactivating = product.active
+  const ok = await confirmStore.ask({
+    title: deactivating ? '¿Desactivar producto?' : '¿Activar producto?',
+    message: deactivating
+      ? `"${product.name}" dejará de aparecer en el catálogo del bar.`
+      : `"${product.name}" volverá a estar disponible en el catálogo del bar.`,
+    confirmLabel: deactivating ? 'Desactivar' : 'Activar',
+    icon: deactivating ? 'fa-eye-slash' : 'fa-eye',
+    danger: deactivating,
+  })
+  if (!ok) return
+
   try {
     await apiUpdateProduct(product._id, { active: !product.active })
-    toast.success(product.active ? 'Producto desactivado' : 'Producto activado')
+    play('success')
+    toast.success(deactivating ? 'Producto desactivado' : 'Producto activado')
     await refresh()
     await catalogStore.load(true)
   } catch (err) {
+    play('error')
     toast.error(apiErrorMessage(err))
   }
 }
@@ -94,10 +141,16 @@ async function toggleActive(product: Product) {
   <div class="page">
     <header class="head">
       <h1 class="page-title">Catálogo</h1>
-      <button type="button" class="btn btn-gold" @click="openNew">＋ Nuevo producto</button>
+      <button type="button" class="btn btn-gold" @click="openNew">
+        <i class="fa-solid fa-plus" aria-hidden="true" /> Nuevo producto
+      </button>
     </header>
 
-    <section class="card table-card">
+    <section v-if="loading" class="card table-card">
+      <SkeletonList variant="row" :rows="10" />
+    </section>
+
+    <section v-else class="card table-card">
       <table class="table">
         <thead>
           <tr>
@@ -140,16 +193,12 @@ async function toggleActive(product: Product) {
         </div>
         <div class="row">
           <div class="field">
-            <label for="p-cat">Categoría</label>
-            <select id="p-cat" v-model="form.category">
-              <option v-for="(label, key) in CATEGORY_LABELS" :key="key" :value="key">{{ label }}</option>
-            </select>
+            <label id="p-cat-label">Categoría</label>
+            <BaseSelect v-model="form.category" :options="categoryOptions" aria-labelledby="p-cat-label" />
           </div>
           <div class="field">
-            <label for="p-icon">Icono</label>
-            <select id="p-icon" v-model="form.icon">
-              <option v-for="icon in ICON_OPTIONS" :key="icon" :value="icon">{{ icon }}</option>
-            </select>
+            <label id="p-icon-label">Icono</label>
+            <BaseSelect v-model="form.icon" :options="iconOptions" aria-labelledby="p-icon-label" />
           </div>
         </div>
         <div class="row">
