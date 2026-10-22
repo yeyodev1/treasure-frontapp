@@ -85,6 +85,8 @@ export interface AccountSummary {
   orders: Array<{
     id: string
     createdAt: string
+    /** Trazabilidad: quién registró el pedido. */
+    by: string
     items: Array<{ name: string; qty: number; unitPrice: number; courtesy: boolean }>
     total: number
   }>
