@@ -163,20 +163,6 @@ async function logout() {
       </div>
     </header>
 
-    <!-- Aviso cuando administración está mirando la app como otro rol -->
-    <Transition name="fade">
-      <div v-if="userStore.isRealAdmin && userStore.viewAs" class="viewing-as">
-        <i class="fa-solid fa-eye" aria-hidden="true" />
-        <span>
-          Estás viendo la app como
-          <strong>{{ ROLE_LABELS[userStore.viewAs] }}</strong>
-        </span>
-        <button type="button" class="viewing-as-exit" @click="exitViewAs">
-          Volver a mi vista
-        </button>
-      </div>
-    </Transition>
-
     <div class="body">
       <Transition name="fade">
         <div v-if="drawerOpen" class="scrim" @click="drawerOpen = false" />
@@ -220,6 +206,20 @@ async function logout() {
       </nav>
 
       <main class="content">
+        <!-- Aviso cuando administración está mirando la app como otro rol.
+             Vive dentro del contenido para no desplazar el sidebar. -->
+        <Transition name="fade">
+          <div v-if="userStore.isRealAdmin && userStore.viewAs" class="viewing-as">
+            <i class="fa-solid fa-eye" aria-hidden="true" />
+            <span>
+              Estás viendo la app como
+              <strong>{{ ROLE_LABELS[userStore.viewAs] }}</strong>
+            </span>
+            <button type="button" class="viewing-as-exit" @click="exitViewAs">
+              Volver a mi vista
+            </button>
+          </div>
+        </Transition>
         <slot />
       </main>
     </div>
