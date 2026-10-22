@@ -59,7 +59,7 @@ const visible = computed(() =>
       </button>
 
       <button type="button" class="product product--new" @click="emit('createCocktail')">
-        <span class="product-plus">＋</span>
+        <i class="fa-solid fa-wand-magic-sparkles product-plus" aria-hidden="true" />
         <span class="product-name">Crear cóctel</span>
       </button>
     </div>
@@ -136,7 +136,7 @@ const visible = computed(() =>
 }
 
 .product-plus {
-  font-size: 1.8rem;
+  font-size: 1.4rem;
   line-height: 1;
   color: var(--gold-500);
 }
