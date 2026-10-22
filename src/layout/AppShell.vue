@@ -6,6 +6,8 @@ import { useConfirmStore } from '@/stores/confirm'
 import { useSound } from '@/composables/useSound'
 import type { UserRole } from '@/types'
 import BrandSeal from '@/components/ui/BrandSeal.vue'
+import BaseSelect from '@/components/ui/BaseSelect.vue'
+import { ROLE_HOME } from '@/router'
 
 interface NavItem {
   to: string
@@ -66,6 +68,26 @@ const sections = computed(() =>
 )
 
 const pageTitle = computed(() => (route.meta.title as string) ?? '')
+
+const VIEW_AS_OPTIONS = [
+  { value: 'admin', label: 'Mi vista (Administración)' },
+  { value: 'direccion', label: 'Ver como Dirección' },
+  { value: 'bartender', label: 'Ver como Bartender' },
+  { value: 'bodega', label: 'Ver como Bodega' },
+]
+
+const viewAsModel = computed({
+  get: () => userStore.viewAs ?? 'admin',
+  set: (value: string) => {
+    userStore.setViewAs(value as UserRole)
+    const target = ROLE_HOME[(userStore.role ?? 'admin') as UserRole]
+    router.push(target)
+  },
+})
+
+function exitViewAs() {
+  viewAsModel.value = 'admin'
+}
 
 const initials = computed(() => {
   const name = userStore.user?.name ?? ''
@@ -141,6 +163,20 @@ async function logout() {
       </div>
     </header>
 
+    <!-- Aviso cuando administración está mirando la app como otro rol -->
+    <Transition name="fade">
+      <div v-if="userStore.isRealAdmin && userStore.viewAs" class="viewing-as">
+        <i class="fa-solid fa-eye" aria-hidden="true" />
+        <span>
+          Estás viendo la app como
+          <strong>{{ ROLE_LABELS[userStore.viewAs] }}</strong>
+        </span>
+        <button type="button" class="viewing-as-exit" @click="exitViewAs">
+          Volver a mi vista
+        </button>
+      </div>
+    </Transition>
+
     <div class="body">
       <Transition name="fade">
         <div v-if="drawerOpen" class="scrim" @click="drawerOpen = false" />
@@ -163,12 +199,23 @@ async function logout() {
           </div>
         </div>
 
-        <div class="sidenav-user">
-          <span class="user-avatar">{{ initials }}</span>
-          <span class="user-info">
-            <span class="user-name">{{ userStore.user?.name }}</span>
-            <span class="user-role">{{ userStore.role ? ROLE_LABELS[userStore.role] : '' }}</span>
-          </span>
+        <div class="sidenav-bottom">
+          <div v-if="userStore.isRealAdmin" class="view-as">
+            <p class="view-as-label">
+              <i class="fa-solid fa-eye" aria-hidden="true" /> Ver la app como
+            </p>
+            <BaseSelect v-model="viewAsModel" :options="VIEW_AS_OPTIONS" />
+          </div>
+
+          <div class="sidenav-user">
+            <span class="user-avatar">{{ initials }}</span>
+            <span class="user-info">
+              <span class="user-name">{{ userStore.user?.name }}</span>
+              <span class="user-role">
+                {{ userStore.realRole ? ROLE_LABELS[userStore.realRole] : '' }}
+              </span>
+            </span>
+          </div>
         </div>
       </nav>
 
@@ -461,6 +508,57 @@ async function logout() {
   font-size: 0.95rem;
   color: var(--ink-400);
   transition: color 0.15s ease;
+}
+
+.viewing-as {
+  position: sticky;
+  top: calc(59px + env(safe-area-inset-top));
+  z-index: 23;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem max(16px, env(safe-area-inset-left, 0px));
+  background: rgba(192, 138, 62, 0.16);
+  border-bottom: 1px solid var(--warning);
+  color: var(--navy-900);
+  font-size: 0.85rem;
+
+  i {
+    color: var(--warning);
+  }
+}
+
+.viewing-as-exit {
+  margin-left: auto;
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--navy-700);
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+.sidenav-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.view-as {
+  padding: 0 0.2rem;
+}
+
+.view-as-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-400);
+
+  i {
+    margin-right: 0.25rem;
+    color: var(--gold-500);
+  }
 }
 
 .sidenav-user {
