@@ -4,6 +4,7 @@ import type {
   Cruise,
   CruiseSales,
   CruiseStockItem,
+  LivePulse,
   Order,
   Payment,
   PaymentMethod,
@@ -38,7 +39,7 @@ export async function apiProducts(all = false) {
   return data.products
 }
 
-export async function apiCreateProduct(payload: Partial<Product> & { recipe?: Array<{ product: string; qty: number }> }) {
+export async function apiCreateProduct(payload: Record<string, unknown>) {
   const { data } = await http.post<{ product: Product }>('/products', payload)
   return data.product
 }
@@ -100,9 +101,15 @@ export async function apiCreateOrder(payload: {
   return data.order
 }
 
-export async function apiOrders(params: { cruiseId?: string; cabinNumber?: number; status?: string }) {
-  const { data } = await http.get<{ orders: Order[] }>('/orders', { params })
-  return data.orders
+export async function apiOrders(params: {
+  cruiseId?: string
+  cabinNumber?: number
+  status?: string
+  before?: string
+  limit?: number
+}) {
+  const { data } = await http.get<{ orders: Order[]; hasMore: boolean }>('/orders', { params })
+  return data
 }
 
 export async function apiCancelOrder(id: string, reason: string) {
@@ -127,9 +134,13 @@ export async function apiCollectCabin(payload: {
   return data.payment
 }
 
-export async function apiPayments(params: { cruiseId?: string; from?: string; to?: string } = {}) {
-  const { data } = await http.get<{ payments: Payment[] }>('/payments', { params })
-  return data.payments
+export async function apiPayments(
+  params: { cruiseId?: string; from?: string; to?: string; before?: string; limit?: number } = {},
+) {
+  const { data } = await http.get<{ payments: Payment[]; hasMore: boolean }>('/payments', {
+    params,
+  })
+  return data
 }
 
 export async function apiRetryInvoice(id: string) {
@@ -155,9 +166,20 @@ export async function apiWarehousePurchase(items: Array<{ productId: string; qty
   await http.post('/inventory/warehouse-purchase', { items })
 }
 
-export async function apiMovements(params: { cruiseId?: string; productId?: string; type?: string } = {}) {
-  const { data } = await http.get<{ movements: StockMovement[] }>('/inventory/movements', { params })
-  return data.movements
+export async function apiMovements(
+  params: { cruiseId?: string; productId?: string; type?: string; before?: string; limit?: number } = {},
+) {
+  const { data } = await http.get<{ movements: StockMovement[]; hasMore: boolean }>(
+    '/inventory/movements',
+    { params },
+  )
+  return data
+}
+
+// Pulso en vivo (admin y dirección)
+export async function apiLive(since?: string) {
+  const { data } = await http.get<LivePulse>('/live', { params: since ? { since } : {} })
+  return data
 }
 
 // Reportes
