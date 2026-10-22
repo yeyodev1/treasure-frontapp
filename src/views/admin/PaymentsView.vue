@@ -5,14 +5,25 @@ import { useUserStore } from '@/stores/user'
 import { apiPayments, apiRetryInvoice } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatMoney, formatDateTime } from '@/utils/format'
+import BaseDatePicker from '@/components/ui/BaseDatePicker.vue'
+import BaseSpinner from '@/components/ui/BaseSpinner.vue'
+import SkeletonList from '@/components/ui/SkeletonList.vue'
+import { useInfiniteScroll } from '@/composables/useInfiniteScroll'
+import { useSound } from '@/composables/useSound'
 import type { InvoiceStatus, Payment } from '@/types'
 
 const toast = useToastStore()
 const userStore = useUserStore()
 
+const { play } = useSound()
+
 const payments = ref<Payment[]>([])
 const from = shallowRef('')
 const to = shallowRef('')
+const loading = shallowRef(true)
+const loadingMore = shallowRef(false)
+const hasMore = shallowRef(false)
+const sentinel = shallowRef<HTMLElement | null>(null)
 
 const INVOICE_LABELS: Record<InvoiceStatus, string> = {
   pendiente: 'Pendiente',
@@ -21,25 +32,55 @@ const INVOICE_LABELS: Record<InvoiceStatus, string> = {
   no_aplica: 'No aplica',
 }
 
-async function refresh() {
-  try {
-    payments.value = await apiPayments({
-      from: from.value || undefined,
-      to: to.value ? `${to.value}T23:59:59` : undefined,
-    })
-  } catch (err) {
-    toast.error(apiErrorMessage(err))
+function rangeParams() {
+  return {
+    from: from.value || undefined,
+    to: to.value ? `${to.value}T23:59:59` : undefined,
   }
 }
+
+async function refresh() {
+  loading.value = true
+  try {
+    const data = await apiPayments(rangeParams())
+    payments.value = data.payments
+    hasMore.value = data.hasMore
+  } catch (err) {
+    toast.error(apiErrorMessage(err))
+  } finally {
+    loading.value = false
+  }
+}
+
+/** Siguiente página del historial de cobros (scroll infinito). */
+async function loadMore() {
+  if (loadingMore.value || !hasMore.value) return
+  const last = payments.value[payments.value.length - 1]
+  if (!last) return
+  loadingMore.value = true
+  try {
+    const data = await apiPayments({ ...rangeParams(), before: last.createdAt })
+    payments.value = [...payments.value, ...data.payments]
+    hasMore.value = data.hasMore
+  } catch (err) {
+    toast.error(apiErrorMessage(err))
+  } finally {
+    loadingMore.value = false
+  }
+}
+
+useInfiniteScroll({ sentinel, onReach: loadMore })
 
 onMounted(refresh)
 
 async function retry(payment: Payment) {
   try {
     await apiRetryInvoice(payment._id)
+    play('success')
     toast.success('Reintento de factura enviado')
     await refresh()
   } catch (err) {
+    play('error')
     toast.error(apiErrorMessage(err))
   }
 }
@@ -59,16 +100,20 @@ function collectorName(payment: Payment): string {
 
     <div class="filters">
       <div class="field">
-        <label for="f-from">Desde</label>
-        <input id="f-from" v-model="from" type="date" @change="refresh" />
+        <label id="f-from-label">Desde</label>
+        <BaseDatePicker v-model="from" clearable aria-labelledby="f-from-label" @update:model-value="refresh" />
       </div>
       <div class="field">
-        <label for="f-to">Hasta</label>
-        <input id="f-to" v-model="to" type="date" @change="refresh" />
+        <label id="f-to-label">Hasta</label>
+        <BaseDatePicker v-model="to" clearable aria-labelledby="f-to-label" @update:model-value="refresh" />
       </div>
     </div>
 
-    <section class="card table-card">
+    <section v-if="loading" class="card table-card">
+      <SkeletonList variant="row" :rows="8" />
+    </section>
+
+    <section v-else class="card table-card">
       <table class="table">
         <thead>
           <tr>
@@ -108,6 +153,9 @@ function collectorName(payment: Payment): string {
           </tr>
         </tbody>
       </table>
+      <div v-if="hasMore" ref="sentinel" class="sentinel">
+        <BaseSpinner v-if="loadingMore" label="Cargando más cobros…" />
+      </div>
     </section>
   </div>
 </template>
@@ -194,5 +242,9 @@ function collectorName(payment: Payment): string {
   color: var(--ink-400);
   text-align: center;
   padding: 1rem;
+}
+
+.sentinel {
+  min-height: 12px;
 }
 </style>
