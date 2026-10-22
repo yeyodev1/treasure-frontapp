@@ -143,8 +143,7 @@ async function onCollected() {
   }
 
   @include desktop {
-    grid-template-columns: repeat(3, 1fr);
-    max-width: 900px;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   }
 }
 
