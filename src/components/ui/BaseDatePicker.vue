@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, shallowRef, useTemplateRef } from 'vue'
+import { useAnchoredPanel } from '@/composables/useAnchoredPanel'
 
 /** Calendario propio (modelo 'YYYY-MM-DD'), sin input nativo. */
-const props = defineProps<{
+defineProps<{
   placeholder?: string
   clearable?: boolean
 }>()
@@ -10,7 +11,10 @@ const props = defineProps<{
 const model = defineModel<string>({ default: '' })
 
 const open = shallowRef(false)
-const root = useTemplateRef<HTMLElement>('root')
+const trigger = useTemplateRef<HTMLElement>('trigger')
+const panel = useTemplateRef<HTMLElement>('panel')
+
+const { style: panelStyle, openUp, bind, unbind } = useAnchoredPanel(trigger, { minWidth: 276 })
 
 const today = new Date()
 const viewYear = shallowRef(today.getFullYear())
@@ -59,14 +63,24 @@ const cells = computed<Array<DayCell | null>>(() => {
 })
 
 function toggle() {
-  open.value = !open.value
-  if (open.value && model.value) {
+  if (open.value) {
+    close()
+    return
+  }
+  open.value = true
+  bind()
+  if (model.value) {
     const [y, m] = model.value.split('-').map(Number)
     if (y && m) {
       viewYear.value = y
       viewMonth.value = m - 1
     }
   }
+}
+
+function close() {
+  open.value = false
+  unbind()
 }
 
 function shiftMonth(delta: number) {
@@ -77,18 +91,19 @@ function shiftMonth(delta: number) {
 
 function pick(cell: DayCell) {
   model.value = cell.key
-  open.value = false
+  close()
 }
 
 function clear() {
   model.value = ''
-  open.value = false
+  close()
 }
 
 function onOutside(e: MouseEvent) {
-  if (open.value && root.value && !root.value.contains(e.target as Node)) {
-    open.value = false
-  }
+  if (!open.value) return
+  const target = e.target as Node
+  if (trigger.value?.contains(target) || panel.value?.contains(target)) return
+  close()
 }
 
 onMounted(() => document.addEventListener('pointerdown', onOutside))
@@ -96,13 +111,14 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 </script>
 
 <template>
-  <div ref="root" class="picker">
+  <div class="picker">
     <button
+      ref="trigger"
       type="button"
       class="picker-trigger"
       :aria-expanded="open"
       @click="toggle"
-      @keydown.escape="open = false"
+      @keydown.escape="close"
     >
       <i class="fa-regular fa-calendar picker-icon" aria-hidden="true" />
       <span class="picker-value" :class="{ 'picker-value--placeholder': !model }">
@@ -116,38 +132,41 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
       />
     </button>
 
-    <Transition name="pop">
-      <div v-if="open" class="picker-panel">
-        <header class="picker-head">
-          <button type="button" class="picker-nav" aria-label="Mes anterior" @click="shiftMonth(-1)">
-            <i class="fa-solid fa-chevron-left" aria-hidden="true" />
-          </button>
-          <span class="picker-month">{{ MONTHS[viewMonth] }} {{ viewYear }}</span>
-          <button type="button" class="picker-nav" aria-label="Mes siguiente" @click="shiftMonth(1)">
-            <i class="fa-solid fa-chevron-right" aria-hidden="true" />
-          </button>
-        </header>
-
-        <div class="picker-grid picker-grid--labels">
-          <span v-for="(w, i) in WEEKDAYS" :key="i" class="picker-weekday">{{ w }}</span>
-        </div>
-
-        <div class="picker-grid">
-          <template v-for="(cell, i) in cells" :key="i">
-            <span v-if="!cell" class="picker-empty" />
-            <button
-              v-else
-              type="button"
-              class="picker-day"
-              :class="{ 'picker-day--today': cell.isToday, 'picker-day--selected': cell.isSelected }"
-              @click="pick(cell)"
-            >
-              {{ cell.day }}
+    <!-- El calendario va al body con position:fixed: ningún modal lo recorta. -->
+    <Teleport to="body">
+      <Transition :name="openUp ? 'pop-up' : 'pop'">
+        <div v-if="open" ref="panel" class="picker-panel" :style="panelStyle">
+          <header class="picker-head">
+            <button type="button" class="picker-nav" aria-label="Mes anterior" @click="shiftMonth(-1)">
+              <i class="fa-solid fa-chevron-left" aria-hidden="true" />
             </button>
-          </template>
+            <span class="picker-month">{{ MONTHS[viewMonth] }} {{ viewYear }}</span>
+            <button type="button" class="picker-nav" aria-label="Mes siguiente" @click="shiftMonth(1)">
+              <i class="fa-solid fa-chevron-right" aria-hidden="true" />
+            </button>
+          </header>
+
+          <div class="picker-grid picker-grid--labels">
+            <span v-for="(w, i) in WEEKDAYS" :key="i" class="picker-weekday">{{ w }}</span>
+          </div>
+
+          <div class="picker-grid">
+            <template v-for="(cell, i) in cells" :key="i">
+              <span v-if="!cell" class="picker-empty" />
+              <button
+                v-else
+                type="button"
+                class="picker-day"
+                :class="{ 'picker-day--today': cell.isToday, 'picker-day--selected': cell.isSelected }"
+                @click="pick(cell)"
+              >
+                {{ cell.day }}
+              </button>
+            </template>
+          </div>
         </div>
-      </div>
-    </Transition>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -171,6 +190,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
   background: #fff;
   text-align: left;
   font-size: 0.95rem;
+  user-select: none;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 
   &:focus-visible {
@@ -191,10 +211,10 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
 
-  &--placeholder {
-    color: var(--ink-400);
-  }
+.picker-value--placeholder {
+  color: var(--ink-400);
 }
 
 .picker-clear {
@@ -205,18 +225,20 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
     color: var(--danger);
   }
 }
+</style>
 
+<style lang="scss">
+// Sin scoped: el panel vive teleportado en el body.
 .picker-panel {
-  position: absolute;
-  z-index: 40;
-  top: calc(100% + 6px);
-  left: 0;
-  min-width: 272px;
+  z-index: 90;
   background: var(--surface);
   border: 1px solid var(--cream-200);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-lg);
   padding: 0.75rem;
+  overflow-y: auto;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .picker-head {
@@ -232,7 +254,6 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 }
 
 .picker-nav {
-  @include touch-target;
   min-width: 36px;
   min-height: 36px;
   display: grid;
@@ -285,16 +306,5 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
     background: var(--navy-800);
     color: var(--cream-100);
   }
-}
-
-.pop-enter-active,
-.pop-leave-active {
-  transition: opacity 0.16s ease, transform 0.16s ease;
-}
-
-.pop-enter-from,
-.pop-leave-to {
-  opacity: 0;
-  transform: translateY(-5px) scale(0.98);
 }
 </style>
