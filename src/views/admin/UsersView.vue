@@ -4,14 +4,21 @@ import { useToastStore } from '@/stores/toast'
 import { apiCreateUser, apiUpdateUser, apiUsers } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import BaseModal from '@/components/ui/BaseModal.vue'
+import BaseSelect from '@/components/ui/BaseSelect.vue'
+import SkeletonList from '@/components/ui/SkeletonList.vue'
+import { useConfirmStore } from '@/stores/confirm'
+import { useSound } from '@/composables/useSound'
 import type { TeamUser, UserRole } from '@/types'
 
 const toast = useToastStore()
+const confirmStore = useConfirmStore()
+const { play } = useSound()
 
 const users = ref<TeamUser[]>([])
 const showForm = shallowRef(false)
 const editing = shallowRef<TeamUser | null>(null)
 const saving = shallowRef(false)
+const loading = shallowRef(true)
 
 const ROLE_LABELS: Record<UserRole, string> = {
   admin: 'Administración',
@@ -20,13 +27,22 @@ const ROLE_LABELS: Record<UserRole, string> = {
   bodega: 'Bodega',
 }
 
-const form = ref({ name: '', email: '', password: '', role: 'bartender' as UserRole })
+const roleOptions = Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label }))
+
+const form = ref<{ name: string; email: string; password: string; role: string }>({
+  name: '',
+  email: '',
+  password: '',
+  role: 'bartender',
+})
 
 async function refresh() {
   try {
     users.value = await apiUsers()
   } catch (err) {
     toast.error(apiErrorMessage(err))
+  } finally {
+    loading.value = false
   }
 }
 
@@ -55,12 +71,14 @@ async function save() {
       })
       toast.success('Persona actualizada')
     } else {
-      await apiCreateUser(form.value)
+      await apiCreateUser(form.value as { name: string; email: string; password: string; role: UserRole })
       toast.success('Acceso creado')
     }
+    play('success')
     showForm.value = false
     await refresh()
   } catch (err) {
+    play('error')
     toast.error(apiErrorMessage(err))
   } finally {
     saving.value = false
@@ -68,11 +86,25 @@ async function save() {
 }
 
 async function toggleActive(user: TeamUser) {
+  const deactivating = user.active
+  const ok = await confirmStore.ask({
+    title: deactivating ? '¿Desactivar acceso?' : '¿Activar acceso?',
+    message: deactivating
+      ? `${user.name} ya no podrá iniciar sesión en el sistema.`
+      : `${user.name} podrá volver a iniciar sesión en el sistema.`,
+    confirmLabel: deactivating ? 'Desactivar' : 'Activar',
+    icon: deactivating ? 'fa-user-slash' : 'fa-user-check',
+    danger: deactivating,
+  })
+  if (!ok) return
+
   try {
     await apiUpdateUser(user._id, { active: !user.active })
-    toast.success(user.active ? 'Acceso desactivado' : 'Acceso activado')
+    play('success')
+    toast.success(deactivating ? 'Acceso desactivado' : 'Acceso activado')
     await refresh()
   } catch (err) {
+    play('error')
     toast.error(apiErrorMessage(err))
   }
 }
@@ -82,14 +114,17 @@ async function toggleActive(user: TeamUser) {
   <div class="page">
     <header class="head">
       <h1 class="page-title">Equipo</h1>
-      <button type="button" class="btn btn-gold" @click="openNew">＋ Nuevo acceso</button>
+      <button type="button" class="btn btn-gold" @click="openNew">
+        <i class="fa-solid fa-user-plus" aria-hidden="true" /> Nuevo acceso
+      </button>
     </header>
 
     <p class="note">
       Cada persona tiene su propio acceso: así se sabe quién registró cada pedido, merma o cobro.
     </p>
 
-    <div class="users">
+    <SkeletonList v-if="loading" variant="card" :rows="4" />
+    <div v-else class="users">
       <article v-for="user in users" :key="user._id" class="card user" :class="{ off: !user.active }">
         <div class="user-info">
           <strong>{{ user.name }}</strong>
@@ -120,10 +155,8 @@ async function toggleActive(user: TeamUser) {
           <input id="u-pass" v-model="form.password" type="password" autocomplete="new-password" />
         </div>
         <div class="field">
-          <label for="u-role">Rol</label>
-          <select id="u-role" v-model="form.role">
-            <option v-for="(label, key) in ROLE_LABELS" :key="key" :value="key">{{ label }}</option>
-          </select>
+          <label id="u-role-label">Rol</label>
+          <BaseSelect v-model="form.role" :options="roleOptions" aria-labelledby="u-role-label" />
         </div>
         <button type="button" class="btn btn-gold" :disabled="saving" @click="save">
           {{ saving ? 'Guardando…' : 'Guardar' }}
