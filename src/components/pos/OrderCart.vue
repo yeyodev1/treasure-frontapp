@@ -38,9 +38,23 @@ const emit = defineEmits<{
           <span class="line-price">{{ formatMoney(line.courtesy ? 0 : line.qty * line.product.price) }}</span>
         </div>
         <div class="line-actions">
-          <button type="button" class="qty-btn" @click="emit('setQty', index, line.qty - 1)">−</button>
+          <button
+            type="button"
+            class="qty-btn"
+            aria-label="Quitar uno"
+            @click="emit('setQty', index, line.qty - 1)"
+          >
+            <i class="fa-solid fa-minus" aria-hidden="true" />
+          </button>
           <span class="line-qty">{{ line.qty }}</span>
-          <button type="button" class="qty-btn" @click="emit('setQty', index, line.qty + 1)">＋</button>
+          <button
+            type="button"
+            class="qty-btn"
+            aria-label="Agregar uno"
+            @click="emit('setQty', index, line.qty + 1)"
+          >
+            <i class="fa-solid fa-plus" aria-hidden="true" />
+          </button>
           <button
             v-if="canCourtesy"
             type="button"
@@ -49,7 +63,7 @@ const emit = defineEmits<{
             :title="line.courtesy ? 'Quitar cortesía' : 'Marcar cortesía'"
             @click="emit('toggleCourtesy', index)"
           >
-            🎁
+            <i class="fa-solid fa-gift" aria-hidden="true" />
           </button>
         </div>
       </li>
@@ -175,8 +189,13 @@ const emit = defineEmits<{
   place-items: center;
   border-radius: var(--radius-sm);
   background: var(--cream-200);
-  font-size: 1.1rem;
-  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--ink-600);
+  transition: background 0.14s ease, transform 0.14s ease;
+
+  &:active {
+    transform: scale(0.92);
+  }
 }
 
 .line-qty {
@@ -193,14 +212,15 @@ const emit = defineEmits<{
   place-items: center;
   border-radius: var(--radius-sm);
   border: 1.5px solid var(--cream-200);
-  filter: grayscale(1);
-  opacity: 0.6;
+  color: var(--ink-400);
+  font-size: 0.9rem;
+  transition: all 0.16s ease;
 
   &--on {
-    filter: none;
-    opacity: 1;
+    color: var(--success);
     border-color: var(--success);
-    background: rgba(63, 174, 106, 0.12);
+    background: rgba(79, 125, 94, 0.12);
+    transform: scale(1.04);
   }
 }
 
