@@ -70,7 +70,12 @@ async function collect() {
     <div class="collect">
       <section class="summary">
         <article v-for="order in account.orders" :key="order.id" class="order">
-          <p class="order-date">{{ formatDateTime(order.createdAt) }}</p>
+          <p class="order-date">
+            {{ formatDateTime(order.createdAt) }}
+            <span v-if="order.by" class="order-by">
+              <i class="fa-regular fa-user" aria-hidden="true" /> {{ order.by }}
+            </span>
+          </p>
           <ul class="order-items">
             <li v-for="(item, i) in order.items" :key="i">
               <span>
@@ -161,6 +166,20 @@ async function collect() {
   font-weight: 700;
   color: var(--ink-400);
   text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.order-by {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--navy-600);
+
+  i {
+    margin-right: 0.2rem;
+  }
 }
 
 .order-items {
