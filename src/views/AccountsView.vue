@@ -7,14 +7,18 @@ import { apiCabinAccount, apiOrders } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatMoney } from '@/utils/format'
 import CollectModal from '@/components/accounts/CollectModal.vue'
+import SkeletonList from '@/components/ui/SkeletonList.vue'
+import { useSound } from '@/composables/useSound'
 import type { AccountSummary, Cabin, Order } from '@/types'
 
 const cruiseStore = useCruiseStore()
 const toast = useToastStore()
 const { active: cruise, cabins } = storeToRefs(cruiseStore)
 
+const { play } = useSound()
+
 const openOrders = ref<Order[]>([])
-const loading = shallowRef(false)
+const loading = shallowRef(true)
 
 const collectTarget = shallowRef<{ cabin: Cabin; account: AccountSummary } | null>(null)
 
@@ -31,10 +35,13 @@ const totalsByCabin = computed(() => {
 })
 
 async function refresh() {
-  if (!cruise.value) return
-  loading.value = true
+  if (!cruise.value) {
+    loading.value = false
+    return
+  }
   try {
-    openOrders.value = await apiOrders({ cruiseId: cruise.value._id, status: 'abierta' })
+    const data = await apiOrders({ cruiseId: cruise.value._id, status: 'abierta', limit: 300 })
+    openOrders.value = data.orders
   } catch (err) {
     toast.error(apiErrorMessage(err))
   } finally {
@@ -64,6 +71,7 @@ async function openCollect(cabin: Cabin) {
 async function onCollected() {
   const cabinNumber = collectTarget.value?.cabin.number
   collectTarget.value = null
+  play('cash')
   toast.success(`Cuenta de cabina ${cabinNumber} cobrada`)
   await refresh()
 }
@@ -74,7 +82,8 @@ async function onCollected() {
     <h1 class="page-title">Cuentas por cabina</h1>
     <p v-if="cruise" class="subtitle">{{ cruise.name }}</p>
 
-    <div class="accounts">
+    <SkeletonList v-if="loading" variant="card" :rows="9" />
+    <div v-else class="accounts">
       <article
         v-for="cabin in cabins"
         :key="cabin.number"
