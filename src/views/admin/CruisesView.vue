@@ -271,10 +271,13 @@ async function saveCabin() {
 }
 
 .cruises {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 1rem;
-  max-width: 820px;
+
+  @include desktop {
+    grid-template-columns: repeat(auto-fill, minmax(520px, 1fr));
+  }
 }
 
 .cruise-head {
