@@ -2,6 +2,7 @@
 import { computed, reactive, shallowRef } from 'vue'
 import type { AccountSummary, Cabin, PaymentMethod } from '@/types'
 import BaseModal from '@/components/ui/BaseModal.vue'
+import BaseSelect from '@/components/ui/BaseSelect.vue'
 import QrCanvas from '@/components/ui/QrCanvas.vue'
 import { apiCollectCabin } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
@@ -15,14 +16,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: []; collected: [] }>()
 
-const METHOD_LABELS: Record<PaymentMethod, string> = {
-  efectivo: 'Efectivo',
-  tarjeta: 'Tarjeta (datafast físico)',
-  transferencia: 'Transferencia',
-  online: 'Pago en línea',
-}
+const METHOD_OPTIONS: Array<{ value: PaymentMethod; label: string }> = [
+  { value: 'efectivo', label: 'Efectivo' },
+  { value: 'tarjeta', label: 'Tarjeta (datafast físico)' },
+  { value: 'transferencia', label: 'Transferencia' },
+  { value: 'online', label: 'Pago en línea' },
+]
 
-const method = shallowRef<PaymentMethod>('efectivo')
+const method = shallowRef<string>('efectivo')
 const cashConfirmed = shallowRef(false)
 const saving = shallowRef(false)
 const error = shallowRef('')
@@ -51,7 +52,7 @@ async function collect() {
     await apiCollectCabin({
       cruiseId: props.cruiseId,
       cabinNumber: props.cabin.number,
-      method: method.value,
+      method: method.value as PaymentMethod,
       cashConfirmed: cashConfirmed.value,
       billing,
     })
@@ -122,12 +123,8 @@ async function collect() {
         </div>
 
         <div class="field">
-          <label for="method">Método de pago</label>
-          <select id="method" v-model="method">
-            <option v-for="(label, key) in METHOD_LABELS" :key="key" :value="key">
-              {{ label }}
-            </option>
-          </select>
+          <label id="method-label">Método de pago</label>
+          <BaseSelect v-model="method" :options="METHOD_OPTIONS" aria-labelledby="method-label" />
         </div>
 
         <label v-if="method === 'efectivo'" class="cash-check">
