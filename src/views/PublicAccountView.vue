@@ -48,7 +48,10 @@ onMounted(async () => {
           </article>
         </section>
 
-        <p v-else class="public-empty">Aún no tienes consumos registrados. ¡Salud! 🥂</p>
+        <p v-else class="public-empty">
+          <i class="fa-solid fa-champagne-glasses" aria-hidden="true" />
+          Aún no tienes consumos registrados. ¡Salud!
+        </p>
 
         <footer class="public-total">
           <span>Total de tu cuenta</span>
@@ -174,6 +177,11 @@ onMounted(async () => {
   text-align: center;
   color: var(--ink-600);
   font-weight: 600;
+}
+
+.public-empty i {
+  color: var(--gold-500);
+  margin-right: 0.35rem;
 }
 
 .public-error {
