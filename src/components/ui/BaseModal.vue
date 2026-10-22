@@ -5,12 +5,13 @@ const emit = defineEmits<{ close: [] }>()
 
 <template>
   <Teleport to="body">
+    <Transition name="modal" appear>
     <div class="overlay" @click.self="emit('close')">
       <section class="modal" role="dialog" :aria-label="title">
         <header class="modal-head">
           <h3>{{ title }}</h3>
           <button class="modal-close" type="button" aria-label="Cerrar" @click="emit('close')">
-            ✕
+            <i class="fa-solid fa-xmark" aria-hidden="true" />
           </button>
         </header>
         <div class="modal-body">
@@ -18,6 +19,7 @@ const emit = defineEmits<{ close: [] }>()
         </div>
       </section>
     </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -77,5 +79,30 @@ const emit = defineEmits<{ close: [] }>()
 .modal-body {
   padding: 1rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom));
   overflow-y: auto;
+}
+
+.modal-enter-active {
+  transition: opacity 0.2s ease;
+
+  .modal {
+    transition: transform 0.24s cubic-bezier(0.32, 0.72, 0.25, 1);
+  }
+}
+
+.modal-leave-active {
+  transition: opacity 0.16s ease;
+
+  .modal {
+    transition: transform 0.16s ease;
+  }
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+
+  .modal {
+    transform: translateY(26px);
+  }
 }
 </style>
