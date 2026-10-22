@@ -1,0 +1,31 @@
+// Paleta tomada del menú impreso "Treasure of Galápagos" (Taller de Tinta):
+// verde pino profundo, latón/caramelo, azul empolvado y crema.
+// Las variables conservan sus nombres originales para no tocar los componentes.
+:root {
+  --navy-900: #0f1d16;
+  --navy-800: #182b20;
+  --navy-700: #22392c;
+  --navy-600: #2e4c3a;
+  --gold-500: #c3a169;
+  --gold-400: #d4b685;
+  --teal-400: #b9cce0;
+  --caramel-500: #a9713e;
+  --cream-100: #f7f3e9;
+  --cream-200: #eae3d1;
+  --ink-900: #1a241e;
+  --ink-600: #4b5a50;
+  --ink-400: #7f8d83;
+  --danger: #c05b4d;
+  --success: #4f7d5e;
+  --warning: #c08a3e;
+
+  --bg: var(--cream-100);
+  --surface: #fffdf8;
+  --radius: 14px;
+  --radius-sm: 9px;
+  --shadow: 0 2px 12px rgba(15, 29, 22, 0.08);
+  --shadow-lg: 0 8px 32px rgba(15, 29, 22, 0.18);
+
+  --font-serif: 'Cardo', 'Times New Roman', serif;
+  --font-sans: 'Geist', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
