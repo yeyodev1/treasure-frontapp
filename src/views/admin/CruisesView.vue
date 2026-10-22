@@ -11,12 +11,19 @@ import {
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatDate } from '@/utils/format'
 import BaseModal from '@/components/ui/BaseModal.vue'
+import BaseDatePicker from '@/components/ui/BaseDatePicker.vue'
+import SkeletonList from '@/components/ui/SkeletonList.vue'
+import { useConfirmStore } from '@/stores/confirm'
+import { useSound } from '@/composables/useSound'
 import type { Cabin, Cruise, CruiseStatus } from '@/types'
 
 const toast = useToastStore()
 const cruiseStore = useCruiseStore()
+const confirmStore = useConfirmStore()
+const { play } = useSound()
 
 const cruises = ref<Cruise[]>([])
+const loading = shallowRef(true)
 const showCreate = shallowRef(false)
 const createForm = ref({ name: '', startDate: new Date().toISOString().slice(0, 10), cabinCount: 9 })
 const saving = shallowRef(false)
@@ -35,6 +42,8 @@ async function refresh() {
     cruises.value = await apiCruises()
   } catch (err) {
     toast.error(apiErrorMessage(err))
+  } finally {
+    loading.value = false
   }
 }
 
@@ -56,12 +65,42 @@ async function createCruise() {
 }
 
 async function setStatus(cruise: Cruise, status: CruiseStatus) {
+  const prompts: Partial<Record<CruiseStatus, { title: string; message: string; label: string; icon: string; danger?: boolean }>> = {
+    abordo: {
+      title: '¿Iniciar el crucero?',
+      message: `"${cruise.name}" pasará a estado a bordo y el bar empezará a registrar pedidos sobre su inventario.`,
+      label: 'Iniciar crucero',
+      icon: 'fa-ship',
+    },
+    cerrado: {
+      title: '¿Cerrar el crucero?',
+      message: `"${cruise.name}" quedará cerrado: no se podrán registrar más pedidos ni cargas de inventario en este viaje.`,
+      label: 'Cerrar crucero',
+      icon: 'fa-anchor',
+      danger: true,
+    },
+  }
+
+  const prompt = prompts[status]
+  if (prompt) {
+    const ok = await confirmStore.ask({
+      title: prompt.title,
+      message: prompt.message,
+      confirmLabel: prompt.label,
+      icon: prompt.icon,
+      danger: prompt.danger,
+    })
+    if (!ok) return
+  }
+
   try {
     await apiUpdateCruise(cruise._id, { status })
+    play('success')
     toast.success(`Crucero ${STATUS_LABELS[status].toLowerCase()}`)
     await refresh()
     await cruiseStore.loadActive(true)
   } catch (err) {
+    play('error')
     toast.error(apiErrorMessage(err))
   }
 }
@@ -102,10 +141,13 @@ async function saveCabin() {
   <div class="page">
     <header class="head">
       <h1 class="page-title">Cruceros</h1>
-      <button type="button" class="btn btn-gold" @click="showCreate = true">＋ Nuevo crucero</button>
+      <button type="button" class="btn btn-gold" @click="showCreate = true">
+        <i class="fa-solid fa-plus" aria-hidden="true" /> Nuevo crucero
+      </button>
     </header>
 
-    <div class="cruises">
+    <SkeletonList v-if="loading" variant="card" :rows="2" />
+    <div v-else class="cruises">
       <article v-for="cruise in cruises" :key="cruise._id" class="card cruise">
         <header class="cruise-head">
           <div>
@@ -141,7 +183,7 @@ async function saveCabin() {
             class="btn btn-primary"
             @click="setStatus(cruise, 'abordo')"
           >
-            Iniciar crucero
+            <i class="fa-solid fa-ship" aria-hidden="true" /> Iniciar crucero
           </button>
           <button
             v-if="cruise.status === 'abordo'"
@@ -149,7 +191,7 @@ async function saveCabin() {
             class="btn btn-ghost"
             @click="setStatus(cruise, 'cerrado')"
           >
-            Cerrar crucero
+            <i class="fa-solid fa-anchor" aria-hidden="true" /> Cerrar crucero
           </button>
         </footer>
       </article>
@@ -164,8 +206,8 @@ async function saveCabin() {
           <input id="cr-name" v-model="createForm.name" type="text" placeholder="Ej. Galápagos 25-oct" />
         </div>
         <div class="field">
-          <label for="cr-date">Fecha de inicio</label>
-          <input id="cr-date" v-model="createForm.startDate" type="date" />
+          <label id="cr-date-label">Fecha de inicio</label>
+          <BaseDatePicker v-model="createForm.startDate" aria-labelledby="cr-date-label" />
         </div>
         <div class="field">
           <label for="cr-cabins">Número de cabinas</label>
