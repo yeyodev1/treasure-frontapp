@@ -6,6 +6,8 @@ import { useToastStore } from '@/stores/toast'
 import { formatMoney, formatDate } from '@/utils/format'
 import StatCard from '@/components/ui/StatCard.vue'
 import BarList from '@/components/ui/BarList.vue'
+import SkeletonList from '@/components/ui/SkeletonList.vue'
+import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import type { CruiseSales, SalesSummary } from '@/types'
 
 type RangeKey = 'semana' | 'mes' | 'todo'
@@ -14,6 +16,7 @@ const toast = useToastStore()
 const summary = shallowRef<SalesSummary | null>(null)
 const byCruise = shallowRef<CruiseSales[]>([])
 const range = shallowRef<RangeKey>('semana')
+const loading = shallowRef(true)
 
 function rangeFrom(key: RangeKey): string | undefined {
   if (key === 'todo') return undefined
@@ -24,6 +27,7 @@ function rangeFrom(key: RangeKey): string | undefined {
 }
 
 async function load() {
+  loading.value = true
   try {
     const [sales, cruises] = await Promise.all([
       apiSalesSummary({ from: rangeFrom(range.value) }),
@@ -33,6 +37,8 @@ async function load() {
     byCruise.value = cruises
   } catch (err) {
     toast.error(apiErrorMessage(err))
+  } finally {
+    loading.value = false
   }
 }
 
@@ -97,36 +103,50 @@ const cruiseRows = computed(() =>
       </div>
     </header>
 
-    <div class="stats">
-      <StatCard
-        label="Ventas"
-        :value="formatMoney(summary?.totals.total ?? 0)"
-        :hint="`${summary?.totals.orders ?? 0} pedidos`"
-      />
-      <StatCard label="Pedidos" :value="String(summary?.totals.orders ?? 0)" />
-    </div>
+    <template v-if="loading">
+      <div class="stats">
+        <SkeletonBlock height="86px" />
+        <SkeletonBlock height="86px" />
+      </div>
+      <div class="panels">
+        <section v-for="i in 4" :key="i" class="card">
+          <SkeletonList variant="row" :rows="4" />
+        </section>
+      </div>
+    </template>
 
-    <div class="panels">
-      <section class="card">
-        <h3 class="panel-title">Ventas por día</h3>
-        <BarList :rows="dayRows" :format="formatMoney" />
-      </section>
+    <template v-else>
+      <div class="stats">
+        <StatCard
+          label="Ventas"
+          :value="formatMoney(summary?.totals.total ?? 0)"
+          :hint="`${summary?.totals.orders ?? 0} pedidos`"
+        />
+        <StatCard label="Pedidos" :value="String(summary?.totals.orders ?? 0)" />
+      </div>
 
-      <section class="card">
-        <h3 class="panel-title">Ventas por persona</h3>
-        <BarList :rows="userRows" :format="formatMoney" />
-      </section>
+      <div class="panels">
+        <section class="card">
+          <h3 class="panel-title"><i class="fa-regular fa-calendar-days" aria-hidden="true" /> Ventas por día</h3>
+          <BarList :rows="dayRows" :format="formatMoney" />
+        </section>
 
-      <section class="card">
-        <h3 class="panel-title">Productos más vendidos</h3>
-        <BarList :rows="productRows" />
-      </section>
+        <section class="card">
+          <h3 class="panel-title"><i class="fa-solid fa-user-group" aria-hidden="true" /> Ventas por persona</h3>
+          <BarList :rows="userRows" :format="formatMoney" />
+        </section>
 
-      <section class="card">
-        <h3 class="panel-title">Recaudado por crucero</h3>
-        <BarList :rows="cruiseRows" :format="formatMoney" />
-      </section>
-    </div>
+        <section class="card">
+          <h3 class="panel-title"><i class="fa-solid fa-champagne-glasses" aria-hidden="true" /> Productos más vendidos</h3>
+          <BarList :rows="productRows" />
+        </section>
+
+        <section class="card">
+          <h3 class="panel-title"><i class="fa-solid fa-ship" aria-hidden="true" /> Recaudado por crucero</h3>
+          <BarList :rows="cruiseRows" :format="formatMoney" />
+        </section>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -192,5 +212,12 @@ const cruiseRows = computed(() =>
   font-size: 0.9rem;
   margin-bottom: 0.75rem;
   color: var(--ink-600);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  i {
+    color: var(--gold-500);
+  }
 }
 </style>
