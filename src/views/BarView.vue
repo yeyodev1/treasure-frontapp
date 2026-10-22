@@ -12,6 +12,8 @@ import CabinPicker from '@/components/pos/CabinPicker.vue'
 import ProductCatalog from '@/components/pos/ProductCatalog.vue'
 import OrderCart from '@/components/pos/OrderCart.vue'
 import CocktailBuilder from '@/components/pos/CocktailBuilder.vue'
+import SkeletonList from '@/components/ui/SkeletonList.vue'
+import { useSound } from '@/composables/useSound'
 import type { Product } from '@/types'
 
 const catalogStore = useCatalogStore()
@@ -22,23 +24,34 @@ const userStore = useUserStore()
 const { products } = storeToRefs(catalogStore)
 const { active: cruise, cabins } = storeToRefs(cruiseStore)
 
+const { play } = useSound()
+
 const cart = usePosCart()
 const selectedCabin = shallowRef<number | null>(null)
 const showBuilder = shallowRef(false)
 const sending = shallowRef(false)
+const loading = shallowRef(true)
 
 onMounted(async () => {
   try {
     await Promise.all([catalogStore.load(), cruiseStore.loadActive()])
   } catch (err) {
     toast.error(apiErrorMessage(err))
+  } finally {
+    loading.value = false
   }
 })
+
+function addToCart(product: Product) {
+  cart.add(product)
+  play('tap')
+}
 
 function onCocktailCreated(product: Product) {
   catalogStore.upsert(product)
   cart.add(product)
   showBuilder.value = false
+  play('success')
   toast.success(`Cóctel "${product.name}" creado`)
 }
 
@@ -55,9 +68,11 @@ async function submitOrder() {
         courtesy: l.courtesy,
       })),
     })
+    play('success')
     toast.success(`Pedido enviado a cabina ${selectedCabin.value}`)
     cart.clear()
   } catch (err) {
+    play('error')
     toast.error(apiErrorMessage(err))
   } finally {
     sending.value = false
@@ -80,7 +95,9 @@ async function submitOrder() {
 
     <section class="bar-cabins">
       <h2 class="section-title">Cabina</h2>
+      <SkeletonList v-if="loading" variant="tile" :rows="9" />
       <CabinPicker
+        v-else
         :cabins="cabins"
         :selected="selectedCabin"
         @select="selectedCabin = $event"
@@ -90,9 +107,11 @@ async function submitOrder() {
     <div class="bar-grid">
       <section>
         <h2 class="section-title">Catálogo</h2>
+        <SkeletonList v-if="loading" variant="tile" :rows="12" />
         <ProductCatalog
+          v-else
           :products="products"
-          @add="cart.add"
+          @add="addToCart"
           @create-cocktail="showBuilder = true"
         />
       </section>
