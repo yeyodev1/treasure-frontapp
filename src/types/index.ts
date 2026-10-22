@@ -155,6 +155,24 @@ export interface CruiseSales {
   payments: number
 }
 
+export interface LiveFeedEvent {
+  id: string
+  kind: 'pedido' | 'cobro' | 'inventario'
+  at: string
+  title: string
+  detail: string
+  amount: number | null
+  by: string
+}
+
+export interface LivePulse {
+  now: string
+  cruise: { id: string; name: string; status: CruiseStatus } | null
+  today: { total: number; orders: number }
+  openAccounts: Array<{ cabinNumber: number; total: number; orders: number }>
+  feed: LiveFeedEvent[]
+}
+
 export interface PublicAccount {
   cruiseName: string
   cabinNumber: number
