@@ -1,0 +1,14 @@
+{
+  "name": "Treasure of Galápagos",
+  "short_name": "Treasure",
+  "description": "Sistema del bar a bordo del Treasure of Galápagos",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#182b20",
+  "theme_color": "#182b20",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
