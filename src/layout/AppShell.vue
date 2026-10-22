@@ -116,9 +116,9 @@ async function logout() {
           <i class="fa-solid" :class="drawerOpen ? 'fa-xmark' : 'fa-bars'" aria-hidden="true" />
         </button>
         <div class="brand">
-          <BrandSeal :size="32" class="brand-seal" />
+          <BrandSeal :size="34" class="brand-seal" />
           <span class="brand-text">
-            <span class="brand-name">Treasure of Galápagos</span>
+            <span class="brand-eyebrow">Treasure of Galápagos</span>
             <span class="brand-page">{{ pageTitle }}</span>
           </span>
         </div>
@@ -248,23 +248,35 @@ async function logout() {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  line-height: 1.25;
+  line-height: 1.2;
 }
 
-.brand-name {
-  font-family: var(--font-serif);
-  font-size: 1rem;
-  letter-spacing: 0.03em;
+// La marca completa en pequeño arriba (nunca truncada) y la vista
+// actual como título principal: se lee de un vistazo en cualquier pantalla.
+.brand-eyebrow {
+  font-size: 0.56rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gold-400);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+
+  @include tablet {
+    font-size: 0.62rem;
+  }
 }
 
 .brand-page {
-  font-size: 0.68rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--gold-400);
+  font-family: var(--font-serif);
+  font-size: 1.12rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  @include tablet {
+    font-size: 1.2rem;
+  }
 }
 
 .session {
@@ -296,10 +308,13 @@ async function logout() {
 .session-out {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.45rem;
+  min-width: 40px;
+  min-height: 40px;
   border: 1px solid rgba(247, 243, 233, 0.3);
   border-radius: var(--radius-sm);
-  padding: 0.38rem 0.75rem;
+  padding: 0.38rem 0.6rem;
   color: var(--cream-100);
   font-weight: 600;
   font-size: 0.85rem;
@@ -308,6 +323,10 @@ async function logout() {
   &:hover {
     background: rgba(247, 243, 233, 0.08);
     border-color: var(--gold-500);
+  }
+
+  @include tablet {
+    padding: 0.38rem 0.8rem;
   }
 }
 
