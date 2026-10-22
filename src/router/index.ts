@@ -29,6 +29,12 @@ const routes: Array<RouteRecordRaw> = [
     meta: { title: 'Cuentas', roles: ['admin', 'direccion'] },
   },
   {
+    path: '/admin/en-vivo',
+    name: 'Live',
+    component: () => import('@/views/admin/LiveView.vue'),
+    meta: { title: 'En vivo', roles: ['admin', 'direccion'] },
+  },
+  {
     path: '/admin',
     name: 'Dashboard',
     component: () => import('@/views/admin/DashboardView.vue'),
