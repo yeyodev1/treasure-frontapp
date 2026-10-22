@@ -149,10 +149,11 @@ a {
   }
 }
 
+// Contenido alineado a la izquierda, aprovechando el ancho disponible.
 .page {
   width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
+  max-width: 1500px;
+  margin: 0;
   padding: 1rem;
 
   @include tablet {
@@ -160,7 +161,7 @@ a {
   }
 
   @include desktop {
-    padding: 2rem;
+    padding: 1.75rem 2rem;
   }
 }
 
