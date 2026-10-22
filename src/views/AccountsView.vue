@@ -91,25 +91,29 @@ async function onCollected() {
         :class="{ 'account--empty': !totalsByCabin.get(cabin.number) }"
       >
         <header class="account-head">
-          <span class="account-number">Cabina {{ cabin.number }}</span>
+          <span class="account-chip">{{ cabin.number }}</span>
           <span class="account-guest">{{ cabin.guestName || 'Sin huésped' }}</span>
         </header>
 
-        <p class="account-total">
-          {{ formatMoney(totalsByCabin.get(cabin.number)?.total ?? 0) }}
-        </p>
-        <p class="account-orders">
-          {{ totalsByCabin.get(cabin.number)?.orders ?? 0 }} pedidos abiertos
-        </p>
+        <template v-if="totalsByCabin.get(cabin.number)">
+          <p class="account-total">
+            {{ formatMoney(totalsByCabin.get(cabin.number)!.total) }}
+          </p>
+          <p class="account-orders">
+            <i class="fa-solid fa-receipt" aria-hidden="true" />
+            {{ totalsByCabin.get(cabin.number)!.orders }}
+            {{ totalsByCabin.get(cabin.number)!.orders === 1 ? 'pedido abierto' : 'pedidos abiertos' }}
+          </p>
+          <button type="button" class="btn btn-gold account-collect" @click="openCollect(cabin)">
+            <i class="fa-solid fa-file-invoice-dollar" aria-hidden="true" />
+            Ver cuenta y cobrar
+          </button>
+        </template>
 
-        <button
-          type="button"
-          class="btn btn-primary account-collect"
-          :disabled="!totalsByCabin.get(cabin.number)"
-          @click="openCollect(cabin)"
-        >
-          Ver cuenta y cobrar
-        </button>
+        <p v-else class="account-idle">
+          <i class="fa-regular fa-moon" aria-hidden="true" />
+          Sin consumos aún
+        </p>
       </article>
     </div>
 
@@ -150,46 +154,91 @@ async function onCollected() {
 .account {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.3rem;
+  transition: box-shadow 0.18s ease, transform 0.18s ease;
 
+  // Cabina sin consumo: tarjeta ligera, sin botón, para que las que sí
+  // tienen cuenta salten a la vista.
   &--empty {
-    opacity: 0.65;
+    background: transparent;
+    box-shadow: none;
+    border: 1.5px dashed var(--cream-200);
+  }
+
+  &:not(.account--empty):hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-2px);
   }
 }
 
 .account-head {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
 }
 
-.account-number {
-  font-weight: 800;
+.account-chip {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--navy-800);
+  color: var(--cream-100);
+  font-weight: 700;
+  flex-shrink: 0;
+
+  .account--empty & {
+    background: var(--cream-200);
+    color: var(--ink-400);
+  }
 }
 
 .account-guest {
-  font-size: 0.8rem;
-  color: var(--ink-400);
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--ink-600);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+
+  .account--empty & {
+    color: var(--ink-400);
+    font-weight: 500;
+  }
 }
 
 .account-total {
-  margin: 0.4rem 0 0;
-  font-size: 1.6rem;
+  margin: 0.45rem 0 0;
+  font-size: 1.65rem;
   font-weight: 800;
   color: var(--navy-800);
+  font-variant-numeric: tabular-nums;
 }
 
 .account-orders {
-  margin: 0 0 0.6rem;
+  margin: 0 0 0.65rem;
   font-size: 0.8rem;
   color: var(--ink-400);
+
+  i {
+    margin-right: 0.3rem;
+    color: var(--gold-500);
+  }
 }
 
 .account-collect {
   width: 100%;
+}
+
+.account-idle {
+  margin: 0.8rem 0 0.4rem;
+  font-size: 0.85rem;
+  color: var(--ink-400);
+
+  i {
+    margin-right: 0.35rem;
+  }
 }
 </style>
