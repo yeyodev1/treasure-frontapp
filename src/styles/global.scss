@@ -172,3 +172,46 @@ a {
     font-size: 1.6rem;
   }
 }
+
+// Transición entre vistas: suave, nunca brusca.
+.view-enter-active,
+.view-leave-active {
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.view-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.view-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+// Aparición de listas (feed en vivo, toasts, filas nuevas).
+.list-enter-active {
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
+}
+
+.list-enter-from {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+.list-move {
+  transition: transform 0.25s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
