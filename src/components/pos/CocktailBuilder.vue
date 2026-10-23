@@ -5,9 +5,10 @@ import BaseModal from '@/components/ui/BaseModal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { apiCreateCustomCocktail } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
-import { formatMoney } from '@/utils/format'
+import { formatMoney, unitShort } from '@/utils/format'
 
-const props = defineProps<{ products: Product[] }>()
+/** Insumos físicos disponibles como ingredientes (botellas, mezcladores, frutas). */
+const props = defineProps<{ physical: Product[] }>()
 const emit = defineEmits<{ close: []; created: [Product] }>()
 
 interface IngredientLine {
@@ -16,29 +17,33 @@ interface IngredientLine {
 }
 
 const name = shallowRef('')
-const ingredients = ref<IngredientLine[]>([{ productId: '', qty: 1 }])
+const ingredients = ref<IngredientLine[]>([{ productId: '', qty: 60 }])
 const saving = shallowRef(false)
 const error = shallowRef('')
 
-// Solo productos simples pueden ser ingredientes (no cócteles dentro de cócteles).
+const byId = computed(() => new Map(props.physical.map((p) => [p._id, p])))
+
 const ingredientOptions = computed(() =>
-  props.products
-    .filter((p) => !p.isCocktail)
-    .map((p) => ({ value: p._id, label: p.name, hint: `${formatMoney(p.price)}/${p.unit}` })),
+  props.physical.map((p) => ({ value: p._id, label: p.name, hint: unitShort(p.stockUnit) })),
 )
 
-const priceMap = computed(() => new Map(props.products.map((p) => [p._id, p.price])))
+/** Mismo cálculo que el servidor: medida / medida de referencia × precio de referencia. */
+const suggested = computed(() => {
+  let total = 0
+  for (const ing of ingredients.value) {
+    const p = byId.value.get(ing.productId)
+    if (p && p.servingSize > 0) total += (ing.qty / p.servingSize) * p.servingPrice
+  }
+  return Math.ceil(total * 2) / 2
+})
 
-/** Precio automático: suma de ingredientes, igual que lo calcula el backend. */
-const autoPrice = computed(() =>
-  ingredients.value.reduce(
-    (sum, ing) => sum + (priceMap.value.get(ing.productId) ?? 0) * ing.qty,
-    0,
-  ),
-)
+function unitOf(line: IngredientLine): string {
+  const p = byId.value.get(line.productId)
+  return p ? unitShort(p.stockUnit) : ''
+}
 
 function addLine() {
-  ingredients.value.push({ productId: '', qty: 1 })
+  ingredients.value.push({ productId: '', qty: 30 })
 }
 
 function removeLine(index: number) {
@@ -56,7 +61,7 @@ async function save() {
     return
   }
   if (!recipe.length) {
-    error.value = 'Agrega al menos un ingrediente'
+    error.value = 'Agrega al menos un ingrediente con su medida'
     return
   }
 
@@ -81,17 +86,19 @@ async function save() {
       </div>
 
       <div class="ingredients">
-        <p class="ingredients-title">Ingredientes</p>
+        <p class="ingredients-title">Ingredientes y medida</p>
         <TransitionGroup name="list">
           <div v-for="(line, index) in ingredients" :key="index" class="ingredient">
-            <BaseSelect v-model="line.productId" :options="ingredientOptions" placeholder="Elige…" />
-            <input
-              v-model.number="line.qty"
-              type="number"
-              min="0.25"
-              step="0.25"
-              aria-label="Cantidad"
+            <BaseSelect
+              v-model="line.productId"
+              :options="ingredientOptions"
+              placeholder="Elige insumo…"
+              searchable
             />
+            <label class="qty">
+              <input v-model.number="line.qty" type="number" min="0" step="5" aria-label="Medida" />
+              <span>{{ unitOf(line) }}</span>
+            </label>
             <button
               type="button"
               class="ingredient-remove"
@@ -108,14 +115,18 @@ async function save() {
       </div>
 
       <div class="price">
-        <span>Precio automático</span>
-        <strong>{{ formatMoney(autoPrice) }}</strong>
+        <span>
+          Precio sugerido
+          <small>según la medida de cada licor</small>
+        </span>
+        <strong>{{ formatMoney(suggested) }}</strong>
       </div>
 
       <p v-if="error" class="builder-error">{{ error }}</p>
 
       <button type="button" class="btn btn-gold" :disabled="saving" @click="save">
-        {{ saving ? 'Guardando…' : 'Crear y agregar al catálogo' }}
+        <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true" />
+        {{ saving ? 'Guardando…' : 'Crear y agregar a la comanda' }}
       </button>
     </div>
   </BaseModal>
@@ -137,25 +148,42 @@ async function save() {
 
 .ingredient {
   display: grid;
-  grid-template-columns: 1fr 76px 44px;
+  grid-template-columns: minmax(0, 1fr) 104px 44px;
   gap: 0.4rem;
   margin-bottom: 0.5rem;
   align-items: start;
+}
+
+.qty {
+  display: flex;
+  align-items: center;
+  border: 1.5px solid var(--cream-200);
+  border-radius: var(--radius-sm);
+  min-height: 48px;
+  padding-right: 0.55rem;
+  background: #fff;
 
   input {
-    padding: 0.55rem 0.6rem;
-    border: 1.5px solid var(--cream-200);
-    border-radius: var(--radius-sm);
-    min-height: 48px;
     width: 100%;
+    min-width: 0;
+    border: none;
+    outline: none;
+    padding: 0.55rem 0.5rem;
+    background: transparent;
+  }
+
+  span {
+    font-size: 0.78rem;
+    color: var(--ink-400);
   }
 }
 
 .ingredient-remove {
+  height: 48px;
   display: grid;
   place-items: center;
   border-radius: var(--radius-sm);
-  background: var(--cream-200);
+  background: var(--cream-100);
   color: var(--ink-600);
 }
 
@@ -166,13 +194,20 @@ async function save() {
 .price {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   padding: 0.75rem 1rem;
-  background: var(--cream-200);
+  background: var(--powder-100);
   border-radius: var(--radius-sm);
 
+  small {
+    display: block;
+    font-size: 0.74rem;
+    color: var(--ink-400);
+  }
+
   strong {
-    font-size: 1.25rem;
+    font-size: 1.3rem;
+    color: var(--navy-800);
   }
 }
 
