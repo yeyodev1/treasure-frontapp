@@ -6,6 +6,8 @@ import { apiErrorMessage } from '@/services/httpBase'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
+import PasswordInput from '@/components/ui/PasswordInput.vue'
+import { formatDate } from '@/utils/format'
 import { useConfirmStore } from '@/stores/confirm'
 import { useSound } from '@/composables/useSound'
 import type { TeamUser, UserRole } from '@/types'
@@ -29,11 +31,12 @@ const ROLE_LABELS: Record<UserRole, string> = {
 
 const roleOptions = Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label }))
 
-const form = ref<{ name: string; email: string; password: string; role: string }>({
+const form = ref<{ name: string; email: string; password: string; role: string; isCashier: boolean }>({
   name: '',
   email: '',
   password: '',
   role: 'bartender',
+  isCashier: false,
 })
 
 async function refresh() {
@@ -50,13 +53,13 @@ onMounted(refresh)
 
 function openNew() {
   editing.value = null
-  form.value = { name: '', email: '', password: '', role: 'bartender' }
+  form.value = { name: '', email: '', password: '', role: 'bartender', isCashier: false }
   showForm.value = true
 }
 
 function openEdit(user: TeamUser) {
   editing.value = user
-  form.value = { name: user.name, email: user.email, password: '', role: user.role }
+  form.value = { name: user.name, email: user.email, password: '', role: user.role, isCashier: user.isCashier }
   showForm.value = true
 }
 
@@ -67,6 +70,7 @@ async function save() {
       await apiUpdateUser(editing.value._id, {
         name: form.value.name,
         role: form.value.role,
+        isCashier: form.value.role === 'direccion' && form.value.isCashier,
         ...(form.value.password ? { password: form.value.password } : {}),
       })
       toast.success('Persona actualizada')
@@ -129,10 +133,19 @@ async function toggleActive(user: TeamUser) {
         <div class="user-info">
           <strong>{{ user.name }}</strong>
           <span class="user-email">{{ user.email }}</span>
-          <span class="user-role">{{ ROLE_LABELS[user.role] }}</span>
+          <span class="user-role">
+            {{ ROLE_LABELS[user.role] }}
+            <em v-if="user.isCashier" class="cashier"><i class="fa-solid fa-cash-register" aria-hidden="true" /> Cajera</em>
+          </span>
+          <span class="user-audit">
+            Alta {{ formatDate(user.createdAt) }}<template v-if="user.createdBy"> por {{ user.createdBy.name }}</template>
+            <template v-if="user.updatedBy"> · editó {{ user.updatedBy.name }}</template>
+          </span>
         </div>
         <div class="user-actions">
-          <button type="button" class="edit-btn" @click="openEdit(user)">Editar</button>
+          <button type="button" class="edit-btn" @click="openEdit(user)">
+            <i class="fa-solid fa-pen" aria-hidden="true" /> Editar
+          </button>
           <button type="button" class="pill-btn" :class="{ on: user.active }" @click="toggleActive(user)">
             {{ user.active ? 'Activo' : 'Inactivo' }}
           </button>
@@ -152,14 +165,18 @@ async function toggleActive(user: TeamUser) {
         </div>
         <div class="field">
           <label for="u-pass">{{ editing ? 'Nueva contraseña (opcional)' : 'Contraseña' }}</label>
-          <input id="u-pass" v-model="form.password" type="password" autocomplete="new-password" />
+          <PasswordInput id="u-pass" v-model="form.password" autocomplete="new-password" />
         </div>
         <div class="field">
           <label id="u-role-label">Rol</label>
           <BaseSelect v-model="form.role" :options="roleOptions" aria-labelledby="u-role-label" />
         </div>
+        <label v-if="form.role === 'direccion'" class="cashier-check">
+          <input v-model="form.isCashier" type="checkbox" />
+          Designar como cajera: puede cobrar cuentas aprobadas
+        </label>
         <button type="button" class="btn btn-gold" :disabled="saving" @click="save">
-          {{ saving ? 'Guardando…' : 'Guardar' }}
+          <i class="fa-solid fa-floppy-disk" aria-hidden="true" /> {{ saving ? 'Guardando…' : 'Guardar' }}
         </button>
       </div>
     </BaseModal>
@@ -216,6 +233,34 @@ async function toggleActive(user: TeamUser) {
   color: var(--ink-400);
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.cashier {
+  font-style: normal;
+  margin-left: 0.35rem;
+  color: var(--gold-500);
+}
+
+.user-audit {
+  font-size: 0.72rem;
+  color: var(--ink-400);
+}
+
+.cashier-check {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 0.6rem;
+  border-radius: var(--radius-sm);
+  background: var(--powder-100);
+
+  input {
+    width: 1.15rem;
+    height: 1.15rem;
+    accent-color: var(--navy-800);
+  }
 }
 
 .user-role {
