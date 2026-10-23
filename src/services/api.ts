@@ -351,6 +351,7 @@ export async function apiCreateUser(payload: {
   password: string
   role: UserRole
   isCashier?: boolean
+  position?: string
 }) {
   const { data } = await http.post('/users', payload)
   return data.user
