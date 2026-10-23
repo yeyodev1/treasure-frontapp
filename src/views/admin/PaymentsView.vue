@@ -2,7 +2,8 @@
 import { onMounted, ref, shallowRef } from 'vue'
 import { useToastStore } from '@/stores/toast'
 import { useUserStore } from '@/stores/user'
-import { apiPayments, apiRetryInvoice } from '@/services/api'
+import { apiPayments, apiRetryInvoice, apiReversePayment } from '@/services/api'
+import { useConfirmStore } from '@/stores/confirm'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatMoney, formatDateTime } from '@/utils/format'
 import BaseDatePicker from '@/components/ui/BaseDatePicker.vue'
@@ -85,8 +86,34 @@ async function retry(payment: Payment) {
   }
 }
 
+const confirmStore = useConfirmStore()
+
+/** Un cobro con pago o factura no se cancela: se reversa con motivo. */
+async function reverse(payment: Payment) {
+  const reason = await confirmStore.askReason({
+    title: `¿Reversar el cobro de cabina ${payment.cabinNumber}?`,
+    message: `${formatMoney(payment.total)} · la cuenta vuelve a abrirse para corregirla y aprobarla de nuevo.${
+      payment.invoiceStatus === 'emitida' ? ' La factura emitida requiere nota de crédito en Contífico.' : ''
+    }`,
+    confirmLabel: 'Reversar',
+    danger: true,
+    icon: 'fa-rotate-left',
+    reason: { label: 'Motivo (obligatorio)', suggestions: ['Método de pago equivocado', 'Cargo mal cobrado'] },
+  })
+  if (!reason) return
+  try {
+    await apiReversePayment(payment._id, reason)
+    play('success')
+    toast.success('Cobro reversado: la cuenta quedó abierta')
+    await refresh()
+  } catch (err) {
+    play('error')
+    toast.error(apiErrorMessage(err))
+  }
+}
+
 function cruiseName(payment: Payment): string {
-  return typeof payment.cruise === 'object' ? payment.cruise.name : ''
+  return typeof payment.cruise === 'object' ? payment.cruise.code || payment.cruise.name : ''
 }
 
 function collectorName(payment: Payment): string {
@@ -118,16 +145,17 @@ function collectorName(payment: Payment): string {
         <thead>
           <tr>
             <th>Fecha</th>
-            <th>Crucero</th>
+            <th>Salida</th>
             <th>Cabina</th>
             <th>Total</th>
             <th>Método</th>
             <th>Cobró</th>
             <th>Factura</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="payment in payments" :key="payment._id">
+          <tr v-for="payment in payments" :key="payment._id" :class="{ reversed: payment.status === 'reversado' }">
             <td>{{ formatDateTime(payment.createdAt) }}</td>
             <td>{{ cruiseName(payment) }}</td>
             <td>{{ payment.cabinNumber }}</td>
@@ -135,21 +163,37 @@ function collectorName(payment: Payment): string {
             <td class="method">{{ payment.method }}</td>
             <td>{{ collectorName(payment) }}</td>
             <td>
-              <span class="pill" :class="`pill--${payment.invoiceStatus}`">
-                {{ INVOICE_LABELS[payment.invoiceStatus] }}
+              <span v-if="payment.status === 'reversado'" class="pill pill--error" :title="payment.reverseReason">
+                Reversado
               </span>
+              <template v-else>
+                <span class="pill" :class="`pill--${payment.invoiceStatus}`">
+                  {{ INVOICE_LABELS[payment.invoiceStatus] }}
+                </span>
+                <button
+                  v-if="userStore.isAdmin && (payment.invoiceStatus === 'pendiente' || payment.invoiceStatus === 'error')"
+                  type="button"
+                  class="retry"
+                  @click="retry(payment)"
+                >
+                  Reintentar
+                </button>
+              </template>
+            </td>
+            <td>
               <button
-                v-if="userStore.isAdmin && (payment.invoiceStatus === 'pendiente' || payment.invoiceStatus === 'error')"
+                v-if="userStore.isAdmin && payment.status !== 'reversado'"
                 type="button"
-                class="retry"
-                @click="retry(payment)"
+                class="reverse"
+                @click="reverse(payment)"
               >
-                Reintentar
+                <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Reversar
               </button>
+              <span v-else-if="payment.status === 'reversado'" class="reverse-reason">{{ payment.reverseReason }}</span>
             </td>
           </tr>
           <tr v-if="!payments.length">
-            <td colspan="7" class="empty">Sin cobros en este rango.</td>
+            <td colspan="8" class="empty">Sin cobros en este rango.</td>
           </tr>
         </tbody>
       </table>
@@ -228,6 +272,22 @@ function collectorName(payment: Payment): string {
     background: rgba(224, 82, 82, 0.15);
     color: var(--danger);
   }
+}
+
+.reverse {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--danger);
+  white-space: nowrap;
+}
+
+.reverse-reason {
+  font-size: 0.76rem;
+  color: var(--ink-400);
+}
+
+tr.reversed td {
+  opacity: 0.6;
 }
 
 .retry {
