@@ -7,7 +7,7 @@ import { useSound } from '@/composables/useSound'
 import type { UserRole } from '@/types'
 import BrandSeal from '@/components/ui/BrandSeal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
-import { ROLE_HOME } from '@/router'
+import { REGISTROS_URL, ROLE_HOME } from '@/router'
 
 interface NavItem {
   to: string
@@ -54,6 +54,9 @@ const ROLE_LABELS: Record<UserRole, string> = {
   direccion: 'Dirección de crucero',
   bartender: 'Bartender',
   bodega: 'Bodega',
+  capitan: 'Capitán',
+  tripulante: 'Tripulación',
+  designada: 'Persona Designada',
 }
 
 const router = useRouter()
@@ -188,6 +191,15 @@ async function logout() {
               <i class="fa-solid nav-icon" :class="item.icon" aria-hidden="true" />
               <span class="nav-label">{{ item.label }}</span>
             </RouterLink>
+          </div>
+          <div v-if="userStore.isRealAdmin" class="nav-section">
+            <p class="nav-section-label">Barco</p>
+            <a :href="REGISTROS_URL" class="nav-item" target="_blank" rel="noopener">
+              <span class="nav-indicator" aria-hidden="true" />
+              <i class="fa-solid nav-icon fa-clipboard-check" aria-hidden="true" />
+              <span class="nav-label">Registros ISM</span>
+              <i class="fa-solid fa-arrow-up-right-from-square nav-external" aria-hidden="true" />
+            </a>
           </div>
         </div>
 
@@ -511,6 +523,12 @@ async function logout() {
   &:hover:not(.router-link-exact-active) {
     background: var(--cream-200);
   }
+}
+
+.nav-external {
+  margin-left: auto;
+  font-size: 0.7rem;
+  opacity: 0.6;
 }
 
 .nav-icon {
