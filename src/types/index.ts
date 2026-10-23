@@ -1,4 +1,11 @@
-export type UserRole = 'admin' | 'direccion' | 'bartender' | 'bodega'
+export type UserRole =
+  | 'admin'
+  | 'direccion'
+  | 'bartender'
+  | 'bodega'
+  | 'capitan'
+  | 'tripulante'
+  | 'designada'
 
 export interface SessionUser {
   id: string
@@ -6,6 +13,7 @@ export interface SessionUser {
   email: string
   role: UserRole
   isCashier?: boolean
+  position?: string
 }
 
 export type ProductCategory =
@@ -299,6 +307,7 @@ export interface TeamUser {
   role: UserRole
   active: boolean
   isCashier: boolean
+  position?: string
   createdBy: { _id: string; name: string } | null
   updatedBy: { _id: string; name: string } | null
   createdAt: string
