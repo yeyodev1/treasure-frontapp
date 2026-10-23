@@ -21,23 +21,29 @@ interface NavSection {
   items: NavItem[]
 }
 
+// Menú en tres grupos (guía visual V3): Operar / Controlar / Administrar.
 const NAV_SECTIONS: NavSection[] = [
   {
-    label: 'Operación',
+    label: 'Operar',
     items: [
       { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: ['admin', 'direccion', 'bartender'] },
-      { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: ['admin', 'direccion'] },
-      { to: '/admin/en-vivo', label: 'En vivo', icon: 'fa-tower-broadcast', roles: ['admin', 'direccion'] },
+      { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: ['admin', 'direccion', 'bartender'] },
     ],
   },
   {
-    label: 'Administración',
+    label: 'Controlar',
     items: [
+      { to: '/admin/en-vivo', label: 'En vivo', icon: 'fa-tower-broadcast', roles: ['admin', 'direccion'] },
       { to: '/admin', label: 'Panel', icon: 'fa-chart-line', roles: ['admin', 'direccion'] },
-      { to: '/admin/inventario', label: 'Inventario', icon: 'fa-boxes-stacked', roles: ['admin', 'bodega', 'direccion'] },
-      { to: '/admin/cruceros', label: 'Cruceros', icon: 'fa-ship', roles: ['admin', 'direccion'] },
-      { to: '/admin/productos', label: 'Catálogo', icon: 'fa-wine-bottle', roles: ['admin', 'bodega'] },
+      { to: '/admin/inventario', label: 'Inventario', icon: 'fa-boxes-stacked', roles: ['admin', 'bodega', 'direccion', 'bartender'] },
       { to: '/admin/pagos', label: 'Cobros', icon: 'fa-cash-register', roles: ['admin', 'direccion'] },
+    ],
+  },
+  {
+    label: 'Administrar',
+    items: [
+      { to: '/admin/salidas', label: 'Salidas', icon: 'fa-ship', roles: ['admin', 'direccion'] },
+      { to: '/admin/productos', label: 'Catálogo', icon: 'fa-wine-bottle', roles: ['admin', 'bodega'] },
       { to: '/admin/equipo', label: 'Equipo', icon: 'fa-users', roles: ['admin'] },
     ],
   },
@@ -138,7 +144,7 @@ async function logout() {
           <i class="fa-solid" :class="drawerOpen ? 'fa-xmark' : 'fa-bars'" aria-hidden="true" />
         </button>
         <div class="brand">
-          <BrandSeal :size="34" class="brand-seal" />
+          <BrandSeal :size="40" variant="cream" class="brand-seal" />
           <span class="brand-text">
             <span class="brand-eyebrow">Treasure of Galápagos</span>
             <span class="brand-page">{{ pageTitle }}</span>
@@ -240,14 +246,19 @@ async function logout() {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  background: linear-gradient(135deg, var(--navy-900), var(--navy-800) 55%, var(--navy-700));
-  border-bottom: 1px solid rgba(195, 161, 105, 0.35);
+  background: var(--navy-800);
+  border-bottom: 3px solid var(--gold-500);
   color: var(--cream-100);
-  padding: 0.55rem 0.75rem;
-  padding-top: calc(0.55rem + env(safe-area-inset-top));
+  box-sizing: border-box;
+  height: calc(var(--header-h) + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 0.75rem 0;
   position: sticky;
   top: 0;
   z-index: 30;
+}
+
+.shell {
+  --header-h: 64px;
 }
 
 .topbar-left {
@@ -305,7 +316,7 @@ async function logout() {
   font-weight: 600;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--gold-400);
+  color: var(--powder-300);
   white-space: nowrap;
 
   @include tablet {
@@ -411,7 +422,7 @@ async function logout() {
   bottom: 0;
   left: 0;
   width: 250px;
-  padding: calc(66px + env(safe-area-inset-top)) 0.8rem 1rem;
+  padding: calc(var(--header-h) + 12px + env(safe-area-inset-top)) 0.8rem 1rem;
   background: var(--surface);
   border-right: 1px solid var(--cream-200);
   display: flex;
@@ -430,8 +441,8 @@ async function logout() {
 
   @include desktop {
     position: sticky;
-    top: 59px;
-    height: calc(100dvh - 59px);
+    top: var(--header-h);
+    height: calc(100dvh - var(--header-h));
     transform: none;
     box-shadow: none;
     padding-top: 1.1rem;
@@ -512,7 +523,7 @@ async function logout() {
 
 .viewing-as {
   position: sticky;
-  top: calc(59px + env(safe-area-inset-top));
+  top: calc(var(--header-h) + env(safe-area-inset-top));
   z-index: 23;
   display: flex;
   align-items: center;
