@@ -1,5 +1,6 @@
-import { computed, ref } from 'vue'
+import { computed, ref, shallowRef } from 'vue'
 import type { Product } from '@/types'
+import { newKey } from '@/utils/format'
 
 export interface CartLine {
   product: Product
@@ -7,9 +8,13 @@ export interface CartLine {
   courtesy: boolean
 }
 
-/** Estado de la comanda en curso: líneas, totales y mutaciones. */
+/**
+ * Comanda en curso. Cada borrador tiene su clave: si el clic de "Registrar"
+ * se repite o la red reintenta, el servidor no crea un segundo pedido.
+ */
 export function usePosCart() {
   const lines = ref<CartLine[]>([])
+  const draftKey = shallowRef(newKey())
 
   const total = computed(() =>
     lines.value.reduce((sum, l) => sum + (l.courtesy ? 0 : l.qty * l.product.price), 0),
@@ -29,12 +34,22 @@ export function usePosCart() {
 
   function toggleCourtesy(index: number) {
     const line = lines.value[index]
-    if (line) line.courtesy = !line.courtesy
+    if (!line) return
+    const twin = lines.value.find(
+      (l, i) => i !== index && l.product._id === line.product._id && l.courtesy !== line.courtesy,
+    )
+    if (twin) {
+      twin.qty += line.qty
+      lines.value.splice(index, 1)
+    } else {
+      line.courtesy = !line.courtesy
+    }
   }
 
   function clear() {
     lines.value = []
+    draftKey.value = newKey()
   }
 
-  return { lines, total, itemCount, add, setQty, toggleCourtesy, clear }
+  return { lines, total, itemCount, draftKey, add, setQty, toggleCourtesy, clear }
 }
