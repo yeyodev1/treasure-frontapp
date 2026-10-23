@@ -9,21 +9,37 @@ const props = defineProps<{ products: Product[] }>()
 const emit = defineEmits<{ add: [Product]; createCocktail: [] }>()
 
 const activeCategory = shallowRef<ProductCategory | 'todas'>('todas')
+const query = shallowRef('')
+
+function normalize(text: string): string {
+  return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
 
 const categories = computed(() => {
   const present = new Set(props.products.map((p) => p.category))
   return (Object.keys(CATEGORY_LABELS) as ProductCategory[]).filter((c) => present.has(c))
 })
 
-const visible = computed(() =>
-  activeCategory.value === 'todas'
-    ? props.products
-    : props.products.filter((p) => p.category === activeCategory.value),
-)
+const visible = computed(() => {
+  const q = normalize(query.value.trim())
+  return props.products.filter(
+    (p) =>
+      (activeCategory.value === 'todas' || p.category === activeCategory.value) &&
+      (!q || normalize(p.name).includes(q)),
+  )
+})
 </script>
 
 <template>
   <div class="catalog">
+    <label class="search">
+      <i class="fa-solid fa-magnifying-glass" aria-hidden="true" />
+      <input v-model="query" type="search" placeholder="Buscar bebida" aria-label="Buscar bebida" />
+      <button v-if="query" type="button" class="search-clear" aria-label="Limpiar búsqueda" @click="query = ''">
+        <i class="fa-solid fa-xmark" aria-hidden="true" />
+      </button>
+    </label>
+
     <div class="chips" role="tablist">
       <button
         type="button"
@@ -45,6 +61,10 @@ const visible = computed(() =>
       </button>
     </div>
 
+    <p v-if="!visible.length" class="empty">
+      No hay bebidas con "{{ query }}". Prueba otro nombre o crea un cóctel.
+    </p>
+
     <div class="grid">
       <button
         v-for="product in visible"
@@ -53,7 +73,7 @@ const visible = computed(() =>
         class="product"
         @click="emit('add', product)"
       >
-        <ProductIcon :icon="product.icon" :size="30" class="product-icon" />
+        <ProductIcon :icon="product.icon" :size="28" class="product-icon" />
         <span class="product-name">{{ product.name }}</span>
         <span class="product-price">{{ formatMoney(product.price) }}</span>
       </button>
@@ -69,17 +89,64 @@ const visible = computed(() =>
 <style scoped lang="scss">
 @use '@/styles/mixins' as *;
 
+.catalog {
+  min-width: 0;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 48px;
+  padding: 0 0.9rem;
+  margin-bottom: 0.7rem;
+  background: var(--surface);
+  border: 1.5px solid var(--cream-200);
+  border-radius: 999px;
+  color: var(--ink-400);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:focus-within {
+    border-color: var(--gold-500);
+    box-shadow: 0 0 0 3px rgba(159, 107, 60, 0.15);
+  }
+
+  input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 0.98rem;
+    color: var(--ink-900);
+  }
+}
+
+.search-clear {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--ink-400);
+
+  &:hover {
+    background: var(--cream-100);
+  }
+}
+
 .chips {
   display: flex;
   gap: 0.4rem;
   overflow-x: auto;
-  padding-bottom: 0.5rem;
+  padding-bottom: 0.55rem;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
 
 .chip {
-  @include touch-target;
-  min-width: auto;
+  flex-shrink: 0;
+  min-height: 40px;
   padding: 0.4rem 0.9rem;
   border-radius: 999px;
   background: var(--surface);
@@ -88,12 +155,19 @@ const visible = computed(() =>
   font-size: 0.85rem;
   white-space: nowrap;
   color: var(--ink-600);
+  transition: all 0.14s ease;
 
   &--active {
     background: var(--navy-800);
     border-color: var(--navy-800);
-    color: var(--cream-100);
+    color: #fff;
   }
+}
+
+.empty {
+  margin: 0.5rem 0 0.8rem;
+  color: var(--ink-400);
+  font-size: 0.9rem;
 }
 
 .grid {
@@ -102,26 +176,27 @@ const visible = computed(() =>
   gap: 0.5rem;
 
   @include tablet {
-    grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
-    gap: 0.65rem;
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
   }
 }
 
 .product {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 0.3rem;
-  padding: 0.8rem 0.4rem;
+  padding: 0.75rem 0.4rem;
   background: var(--surface);
   border: 2px solid var(--cream-200);
   border-radius: var(--radius-sm);
-  min-height: 104px;
-  transition: all 0.1s ease;
+  min-height: 100px;
+  transition: transform 0.1s ease, border-color 0.1s ease;
 
   &:active {
-    border-color: var(--teal-400);
-    transform: scale(0.97);
+    border-color: var(--gold-500);
+    transform: scale(0.96);
   }
 
   &--new {
@@ -136,8 +211,7 @@ const visible = computed(() =>
 }
 
 .product-plus {
-  font-size: 1.4rem;
-  line-height: 1;
+  font-size: 1.35rem;
   color: var(--gold-500);
 }
 
@@ -146,11 +220,13 @@ const visible = computed(() =>
   font-weight: 600;
   text-align: center;
   line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
 .product-price {
   font-size: 0.78rem;
   font-weight: 700;
-  color: var(--ink-400);
+  color: var(--gold-500);
+  font-variant-numeric: tabular-nums;
 }
 </style>
