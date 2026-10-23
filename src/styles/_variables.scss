@@ -1,30 +1,32 @@
-// Paleta tomada del menú impreso "Treasure of Galápagos" (Taller de Tinta):
-// verde pino profundo, latón/caramelo, azul empolvado y crema.
-// Las variables conservan sus nombres originales para no tocar los componentes.
+// Paleta oficial tomada del menú impreso "Treasure of Galápagos" (Taller de Tinta):
+// pino #1B2B25 (Our Wines), caramelo #9F6B3C (Our Drinks), azul empolvado
+// #C8D7E7 (portada con algas) y blanco (Our Cocktails).
+// Los nombres de variables se conservan para no tocar cada componente.
 :root {
-  --navy-900: #0f1d16;
-  --navy-800: #182b20;
-  --navy-700: #22392c;
-  --navy-600: #2e4c3a;
-  --gold-500: #c3a169;
-  --gold-400: #d4b685;
-  --teal-400: #b9cce0;
-  --caramel-500: #a9713e;
-  --cream-100: #f7f3e9;
-  --cream-200: #eae3d1;
-  --ink-900: #1a241e;
-  --ink-600: #4b5a50;
-  --ink-400: #7f8d83;
-  --danger: #c05b4d;
-  --success: #4f7d5e;
-  --warning: #c08a3e;
+  --navy-900: #121e19;
+  --navy-800: #1b2b25;
+  --navy-700: #26392f;
+  --navy-600: #33493d;
+  --gold-500: #9f6b3c;
+  --gold-400: #b8844f;
+  --teal-400: #c8d7e7;
+  --powder-100: #eef3f8;
+  --powder-300: #c8d7e7;
+  --cream-100: #f4f6f8;
+  --cream-200: #dfe6ed;
+  --ink-900: #1b2b25;
+  --ink-600: #4a5a52;
+  --ink-400: #7b8a83;
+  --danger: #b4483b;
+  --success: #3f7a57;
+  --warning: #b9802f;
 
   --bg: var(--cream-100);
-  --surface: #fffdf8;
+  --surface: #ffffff;
   --radius: 14px;
   --radius-sm: 9px;
-  --shadow: 0 2px 12px rgba(15, 29, 22, 0.08);
-  --shadow-lg: 0 8px 32px rgba(15, 29, 22, 0.18);
+  --shadow: 0 2px 12px rgba(27, 43, 37, 0.07);
+  --shadow-lg: 0 10px 34px rgba(27, 43, 37, 0.18);
 
   --font-serif: 'Cardo', 'Times New Roman', serif;
   --font-sans: 'Geist', 'Segoe UI', system-ui, -apple-system, sans-serif;
