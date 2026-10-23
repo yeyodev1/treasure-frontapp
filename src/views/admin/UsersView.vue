@@ -27,16 +27,39 @@ const ROLE_LABELS: Record<UserRole, string> = {
   direccion: 'Dirección de crucero',
   bartender: 'Bartender',
   bodega: 'Bodega',
+  capitan: 'Capitán (Registros ISM)',
+  tripulante: 'Tripulación (Registros ISM)',
+  designada: 'Persona Designada (Registros ISM)',
 }
 
 const roleOptions = Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label }))
 
-const form = ref<{ name: string; email: string; password: string; role: string; isCashier: boolean }>({
+/** Cargos del barco: con ellos se nombran los registros por cargo (R-07, R-22, R-23). */
+const POSITION_LABELS: Record<string, string> = {
+  CAP: 'Capitán',
+  TIM_01: 'Timonel 1',
+  TIM_02: 'Timonel 2',
+  MAQ: 'Jefe de Máquinas',
+  AuxMAQ: 'Auxiliar de Máquinas',
+  COC: 'Cocina',
+  AuxCOC: 'Auxiliar de Cocina',
+  BAR: 'Bar',
+  CABIN: 'Cabinas',
+  DIR: 'Director de Crucero',
+}
+const positionOptions = [
+  { value: '', label: 'Sin cargo' },
+  ...Object.entries(POSITION_LABELS).map(([value, label]) => ({ value, label })),
+]
+const SHIP_ROLES = ['capitan', 'tripulante']
+
+const form = ref<{ name: string; email: string; password: string; role: string; isCashier: boolean; position: string }>({
   name: '',
   email: '',
   password: '',
   role: 'bartender',
   isCashier: false,
+  position: '',
 })
 
 async function refresh() {
@@ -53,13 +76,20 @@ onMounted(refresh)
 
 function openNew() {
   editing.value = null
-  form.value = { name: '', email: '', password: '', role: 'bartender', isCashier: false }
+  form.value = { name: '', email: '', password: '', role: 'bartender', isCashier: false, position: '' }
   showForm.value = true
 }
 
 function openEdit(user: TeamUser) {
   editing.value = user
-  form.value = { name: user.name, email: user.email, password: '', role: user.role, isCashier: user.isCashier }
+  form.value = {
+    name: user.name,
+    email: user.email,
+    password: '',
+    role: user.role,
+    isCashier: user.isCashier,
+    position: user.position ?? '',
+  }
   showForm.value = true
 }
 
@@ -71,11 +101,19 @@ async function save() {
         name: form.value.name,
         role: form.value.role,
         isCashier: form.value.role === 'direccion' && form.value.isCashier,
+        position: SHIP_ROLES.includes(form.value.role) ? form.value.position : '',
         ...(form.value.password ? { password: form.value.password } : {}),
       })
       toast.success('Persona actualizada')
     } else {
-      await apiCreateUser(form.value as { name: string; email: string; password: string; role: UserRole })
+      await apiCreateUser({
+        name: form.value.name,
+        email: form.value.email,
+        password: form.value.password,
+        role: form.value.role as UserRole,
+        isCashier: form.value.role === 'direccion' && form.value.isCashier,
+        position: SHIP_ROLES.includes(form.value.role) ? form.value.position : '',
+      })
       toast.success('Acceso creado')
     }
     play('success')
@@ -135,6 +173,7 @@ async function toggleActive(user: TeamUser) {
           <span class="user-email">{{ user.email }}</span>
           <span class="user-role">
             {{ ROLE_LABELS[user.role] }}
+            <template v-if="user.position"> · {{ POSITION_LABELS[user.position] ?? user.position }}</template>
             <em v-if="user.isCashier" class="cashier"><i class="fa-solid fa-cash-register" aria-hidden="true" /> Cajera</em>
           </span>
           <span class="user-audit">
@@ -171,6 +210,14 @@ async function toggleActive(user: TeamUser) {
           <label id="u-role-label">Rol</label>
           <BaseSelect v-model="form.role" :options="roleOptions" aria-labelledby="u-role-label" />
         </div>
+        <div v-if="SHIP_ROLES.includes(form.role)" class="field">
+          <label id="u-pos-label">Cargo a bordo</label>
+          <BaseSelect v-model="form.position" :options="positionOptions" aria-labelledby="u-pos-label" />
+        </div>
+        <p v-if="['capitan', 'tripulante', 'designada'].includes(form.role)" class="ship-note">
+          <i class="fa-solid fa-clipboard-check" aria-hidden="true" />
+          Entra en registros.teseturis.app para llenar y firmar los registros ISM.
+        </p>
         <label v-if="form.role === 'direccion'" class="cashier-check">
           <input v-model="form.isCashier" type="checkbox" />
           Designar como cajera: puede cobrar cuentas aprobadas
@@ -293,6 +340,15 @@ async function toggleActive(user: TeamUser) {
     background: rgba(63, 174, 106, 0.15);
     color: var(--success);
   }
+}
+
+.ship-note {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--ink-600);
+  background: var(--powder-100);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.75rem;
 }
 
 .modal-form {
