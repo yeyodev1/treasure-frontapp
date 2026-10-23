@@ -92,7 +92,15 @@ const ROLE_HOME: Record<UserRole, string> = {
   direccion: '/cuentas',
   bartender: '/',
   bodega: '/admin/inventario',
+  capitan: '/',
+  tripulante: '/',
+  designada: '/',
 }
+
+export const REGISTROS_URL = import.meta.env.VITE_REGISTROS_URL || 'https://registros.teseturis.app'
+
+/** La tripulación, el Capitán y la Persona Designada trabajan en Registros ISM. */
+const REGISTROS_ROLES: UserRole[] = ['capitan', 'tripulante', 'designada']
 
 router.beforeEach(async (to) => {
   const userStore = useUserStore()
@@ -103,6 +111,11 @@ router.beforeEach(async (to) => {
   }
   if (!userStore.isLogged) {
     return { name: 'Login', query: { next: to.fullPath } }
+  }
+
+  if (userStore.role && REGISTROS_ROLES.includes(userStore.role)) {
+    window.location.href = REGISTROS_URL
+    return false
   }
 
   const roles = to.meta.roles as UserRole[] | undefined
