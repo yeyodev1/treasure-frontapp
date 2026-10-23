@@ -1,65 +1,70 @@
 <script setup lang="ts">
-import { onMounted, ref, shallowRef } from 'vue'
+import { computed, onMounted, shallowRef } from 'vue'
 import { useToastStore } from '@/stores/toast'
 import { useCatalogStore, CATEGORY_LABELS } from '@/stores/catalog'
-import { apiCreateProduct, apiProducts, apiUpdateProduct } from '@/services/api'
+import { useConfirmStore } from '@/stores/confirm'
+import { useUserStore } from '@/stores/user'
+import { useSound } from '@/composables/useSound'
+import { apiProducts, apiUpdateProduct } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
-import { formatMoney } from '@/utils/format'
-import BaseModal from '@/components/ui/BaseModal.vue'
-import BaseSelect from '@/components/ui/BaseSelect.vue'
+import { formatMoney, formatNumber, unitShort } from '@/utils/format'
 import ProductIcon from '@/components/ui/ProductIcon.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
-import { useConfirmStore } from '@/stores/confirm'
-import { useSound } from '@/composables/useSound'
-import type { Product } from '@/types'
+import ProductEditor from '@/components/catalog/ProductEditor.vue'
+import type { Product, ProductKind } from '@/types'
 
 const toast = useToastStore()
 const catalogStore = useCatalogStore()
 const confirmStore = useConfirmStore()
+const userStore = useUserStore()
 const { play } = useSound()
 
-const products = ref<Product[]>([])
-const editing = shallowRef<Product | null>(null)
-const showForm = shallowRef(false)
-const saving = shallowRef(false)
+const products = shallowRef<Product[]>([])
 const loading = shallowRef(true)
+const kindFilter = shallowRef<ProductKind | 'todos'>('todos')
+const query = shallowRef('')
+const editor = shallowRef<{ product: Product | null } | null>(null)
 
-const ICON_LABELS: Record<string, string> = {
-  beer: 'Cerveza',
-  wine: 'Copa de vino',
-  bottle: 'Botella',
-  shot: 'Trago',
-  cocktail: 'Cóctel',
-  soda: 'Gaseosa',
-  water: 'Agua',
-  juice: 'Jugo',
-  snack: 'Snack',
-  lime: 'Cítrico',
-  glass: 'Vaso',
+const KIND_LABELS: Record<ProductKind, string> = {
+  fisico: 'Físico',
+  receta: 'Receta',
+  servicio: 'Servicio',
 }
 
-const categoryOptions = Object.entries(CATEGORY_LABELS).map(([value, label]) => ({ value, label }))
-const iconOptions = Object.entries(ICON_LABELS).map(([value, label]) => ({ value, label }))
+function normalize(text: string): string {
+  return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
 
-const form = ref<{
-  name: string
-  category: string
-  icon: string
-  price: number
-  unit: string
-  warehouseStock: number
-}>({
-  name: '',
-  category: 'licor',
-  icon: 'glass',
-  price: 0,
-  unit: 'unidad',
-  warehouseStock: 0,
+const physical = computed(() => products.value.filter((p) => p.kind === 'fisico' && p.active))
+
+const visible = computed(() => {
+  const q = normalize(query.value.trim())
+  return products.value.filter(
+    (p) => (kindFilter.value === 'todos' || p.kind === kindFilter.value) && (!q || normalize(p.name).includes(q)),
+  )
 })
+
+const counts = computed(() => ({
+  todos: products.value.length,
+  fisico: products.value.filter((p) => p.kind === 'fisico').length,
+  receta: products.value.filter((p) => p.kind === 'receta').length,
+  servicio: products.value.filter((p) => p.kind === 'servicio').length,
+}))
+
+function recipeSummary(p: Product): string {
+  return p.recipe
+    .map((r) =>
+      typeof r.product === 'object'
+        ? `${formatNumber(r.qty)} ${unitShort(r.product.stockUnit)} ${r.product.name.replace(' (botella)', '')}`
+        : '',
+    )
+    .filter(Boolean)
+    .join(' · ')
+}
 
 async function refresh() {
   try {
-    products.value = await apiProducts(true)
+    products.value = await apiProducts({ all: true })
   } catch (err) {
     toast.error(apiErrorMessage(err))
   } finally {
@@ -69,61 +74,24 @@ async function refresh() {
 
 onMounted(refresh)
 
-function openNew() {
-  editing.value = null
-  form.value = { name: '', category: 'licor', icon: 'glass', price: 0, unit: 'unidad', warehouseStock: 0 }
-  showForm.value = true
-}
-
-function openEdit(product: Product) {
-  editing.value = product
-  form.value = {
-    name: product.name,
-    category: product.category,
-    icon: product.icon,
-    price: product.price,
-    unit: product.unit,
-    warehouseStock: product.warehouseStock,
-  }
-  showForm.value = true
-}
-
-async function save() {
-  if (!form.value.name) return
-  saving.value = true
-  try {
-    if (editing.value) {
-      await apiUpdateProduct(editing.value._id, form.value)
-      toast.success('Producto actualizado')
-    } else {
-      await apiCreateProduct(form.value)
-      toast.success('Producto creado')
-    }
-    play('success')
-    showForm.value = false
-    await refresh()
-    await catalogStore.load(true)
-  } catch (err) {
-    play('error')
-    toast.error(apiErrorMessage(err))
-  } finally {
-    saving.value = false
-  }
+async function onSaved() {
+  editor.value = null
+  await refresh()
+  await catalogStore.load(true)
 }
 
 async function toggleActive(product: Product) {
   const deactivating = product.active
   const ok = await confirmStore.ask({
-    title: deactivating ? '¿Desactivar producto?' : '¿Activar producto?',
+    title: deactivating ? `¿Desactivar ${product.name}?` : `¿Activar ${product.name}?`,
     message: deactivating
-      ? `"${product.name}" dejará de aparecer en el catálogo del bar.`
-      : `"${product.name}" volverá a estar disponible en el catálogo del bar.`,
+      ? 'Deja de aparecer en el bar. Su historial se conserva.'
+      : 'Vuelve a estar disponible en el bar.',
     confirmLabel: deactivating ? 'Desactivar' : 'Activar',
     icon: deactivating ? 'fa-eye-slash' : 'fa-eye',
     danger: deactivating,
   })
   if (!ok) return
-
   try {
     await apiUpdateProduct(product._id, { active: !product.active })
     play('success')
@@ -140,86 +108,104 @@ async function toggleActive(product: Product) {
 <template>
   <div class="page">
     <header class="head">
-      <h1 class="page-title">Catálogo</h1>
-      <button type="button" class="btn btn-gold" @click="openNew">
+      <div>
+        <h1 class="page-title">Catálogo</h1>
+        <p class="hint">
+          Físicos llevan stock en su unidad · Recetas descuentan sus ingredientes · Servicios no mueven
+          inventario.
+        </p>
+      </div>
+      <button type="button" class="btn btn-gold" @click="editor = { product: null }">
         <i class="fa-solid fa-plus" aria-hidden="true" /> Nuevo producto
       </button>
     </header>
 
-    <section v-if="loading" class="card table-card">
-      <SkeletonList variant="row" :rows="10" />
-    </section>
-
-    <section v-else class="card table-card">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Producto</th>
-            <th>Categoría</th>
-            <th>Precio</th>
-            <th>Bodega</th>
-            <th>Estado</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="product in products" :key="product._id" :class="{ inactive: !product.active }">
-            <td class="prod">
-              <ProductIcon :icon="product.icon" :size="20" />
-              {{ product.name }}
-              <span v-if="product.isCustom" class="custom-tag">creado en bar</span>
-            </td>
-            <td>{{ CATEGORY_LABELS[product.category] }}</td>
-            <td><strong>{{ formatMoney(product.price) }}</strong></td>
-            <td>{{ product.isCocktail ? '—' : product.warehouseStock }}</td>
-            <td>
-              <button type="button" class="pill-btn" :class="{ on: product.active }" @click="toggleActive(product)">
-                {{ product.active ? 'Activo' : 'Inactivo' }}
-              </button>
-            </td>
-            <td>
-              <button type="button" class="edit-btn" @click="openEdit(product)">Editar</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
-
-    <BaseModal v-if="showForm" :title="editing ? 'Editar producto' : 'Nuevo producto'" @close="showForm = false">
-      <div class="modal-form">
-        <div class="field">
-          <label for="p-name">Nombre</label>
-          <input id="p-name" v-model="form.name" type="text" />
-        </div>
-        <div class="row">
-          <div class="field">
-            <label id="p-cat-label">Categoría</label>
-            <BaseSelect v-model="form.category" :options="categoryOptions" aria-labelledby="p-cat-label" />
-          </div>
-          <div class="field">
-            <label id="p-icon-label">Icono</label>
-            <BaseSelect v-model="form.icon" :options="iconOptions" aria-labelledby="p-icon-label" />
-          </div>
-        </div>
-        <div class="row">
-          <div class="field">
-            <label for="p-price">Precio (USD)</label>
-            <input id="p-price" v-model.number="form.price" type="number" min="0" step="0.25" />
-          </div>
-          <div class="field">
-            <label for="p-unit">Unidad</label>
-            <input id="p-unit" v-model="form.unit" type="text" />
-          </div>
-        </div>
-        <div v-if="!editing?.isCocktail" class="field">
-          <label for="p-stock">Stock en bodega</label>
-          <input id="p-stock" v-model.number="form.warehouseStock" type="number" min="0" />
-        </div>
-        <button type="button" class="btn btn-gold" :disabled="saving" @click="save">
-          {{ saving ? 'Guardando…' : 'Guardar' }}
+    <div class="tools">
+      <div class="tabs">
+        <button
+          v-for="k in (['todos', 'fisico', 'receta', 'servicio'] as const)"
+          :key="k"
+          type="button"
+          class="tab"
+          :class="{ 'tab--on': kindFilter === k }"
+          @click="kindFilter = k"
+        >
+          {{ k === 'todos' ? 'Todos' : KIND_LABELS[k] }} <span class="tab-count">{{ counts[k] }}</span>
         </button>
       </div>
-    </BaseModal>
+      <label class="search">
+        <i class="fa-solid fa-magnifying-glass" aria-hidden="true" />
+        <input v-model="query" type="search" placeholder="Buscar producto" aria-label="Buscar producto" />
+      </label>
+    </div>
+
+    <section class="card table-card">
+      <SkeletonList v-if="loading" variant="row" :rows="10" />
+      <div v-else class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>Tipo</th>
+              <th class="num">Precio</th>
+              <th>Medida / receta</th>
+              <th>Estado</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in visible" :key="p._id" :class="{ inactive: !p.active }">
+              <td class="prod">
+                <ProductIcon :icon="p.icon" :size="20" />
+                <span>
+                  {{ p.name }}
+                  <small>{{ CATEGORY_LABELS[p.category] }}</small>
+                </span>
+                <span v-if="p.isCustom" class="custom-tag">creado en bar</span>
+              </td>
+              <td><span class="kind" :class="`kind--${p.kind}`">{{ KIND_LABELS[p.kind] }}</span></td>
+              <td class="num">
+                <strong v-if="p.kind !== 'fisico' || p.sellable">{{ formatMoney(p.price) }}</strong>
+                <span v-else class="muted">Insumo</span>
+              </td>
+              <td class="detail">
+                <template v-if="p.kind === 'fisico'">
+                  {{ p.containerSize > 1 ? `${formatNumber(p.containerSize)} ${unitShort(p.stockUnit)} por ${p.containerLabel}` : p.containerLabel }}
+                </template>
+                <template v-else-if="p.kind === 'receta'">{{ recipeSummary(p) }}</template>
+                <template v-else>Sin inventario</template>
+              </td>
+              <td>
+                <button type="button" class="state" :class="{ on: p.active }" @click="toggleActive(p)">
+                  {{ p.active ? 'Activo' : 'Inactivo' }}
+                </button>
+              </td>
+              <td>
+                <button type="button" class="edit-btn" @click="editor = { product: p }">
+                  <i class="fa-solid fa-pen" aria-hidden="true" /> Editar
+                </button>
+              </td>
+            </tr>
+            <tr v-if="!visible.length">
+              <td colspan="6" class="empty">Sin resultados.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <p v-if="!userStore.isAdmin" class="note">
+      <i class="fa-solid fa-lock" aria-hidden="true" /> Solo Paula cambia precios. Puedes editar
+      nombres, recetas e inventario.
+    </p>
+
+    <ProductEditor
+      v-if="editor"
+      :product="editor.product"
+      :physical="physical"
+      @close="editor = null"
+      @saved="onSaved"
+    />
   </div>
 </template>
 
@@ -228,33 +214,100 @@ async function toggleActive(product: Product) {
 
 .head {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
   margin-bottom: 1rem;
 
   .page-title {
-    margin-bottom: 0;
+    margin-bottom: 0.15rem;
+  }
+}
+
+.hint {
+  margin: 0;
+  color: var(--ink-400);
+  font-size: 0.86rem;
+}
+
+.tools {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.35rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tab {
+  flex-shrink: 0;
+  min-height: 42px;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--cream-200);
+  background: var(--surface);
+  font-weight: 600;
+  font-size: 0.86rem;
+  color: var(--ink-600);
+  transition: all 0.15s ease;
+
+  &--on {
+    background: var(--navy-800);
+    border-color: var(--navy-800);
+    color: #fff;
+  }
+}
+
+.tab-count {
+  font-size: 0.74rem;
+  opacity: 0.7;
+  margin-left: 0.2rem;
+}
+
+.search {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 42px;
+  padding: 0 0.85rem;
+  border: 1.5px solid var(--cream-200);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-400);
+
+  input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    outline: none;
+    background: transparent;
   }
 }
 
 .table-card {
-  overflow-x: auto;
-  padding: 0.5rem;
+  padding: 0.75rem;
+}
 
-  @include tablet {
-    padding: 0.75rem;
-  }
+.table-wrap {
+  overflow-x: auto;
 }
 
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.88rem;
+  font-size: 0.86rem;
 
   th {
     text-align: left;
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--ink-400);
@@ -273,16 +326,29 @@ async function toggleActive(product: Product) {
   }
 }
 
+.num {
+  text-align: right !important;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .prod {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.5rem;
   font-weight: 600;
-  white-space: nowrap;
+  min-width: 200px;
 
   svg {
     color: var(--navy-700);
     flex-shrink: 0;
+  }
+
+  small {
+    display: block;
+    font-weight: 500;
+    font-size: 0.72rem;
+    color: var(--ink-400);
   }
 }
 
@@ -290,39 +356,74 @@ async function toggleActive(product: Product) {
   font-size: 0.65rem;
   font-weight: 700;
   color: var(--gold-500);
-  background: rgba(232, 184, 75, 0.15);
+  background: rgba(159, 107, 60, 0.12);
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
+  white-space: nowrap;
 }
 
-.pill-btn {
-  font-size: 0.75rem;
+.kind {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  white-space: nowrap;
+
+  &--fisico {
+    background: var(--powder-100);
+    color: var(--navy-700);
+  }
+
+  &--receta {
+    background: rgba(159, 107, 60, 0.13);
+    color: var(--gold-500);
+  }
+
+  &--servicio {
+    background: var(--cream-100);
+    color: var(--ink-600);
+  }
+}
+
+.detail {
+  color: var(--ink-600);
+  font-size: 0.8rem;
+  min-width: 220px;
+}
+
+.muted {
+  color: var(--ink-400);
+}
+
+.state {
+  font-size: 0.74rem;
   font-weight: 700;
   padding: 0.25rem 0.65rem;
   border-radius: 999px;
-  background: var(--cream-200);
+  background: var(--cream-100);
   color: var(--ink-400);
 
   &.on {
-    background: rgba(63, 174, 106, 0.15);
+    background: rgba(63, 122, 87, 0.13);
     color: var(--success);
   }
 }
 
 .edit-btn {
   font-weight: 700;
-  color: var(--navy-600);
+  color: var(--navy-700);
+  white-space: nowrap;
 }
 
-.row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
+.empty {
+  text-align: center;
+  color: var(--ink-400);
+  padding: 1rem;
 }
 
-.modal-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
+.note {
+  margin: 0.8rem 0 0;
+  font-size: 0.84rem;
+  color: var(--ink-400);
 }
 </style>
