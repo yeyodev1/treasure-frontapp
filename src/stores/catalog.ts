@@ -4,30 +4,30 @@ import type { Product, ProductCategory } from '@/types'
 import { apiProducts } from '@/services/api'
 
 export const CATEGORY_LABELS: Record<ProductCategory, string> = {
-  cerveza: 'Cervezas',
-  vino: 'Vinos',
-  licor: 'Licores',
   coctel: 'Cócteles',
+  licor: 'Licores',
+  vino: 'Vinos',
+  cerveza: 'Cervezas',
   gaseosa: 'Gaseosas',
   agua: 'Aguas',
   jugo: 'Jugos',
   snack: 'Snacks',
+  insumo: 'Insumos',
+  servicio: 'Servicios',
   otro: 'Otros',
+}
+
+/** Lo que se puede vender en el bar (las botellas-insumo no aparecen). */
+export function isSellable(p: Product): boolean {
+  return p.active && (p.kind !== 'fisico' || p.sellable)
 }
 
 export const useCatalogStore = defineStore('catalog', () => {
   const products = ref<Product[]>([])
   const loaded = shallowRef(false)
 
-  const byCategory = computed(() => {
-    const groups = new Map<ProductCategory, Product[]>()
-    for (const product of products.value) {
-      const list = groups.get(product.category) ?? []
-      list.push(product)
-      groups.set(product.category, list)
-    }
-    return groups
-  })
+  const sellable = computed(() => products.value.filter(isSellable))
+  const physical = computed(() => products.value.filter((p) => p.kind === 'fisico' && p.active))
 
   async function load(force = false) {
     if (loaded.value && !force) return
@@ -41,5 +41,5 @@ export const useCatalogStore = defineStore('catalog', () => {
     else products.value.push(product)
   }
 
-  return { products, loaded, byCategory, load, upsert }
+  return { products, sellable, physical, loaded, load, upsert }
 })
