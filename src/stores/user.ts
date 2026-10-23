@@ -20,7 +20,12 @@ export const useUserStore = defineStore('user', () => {
   const role = computed(() => (realRole.value === 'admin' && viewAs.value) || realRole.value)
   const isAdmin = computed(() => role.value === 'admin')
   const isRealAdmin = computed(() => realRole.value === 'admin')
-  const canCollect = computed(() => role.value === 'admin' || role.value === 'direccion')
+  /** Dirección y administración revisan cuentas, cortesías y anulaciones. */
+  const isLead = computed(() => role.value === 'admin' || role.value === 'direccion')
+  /** Paula cobra; Dirección solo si está designada como cajera. */
+  const canCollect = computed(
+    () => role.value === 'admin' || (role.value === 'direccion' && Boolean(user.value?.isCashier)),
+  )
 
   function setViewAs(target: UserRole | null) {
     if (realRole.value !== 'admin') return
@@ -63,6 +68,7 @@ export const useUserStore = defineStore('user', () => {
     viewAs,
     isAdmin,
     isRealAdmin,
+    isLead,
     canCollect,
     setViewAs,
     login,
