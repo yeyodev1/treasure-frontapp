@@ -16,6 +16,7 @@ const routes: Array<RouteRecordRaw> = [
     component: () => import('@/views/PublicAccountView.vue'),
     meta: { title: 'Tu cuenta', public: true },
   },
+  // Operar
   {
     path: '/',
     name: 'Bar',
@@ -26,8 +27,9 @@ const routes: Array<RouteRecordRaw> = [
     path: '/cuentas',
     name: 'Accounts',
     component: () => import('@/views/AccountsView.vue'),
-    meta: { title: 'Cuentas', roles: ['admin', 'direccion'] },
+    meta: { title: 'Cuentas', roles: ['admin', 'direccion', 'bartender'] },
   },
+  // Controlar
   {
     path: '/admin/en-vivo',
     name: 'Live',
@@ -44,25 +46,27 @@ const routes: Array<RouteRecordRaw> = [
     path: '/admin/inventario',
     name: 'Inventory',
     component: () => import('@/views/admin/InventoryView.vue'),
-    meta: { title: 'Inventario', roles: ['admin', 'bodega', 'direccion'] },
-  },
-  {
-    path: '/admin/cruceros',
-    name: 'Cruises',
-    component: () => import('@/views/admin/CruisesView.vue'),
-    meta: { title: 'Cruceros', roles: ['admin', 'direccion'] },
-  },
-  {
-    path: '/admin/productos',
-    name: 'Products',
-    component: () => import('@/views/admin/ProductsView.vue'),
-    meta: { title: 'Catálogo', roles: ['admin', 'bodega'] },
+    meta: { title: 'Inventario', roles: ['admin', 'bodega', 'direccion', 'bartender'] },
   },
   {
     path: '/admin/pagos',
     name: 'Payments',
     component: () => import('@/views/admin/PaymentsView.vue'),
-    meta: { title: 'Cobros y facturas', roles: ['admin', 'direccion'] },
+    meta: { title: 'Cobros', roles: ['admin', 'direccion'] },
+  },
+  // Administrar
+  {
+    path: '/admin/salidas',
+    name: 'Cruises',
+    component: () => import('@/views/admin/CruisesView.vue'),
+    meta: { title: 'Salidas', roles: ['admin', 'direccion'] },
+  },
+  { path: '/admin/cruceros', redirect: '/admin/salidas' },
+  {
+    path: '/admin/productos',
+    name: 'Products',
+    component: () => import('@/views/admin/ProductsView.vue'),
+    meta: { title: 'Catálogo', roles: ['admin', 'bodega'] },
   },
   {
     path: '/admin/equipo',
@@ -84,7 +88,7 @@ const router = createRouter({
 
 /** Primera vista a la que puede entrar cada rol. */
 const ROLE_HOME: Record<UserRole, string> = {
-  admin: '/admin',
+  admin: '/admin/en-vivo',
   direccion: '/cuentas',
   bartender: '/',
   bodega: '/admin/inventario',
@@ -109,7 +113,9 @@ router.beforeEach(async (to) => {
 })
 
 router.afterEach((to) => {
-  document.title = to.meta.title ? `${to.meta.title} · Treasure Bar` : 'Treasure Bar'
+  document.title = to.meta.title
+    ? `${to.meta.title} · Treasure of Galápagos`
+    : 'Treasure of Galápagos'
 })
 
 export default router
