@@ -23,9 +23,9 @@ onMounted(async () => {
   <main class="public">
     <div class="public-card">
       <header class="public-head">
-        <BrandSeal :size="76" class="public-seal" />
-        <h1>Treasure of Galápagos</h1>
-        <p v-if="data">Cabina {{ data.cabinNumber }} · {{ data.guestName || 'Huésped' }}</p>
+        <BrandSeal :size="104" class="public-seal" />
+        <h1>Tu cuenta a bordo</h1>
+        <p v-if="data">{{ data.cruiseName }} · Cabina {{ data.cabinNumber }} · {{ data.guestName || 'Huésped' }}</p>
       </header>
 
       <p v-if="failed" class="public-error">
@@ -73,10 +73,7 @@ onMounted(async () => {
 
 .public {
   min-height: 100dvh;
-  background:
-    radial-gradient(ellipse at 15% 0%, rgba(185, 204, 224, 0.18), transparent 55%),
-    radial-gradient(ellipse at 100% 100%, rgba(195, 161, 105, 0.2), transparent 55%),
-    var(--navy-900);
+  background: var(--powder-300) url('/brand/pattern.jpg') center / cover no-repeat fixed;
   display: flex;
   justify-content: center;
   padding: 1.25rem 1rem 2rem;
