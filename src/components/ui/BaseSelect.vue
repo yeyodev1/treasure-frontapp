@@ -12,18 +12,33 @@ const props = defineProps<{
   options: SelectOption[]
   placeholder?: string
   disabled?: boolean
+  /** Muestra un buscador arriba de las opciones (países, productos…). */
+  searchable?: boolean
 }>()
 
 const model = defineModel<string>({ default: '' })
 
 const open = shallowRef(false)
 const highlighted = shallowRef(-1)
+const query = shallowRef('')
 const trigger = useTemplateRef<HTMLElement>('trigger')
 const list = useTemplateRef<HTMLElement>('list')
+const panel = useTemplateRef<HTMLElement>('panel')
+const search = useTemplateRef<HTMLInputElement>('search')
 
 const { style: panelStyle, openUp, bind, unbind } = useAnchoredPanel(trigger)
 
 const selected = computed(() => props.options.find((o) => o.value === model.value) ?? null)
+
+function normalize(text: string): string {
+  return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
+
+const visibleOptions = computed(() => {
+  const q = normalize(query.value.trim())
+  if (!q) return props.options
+  return props.options.filter((o) => normalize(`${o.label} ${o.hint ?? ''}`).includes(q))
+})
 
 function toggle() {
   if (props.disabled) return
@@ -31,9 +46,11 @@ function toggle() {
     close()
     return
   }
+  query.value = ''
   open.value = true
   bind()
-  highlighted.value = props.options.findIndex((o) => o.value === model.value)
+  highlighted.value = visibleOptions.value.findIndex((o) => o.value === model.value)
+  if (props.searchable) requestAnimationFrame(() => search.value?.focus())
 }
 
 function close() {
@@ -58,12 +75,13 @@ function onKeydown(e: KeyboardEvent) {
   } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault()
     const delta = e.key === 'ArrowDown' ? 1 : -1
-    const count = props.options.length
+    const count = visibleOptions.value.length
+    if (!count) return
     highlighted.value = (highlighted.value + delta + count) % count
     scrollToHighlighted()
   } else if (e.key === 'Enter') {
     e.preventDefault()
-    const option = props.options[highlighted.value]
+    const option = visibleOptions.value[highlighted.value]
     if (option) choose(option)
   }
 }
@@ -76,7 +94,7 @@ function scrollToHighlighted() {
 function onOutside(e: MouseEvent) {
   if (!open.value) return
   const target = e.target as Node
-  if (trigger.value?.contains(target) || list.value?.contains(target)) return
+  if (trigger.value?.contains(target) || panel.value?.contains(target)) return
   close()
 }
 
@@ -104,15 +122,23 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
     <!-- El menú va al body con position:fixed: ningún modal lo recorta. -->
     <Teleport to="body">
       <Transition :name="openUp ? 'pop-up' : 'pop'">
-        <ul
-          v-if="open"
-          ref="list"
-          class="select-menu"
-          :style="panelStyle"
-          role="listbox"
-        >
+        <div v-if="open" ref="panel" class="select-menu" :style="panelStyle">
+        <div v-if="searchable" class="select-search">
+          <i class="fa-solid fa-magnifying-glass" aria-hidden="true" />
+          <input
+            ref="search"
+            v-model="query"
+            type="text"
+            placeholder="Buscar…"
+            aria-label="Buscar opción"
+            @keydown="onKeydown"
+            @input="highlighted = 0"
+          />
+        </div>
+        <p v-if="!visibleOptions.length" class="select-empty">Sin resultados</p>
+        <ul ref="list" class="select-list" role="listbox">
           <li
-            v-for="(option, index) in options"
+            v-for="(option, index) in visibleOptions"
             :key="option.value"
             role="option"
             :aria-selected="option.value === model"
@@ -133,6 +159,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
             />
           </li>
         </ul>
+        </div>
       </Transition>
     </Teleport>
   </div>
@@ -204,16 +231,53 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 // Sin scoped: el menú vive teleportado en el body.
 .select-menu {
   z-index: 90;
-  margin: 0;
+  display: flex;
+  flex-direction: column;
   padding: 0.3rem;
-  list-style: none;
   background: var(--surface);
   border: 1px solid var(--cream-200);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-lg);
-  overflow-y: auto;
+  overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
+}
+
+.select-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.select-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  margin-bottom: 0.3rem;
+  border-bottom: 1px solid var(--cream-200);
+  color: var(--ink-400);
+  font-size: 0.85rem;
+
+  input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 0.92rem;
+    color: var(--ink-900);
+    user-select: text;
+  }
+}
+
+.select-empty {
+  margin: 0;
+  padding: 0.6rem 0.7rem;
+  font-size: 0.85rem;
+  color: var(--ink-400);
 }
 
 .select-option {
