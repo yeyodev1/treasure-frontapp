@@ -12,9 +12,11 @@ import { useSound } from '@/composables/useSound'
 import {
   apiAccountAction,
   apiCabinAccount,
+  apiBonifyConsumption,
   apiCollectCabin,
   apiOrders,
   apiReviewAnnulment,
+  apiUndoConsumption,
 } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { COUNTRY_OPTIONS } from '@/utils/countries'
@@ -66,6 +68,8 @@ const payer = computed(
 const billing = reactive({ idNumber: '', email: '', country: '', name: '' })
 const method = shallowRef('efectivo')
 const cashConfirmed = shallowRef(false)
+/** Voucher, número de transferencia… (obligatorio en transferencias). */
+const reference = shallowRef('')
 
 /** Solo se piden los datos que el pagador no tiene registrados. */
 const missing = computed(() => ({
@@ -79,7 +83,7 @@ const deliveredLines = computed(() =>
   (account.value?.orders ?? []).flatMap((order) =>
     order.items
       .filter((i) => i.chargeableQty > 0)
-      .map((i) => ({ ...i, orderId: order.id, by: order.by, at: order.createdAt })),
+      .map((i) => ({ ...i, orderId: order.id, by: order.by, at: order.createdAt, single: order.items.length === 1 })),
   ),
 )
 
@@ -99,8 +103,13 @@ const collectReady = computed(
     Boolean(account.value?.readyToCollect) &&
     (!missing.value.idNumber || billing.idNumber.trim()) &&
     (!missing.value.name || billing.name.trim()) &&
-    (method.value !== 'efectivo' || cashConfirmed.value),
+    (method.value !== 'efectivo' || cashConfirmed.value) &&
+    (method.value !== 'transferencia' || reference.value.trim()),
 )
+
+/** La directora corrige: bonificar (se consumió) o quitar (no se sirvió). */
+const canCorrect = computed(() => userStore.isDirector && account.value?.status !== 'cobrada')
+const isBar = computed(() => userStore.role === 'bartender')
 
 async function load() {
   try {
@@ -137,7 +146,7 @@ async function run(action: () => Promise<void>, successSound: 'success' | 'cash'
 function submitReview() {
   return run(async () => {
     account.value = await apiAccountAction(props.cruiseId, props.cabin.number, 'submit')
-    toast.success('Cuenta enviada a revisión de Dirección')
+    toast.success('Cuenta enviada a revisión de la directora')
   })
 }
 
@@ -191,6 +200,41 @@ async function reviewAnnulment(order: Order, annulmentId: string, decision: 'apr
   })
 }
 
+async function bonify(line: { orderId: string; name: string; chargeableQty: number }) {
+  const reason = await confirmStore.askReason({
+    title: `¿Bonificar ${line.chargeableQty} ${line.name}?`,
+    message: 'Deja de cobrarse, pero se consumió: los ingredientes siguen descontados. La aprobación de la cuenta queda sin efecto.',
+    confirmLabel: 'Bonificar',
+    icon: 'fa-gift',
+    reason: { label: 'Motivo (obligatorio)', suggestions: ['Cortesía de la casa', 'Compensación al pasajero'] },
+  })
+  if (!reason) return
+  await run(async () => {
+    await apiBonifyConsumption(line.orderId, reason)
+    toast.success('Bebida bonificada')
+  })
+}
+
+async function removeLine(line: { orderId: string; name: string; chargeableQty: number }) {
+  if (account.value?.status !== 'abierta') {
+    toast.error('Devuelve primero la cuenta (Devolver con motivo) para corregirla')
+    return
+  }
+  const reason = await confirmStore.askReason({
+    title: `¿Quitar ${line.chargeableQty} ${line.name}?`,
+    message: 'Para un registro por error sin bebida servida: se quita el cargo y los ingredientes vuelven al stock.',
+    confirmLabel: 'Quitar',
+    danger: true,
+    icon: 'fa-rotate-left',
+    reason: { label: 'Motivo (obligatorio)', suggestions: ['No se sirvió', 'Cabina equivocada'] },
+  })
+  if (!reason) return
+  await run(async () => {
+    await apiUndoConsumption(line.orderId, reason)
+    toast.success('Cargo y stock revertidos')
+  })
+}
+
 async function collect() {
   if (!account.value) return
   const ok = await confirmStore.ask({
@@ -206,6 +250,7 @@ async function collect() {
       cabinNumber: props.cabin.number,
       method: method.value as PaymentMethod,
       cashConfirmed: cashConfirmed.value,
+      reference: reference.value.trim() || undefined,
       billing: {
         name: billing.name || undefined,
         idNumber: billing.idNumber || undefined,
@@ -262,6 +307,14 @@ async function collect() {
           <span class="line-amount">
             {{ formatMoney(line.courtesy ? 0 : line.chargeableQty * line.unitPrice) }}
           </span>
+          <div v-if="canCorrect && line.single" class="line-actions">
+            <button v-if="!line.courtesy" type="button" class="line-btn" :disabled="busy" @click="bonify(line)">
+              <i class="fa-solid fa-gift" aria-hidden="true" /> Bonificar
+            </button>
+            <button type="button" class="line-btn line-btn--danger" :disabled="busy" @click="removeLine(line)">
+              <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Quitar
+            </button>
+          </div>
         </div>
         <p v-if="account.courtesyTotal" class="muted small">
           Cortesías registradas: {{ formatMoney(account.courtesyTotal) }}
@@ -340,12 +393,12 @@ async function collect() {
           </button>
         </div>
         <p v-if="account.status === 'en_revision' && !userStore.isLead" class="muted small">
-          Dirección está revisando esta cuenta.
+          La directora está revisando esta cuenta.
         </p>
       </div>
 
       <!-- Cobro: bloqueado hasta aprobar -->
-      <section v-if="account.status !== 'cobrada'" class="collect" :class="{ 'collect--locked': !account.readyToCollect }">
+      <section v-if="account.status !== 'cobrada' && !isBar" class="collect" :class="{ 'collect--locked': !account.readyToCollect }">
         <h4>
           <i class="fa-solid fa-receipt" aria-hidden="true" />
           {{ account.readyToCollect ? 'Facturar y cobrar' : 'Facturar / cobrar · Bloqueado hasta aprobar' }}
@@ -372,6 +425,10 @@ async function collect() {
             <label>Método de pago</label>
             <BaseSelect v-model="method" :options="METHOD_OPTIONS" />
           </div>
+          <div v-if="method !== 'efectivo'" class="field">
+            <label for="pay-ref">Referencia {{ method === 'transferencia' ? '(obligatoria)' : '(voucher, opcional)' }}</label>
+            <input id="pay-ref" v-model="reference" type="text" maxlength="40" placeholder="Número de transferencia o voucher" />
+          </div>
           <label v-if="method === 'efectivo'" class="cash-check">
             <input v-model="cashConfirmed" type="checkbox" />
             Confirmo que el efectivo fue recaudado en caja
@@ -381,7 +438,7 @@ async function collect() {
           </button>
         </template>
         <p v-else-if="account.readyToCollect" class="muted small">
-          Aprobada. Cobra Paula (o Dirección si fue designada como cajera).
+          Aprobada. Cobra la directora.
         </p>
       </section>
 
@@ -414,6 +471,42 @@ async function collect() {
 </template>
 
 <style scoped lang="scss">
+.line-actions {
+  display: flex;
+  gap: 0.4rem;
+  width: 100%;
+  justify-content: flex-start;
+  margin-top: 0.35rem;
+}
+
+.line-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 44px;
+  padding: 0 0.75rem;
+  border-radius: 10px;
+  border: 1.5px solid var(--cream-200);
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--gold-500);
+  transition:
+    border-color 0.15s ease,
+    opacity 0.15s ease;
+
+  &:hover:not(:disabled) {
+    border-color: currentColor;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+  }
+
+  &--danger {
+    color: var(--danger);
+  }
+}
+
 .acc {
   display: flex;
   flex-direction: column;
@@ -476,6 +569,7 @@ async function collect() {
 
 .line {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 0.75rem;
   padding-bottom: 0.55rem;
