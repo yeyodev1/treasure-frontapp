@@ -11,10 +11,7 @@ import {
   apiCounts,
   apiCreateCount,
   apiMovements,
-  apiPurchase,
-  apiRegisterWaste,
   apiStock,
-  apiTransfer,
 } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatDateTime, formatMoney, formatNumber, formatStock, unitShort } from '@/utils/format'
@@ -24,10 +21,11 @@ import BaseSpinner from '@/components/ui/BaseSpinner.vue'
 import ProductIcon from '@/components/ui/ProductIcon.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import CountEditor from '@/components/inventory/CountEditor.vue'
+import { costText, stockText } from '@/components/supply/units'
 import type { Product, StockCount, StockItem, StockLocation, StockMovement } from '@/types'
 
 type Tab = 'abordo' | 'bodega' | 'conteos' | 'bitacora'
-type ModalKind = 'carga' | 'merma' | 'compra' | 'ajuste' | null
+type ModalKind = 'ajuste' | null
 
 const catalogStore = useCatalogStore()
 const toast = useToastStore()
@@ -56,13 +54,11 @@ const form = reactive({
   mode: 'envases' as 'envases' | 'base',
   reason: '',
   location: 'abordo' as StockLocation,
-  supplier: '',
-  document: '',
-  unitCost: 0,
 })
 
-const canPurchase = computed(() => userStore.role === 'admin' || userStore.role === 'bodega')
-const canTransfer = computed(() => userStore.role !== 'bartender')
+/** Compras, recepciones, cargas y mermas se hacen en la pantalla de Bodega. */
+const canPurchase = computed(() => userStore.isWarehouse)
+const canTransfer = computed(() => userStore.isWarehouse || userStore.isDirector)
 
 const MOVEMENT_LABELS: Record<StockMovement['type'], string> = {
   carga: 'Carga',
@@ -75,9 +71,6 @@ const MOVEMENT_LABELS: Record<StockMovement['type'], string> = {
 }
 
 const MODAL_TITLES: Record<Exclude<ModalKind, null>, string> = {
-  carga: 'Cargar al barco (desde bodega)',
-  merma: 'Registrar merma',
-  compra: 'Ingreso de compra a bodega',
   ajuste: 'Ajuste manual de inventario',
 }
 
@@ -110,6 +103,9 @@ const visibleStock = computed(() => {
 })
 
 const alerts = computed(() => stock.value.filter((s) => s.negative || s.low).length)
+const negatives = computed(() =>
+  tab.value === 'abordo' || tab.value === 'bodega' ? stock.value.filter((s) => s.negative).length : 0,
+)
 
 async function loadStock(location: StockLocation) {
   loading.value = true
@@ -184,9 +180,6 @@ function openModal(kind: Exclude<ModalKind, null>) {
     mode: 'envases',
     reason: '',
     location: tab.value === 'bodega' ? 'bodega' : 'abordo',
-    supplier: '',
-    document: '',
-    unitCost: 0,
   })
   modal.value = kind
 }
@@ -197,32 +190,24 @@ async function submitModal() {
     toast.error('Elige el producto y la cantidad')
     return
   }
-  const kind = modal.value
-  const amount = `${formatStock(baseQty.value, p.stockUnit, p.containerSize, p.containerLabel)}`
+  if (!form.reason.trim()) {
+    toast.error('El ajuste necesita un motivo')
+    return
+  }
+  if (!userStore.isOwner) return
+  const amount = `${formatStock(Math.abs(baseQty.value), p.stockUnit, p.containerSize, p.containerLabel)}`
   const ok = await confirmStore.ask({
-    title: `¿Registrar ${MODAL_TITLES[kind!].toLowerCase()}?`,
-    message: `${p.name}: ${kind === 'merma' ? '−' : kind === 'ajuste' && baseQty.value < 0 ? '' : '+'}${amount}`,
-    confirmLabel: 'Registrar',
-    danger: kind === 'merma',
-    icon: 'fa-boxes-stacked',
+    title: '¿Registrar ajuste manual?',
+    message: `${p.name} (${form.location === 'bodega' ? 'bodega' : 'a bordo'}): ${baseQty.value < 0 ? '−' : '+'}${amount}. Motivo: ${form.reason.trim()}.`,
+    confirmLabel: 'Registrar ajuste',
+    danger: baseQty.value < 0,
+    icon: 'fa-sliders',
   })
   if (!ok) return
 
   saving.value = true
   try {
-    if (kind === 'carga') {
-      await apiTransfer([{ productId: p._id, qty: baseQty.value }])
-    } else if (kind === 'merma') {
-      await apiRegisterWaste({ productId: p._id, qty: baseQty.value, reason: form.reason, location: form.location })
-    } else if (kind === 'compra') {
-      await apiPurchase({
-        supplier: form.supplier,
-        document: form.document,
-        items: [{ productId: p._id, containers: form.mode === 'envases' ? form.qty : form.qty / (p.containerSize || 1), unitCost: form.unitCost }],
-      })
-    } else if (kind === 'ajuste') {
-      await apiAdjustStock({ productId: p._id, qty: baseQty.value, reason: form.reason, location: form.location })
-    }
+    await apiAdjustStock({ productId: p._id, qty: baseQty.value, reason: form.reason.trim(), location: form.location })
     play('success')
     toast.success('Movimiento registrado en la bitácora')
     modal.value = null
@@ -279,22 +264,29 @@ const COUNT_STATUS: Record<string, string> = {
     </div>
 
     <div class="actions">
-      <button v-if="canTransfer" type="button" class="btn btn-ghost" @click="openModal('carga')">
+      <RouterLink v-if="canPurchase" class="btn btn-ghost" :to="{ path: '/bodega', query: { flujo: 'compra' } }">
+        <i class="fa-solid fa-file-invoice-dollar" aria-hidden="true" /> Compras en Bodega
+      </RouterLink>
+      <RouterLink v-if="canPurchase" class="btn btn-ghost" :to="{ path: '/bodega', query: { flujo: 'recibir' } }">
+        <i class="fa-solid fa-box-open" aria-hidden="true" /> Recibir mercadería
+      </RouterLink>
+      <RouterLink v-if="canTransfer" class="btn btn-ghost" :to="{ path: '/bodega', query: { flujo: 'carga' } }">
         <i class="fa-solid fa-dolly" aria-hidden="true" /> Cargar al barco
-      </button>
-      <button type="button" class="btn btn-ghost" @click="openModal('merma')">
+      </RouterLink>
+      <RouterLink class="btn btn-ghost" :to="{ path: '/bodega', query: { flujo: 'merma' } }">
         <i class="fa-solid fa-wine-glass-empty" aria-hidden="true" /> Merma
-      </button>
-      <button v-if="canPurchase" type="button" class="btn btn-ghost" @click="openModal('compra')">
-        <i class="fa-solid fa-cart-plus" aria-hidden="true" /> Compra a bodega
-      </button>
+      </RouterLink>
       <button type="button" class="btn btn-ghost" @click="showNewCount = true">
         <i class="fa-solid fa-clipboard-check" aria-hidden="true" /> Conteo físico
       </button>
-      <button v-if="userStore.isAdmin" type="button" class="btn btn-ghost" @click="openModal('ajuste')">
+      <button v-if="userStore.isOwner" type="button" class="btn btn-ghost" @click="openModal('ajuste')">
         <i class="fa-solid fa-sliders" aria-hidden="true" /> Ajuste manual
       </button>
     </div>
+    <p v-if="negatives" class="needs-count">
+      <i class="fa-solid fa-clipboard-question" aria-hidden="true" />
+      {{ negatives === 1 ? '1 producto tiene' : `${negatives} productos tienen` }} saldo bajo cero en el sistema: requiere conteo físico. No se corrige solo; la dueña autoriza el ajuste.
+    </p>
 
     <!-- Stock por ubicación -->
     <section v-if="tab === 'abordo' || tab === 'bodega'" class="card table-card">
@@ -316,7 +308,7 @@ const COUNT_STATUS: Record<string, string> = {
             <tr>
               <th>Insumo</th>
               <th class="num">Stock</th>
-              <th>Envase</th>
+              <th>Costo</th>
               <th>Estado</th>
             </tr>
           </thead>
@@ -327,15 +319,17 @@ const COUNT_STATUS: Record<string, string> = {
                 <span>{{ item.product.name }}</span>
               </td>
               <td class="num">
-                <strong :class="{ neg: item.negative }">
-                  {{ formatStock(item.qty, item.product.stockUnit, item.product.containerSize, item.product.containerLabel) }}
-                </strong>
+                <template v-if="item.negative">
+                  <strong class="neg">Requiere conteo</strong>
+                  <small class="sys">Sistema: {{ formatNumber(item.qty) }} {{ unitShort(item.product.stockUnit) }}</small>
+                </template>
+                <strong v-else>{{ stockText(item.qty, item.product) }}</strong>
               </td>
               <td class="muted">
-                {{ item.product.containerSize > 1 ? `${formatNumber(item.product.containerSize)} ${unitShort(item.product.stockUnit)} por ${item.product.containerLabel}` : item.product.containerLabel }}
+                {{ costText(item.product.costPerUnit, item.product) || 'Sin costo' }}
               </td>
               <td>
-                <span v-if="item.negative" class="pill pill--neg">Revisar en conteo</span>
+                <span v-if="item.negative" class="pill pill--neg">Requiere conteo</span>
                 <span v-else-if="item.low" class="pill pill--low">Stock bajo</span>
                 <span v-else-if="item.qty === 0" class="pill">Sin stock</span>
                 <span v-else class="pill pill--ok">OK</span>
@@ -376,7 +370,7 @@ const COUNT_STATUS: Record<string, string> = {
               <td><span class="pill" :class="`pill--${c.status}`">{{ COUNT_STATUS[c.status] }}</span></td>
               <td>
                 <button type="button" class="link-btn" @click="openCountId = c._id">
-                  {{ c.status === 'enviado' && userStore.isAdmin ? 'Revisar' : 'Abrir' }}
+                  {{ c.status === 'enviado' && userStore.isOwner ? 'Revisar' : 'Abrir' }}
                   <i class="fa-solid fa-chevron-right" aria-hidden="true" />
                 </button>
               </td>
@@ -430,27 +424,20 @@ const COUNT_STATUS: Record<string, string> = {
     </section>
 
     <!-- Movimiento -->
-    <BaseModal v-if="modal" :title="MODAL_TITLES[modal]" @close="modal = null">
+    <BaseModal v-if="modal && userStore.isOwner" :title="MODAL_TITLES[modal]" @close="modal = null">
       <div class="modal-form">
         <div class="field">
           <label>Insumo</label>
           <BaseSelect v-model="form.productId" :options="physicalOptions" placeholder="Buscar insumo…" searchable />
         </div>
 
-        <div v-if="modal === 'compra'" class="row">
-          <div class="field">
-            <label for="mv-supplier">Proveedor</label>
-            <input id="mv-supplier" v-model="form.supplier" type="text" />
-          </div>
-          <div class="field">
-            <label for="mv-doc">Documento (factura / guía)</label>
-            <input id="mv-doc" v-model="form.document" type="text" />
-          </div>
-        </div>
+        <p class="count-intro">
+          Solo la dueña registra ajustes. Para diferencias de un conteo, usa Conteo físico: el ajuste queda con su corte.
+        </p>
 
         <div class="field">
           <label for="mv-qty">
-            Cantidad {{ modal === 'ajuste' ? '(positiva suma, negativa resta)' : '' }}
+            Cantidad (positiva suma, negativa resta)
           </label>
           <div class="qty-row">
             <input id="mv-qty" v-model.number="form.qty" type="number" step="any" />
@@ -469,12 +456,7 @@ const COUNT_STATUS: Record<string, string> = {
           </small>
         </div>
 
-        <div v-if="modal === 'compra'" class="field">
-          <label for="mv-cost">Costo por {{ selectedProduct?.containerLabel ?? 'envase' }} (USD)</label>
-          <input id="mv-cost" v-model.number="form.unitCost" type="number" min="0" step="0.01" />
-        </div>
-
-        <div v-if="modal === 'merma' || modal === 'ajuste'" class="field">
+        <div class="field">
           <label>Ubicación</label>
           <BaseSelect
             v-model="form.location"
@@ -482,13 +464,13 @@ const COUNT_STATUS: Record<string, string> = {
           />
         </div>
 
-        <div v-if="modal === 'merma' || modal === 'ajuste'" class="field">
-          <label for="mv-reason">Motivo</label>
-          <input id="mv-reason" v-model="form.reason" type="text" placeholder="Ej. se cayó una botella" />
+        <div class="field">
+          <label for="mv-reason">Motivo (obligatorio)</label>
+          <input id="mv-reason" v-model="form.reason" type="text" placeholder="Ej. corrección autorizada tras revisión" />
         </div>
 
         <button type="button" class="btn btn-gold" :disabled="saving" @click="submitModal">
-          <i class="fa-solid fa-check" aria-hidden="true" /> {{ saving ? 'Guardando…' : 'Registrar' }}
+          <i class="fa-solid fa-check" aria-hidden="true" /> {{ saving ? 'Guardando…' : 'Registrar ajuste' }}
         </button>
       </div>
     </BaseModal>
@@ -497,7 +479,7 @@ const COUNT_STATUS: Record<string, string> = {
     <BaseModal v-if="showNewCount" title="Nuevo conteo físico" @close="showNewCount = false">
       <p class="count-intro">
         Se toma una foto del stock digital en este instante (el corte). Cuenta lo que hay, guarda
-        las veces que quieras y envíalo a Paula. Guardar no cambia el stock.
+        las veces que quieras y envíalo a la dueña. Guardar no cambia el stock: lo autoriza la dueña.
       </p>
       <div class="count-choice">
         <button type="button" class="choice" @click="createCount('abordo')">
@@ -730,6 +712,26 @@ const COUNT_STATUS: Record<string, string> = {
     background: var(--powder-100);
     color: var(--navy-700);
   }
+}
+
+.needs-count {
+  margin: 0 0 1rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--radius-sm);
+  background: rgba(180, 72, 59, 0.08);
+  color: var(--danger);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.sys {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--ink-400);
+  font-weight: 500;
 }
 
 .link-btn {
