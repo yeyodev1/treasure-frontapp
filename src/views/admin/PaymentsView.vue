@@ -28,6 +28,7 @@ const sentinel = shallowRef<HTMLElement | null>(null)
 
 const INVOICE_LABELS: Record<InvoiceStatus, string> = {
   pendiente: 'Pendiente',
+  emitiendo: 'Emitiendo…',
   emitida: 'Emitida',
   error: 'Error',
   no_aplica: 'No aplica',
@@ -74,15 +75,26 @@ useInfiniteScroll({ sentinel, onReach: loadMore })
 
 onMounted(refresh)
 
+const retrying = shallowRef('')
+
 async function retry(payment: Payment) {
+  if (retrying.value) return
+  retrying.value = payment._id
   try {
-    await apiRetryInvoice(payment._id)
-    play('success')
-    toast.success('Reintento de factura enviado')
+    const updated = await apiRetryInvoice(payment._id)
+    if (updated.invoiceStatus === 'emitida') {
+      play('success')
+      toast.success(`Factura ${updated.invoiceNumber ?? ''} emitida`)
+    } else {
+      play('error')
+      toast.error(updated.invoiceError || 'La factura no se pudo emitir')
+    }
     await refresh()
   } catch (err) {
     play('error')
     toast.error(apiErrorMessage(err))
+  } finally {
+    retrying.value = ''
   }
 }
 
@@ -167,16 +179,29 @@ function collectorName(payment: Payment): string {
                 Reversado
               </span>
               <template v-else>
-                <span class="pill" :class="`pill--${payment.invoiceStatus}`">
+                <span class="pill" :class="`pill--${payment.invoiceStatus}`" :title="payment.invoiceError || undefined">
                   {{ INVOICE_LABELS[payment.invoiceStatus] }}
                 </span>
+                <a
+                  v-if="payment.invoiceStatus === 'emitida' && payment.invoiceNumber"
+                  class="invoice-link"
+                  :href="payment.invoiceUrl || undefined"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  <i class="fa-solid fa-file-pdf" aria-hidden="true" /> {{ payment.invoiceNumber }}
+                </a>
+                <small v-if="payment.invoiceStatus === 'error' && payment.invoiceError" class="invoice-error">
+                  {{ payment.invoiceError }}
+                </small>
                 <button
                   v-if="userStore.isAdmin && (payment.invoiceStatus === 'pendiente' || payment.invoiceStatus === 'error')"
                   type="button"
                   class="retry"
+                  :disabled="retrying === payment._id"
                   @click="retry(payment)"
                 >
-                  Reintentar
+                  {{ retrying === payment._id ? 'Emitiendo…' : 'Reintentar' }}
                 </button>
               </template>
             </td>
@@ -272,6 +297,36 @@ function collectorName(payment: Payment): string {
     background: rgba(224, 82, 82, 0.15);
     color: var(--danger);
   }
+
+  &--emitiendo {
+    background: rgba(200, 215, 231, 0.5);
+    color: var(--navy-600);
+  }
+}
+
+.invoice-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: 0.4rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--navy-600);
+  white-space: nowrap;
+  transition: opacity 0.15s ease;
+
+  &:hover {
+    opacity: 0.75;
+  }
+}
+
+.invoice-error {
+  display: block;
+  max-width: 260px;
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: var(--danger);
 }
 
 .reverse {
