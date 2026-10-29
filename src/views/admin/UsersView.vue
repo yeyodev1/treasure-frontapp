@@ -23,8 +23,9 @@ const saving = shallowRef(false)
 const loading = shallowRef(true)
 
 const ROLE_LABELS: Record<UserRole, string> = {
-  admin: 'Administración',
-  direccion: 'Dirección de crucero',
+  duena: 'Dueña (toda la operación y finanzas)',
+  admin: 'Administradora (conteos, compras y recepciones)',
+  direccion: 'Directora de crucero (pasajeros, cuentas y cobros)',
   bartender: 'Bartender',
   bodega: 'Bodega',
   capitan: 'Capitán (Registros ISM)',
@@ -174,7 +175,6 @@ async function toggleActive(user: TeamUser) {
           <span class="user-role">
             {{ ROLE_LABELS[user.role] }}
             <template v-if="user.position"> · {{ POSITION_LABELS[user.position] ?? user.position }}</template>
-            <em v-if="user.isCashier" class="cashier"><i class="fa-solid fa-cash-register" aria-hidden="true" /> Cajera</em>
           </span>
           <span class="user-audit">
             Alta {{ formatDate(user.createdAt) }}<template v-if="user.createdBy"> por {{ user.createdBy.name }}</template>
@@ -218,10 +218,6 @@ async function toggleActive(user: TeamUser) {
           <i class="fa-solid fa-clipboard-check" aria-hidden="true" />
           Entra en registros.teseturis.app para llenar y firmar los registros ISM.
         </p>
-        <label v-if="form.role === 'direccion'" class="cashier-check">
-          <input v-model="form.isCashier" type="checkbox" />
-          Designar como cajera: puede cobrar cuentas aprobadas
-        </label>
         <button type="button" class="btn btn-gold" :disabled="saving" @click="save">
           <i class="fa-solid fa-floppy-disk" aria-hidden="true" /> {{ saving ? 'Guardando…' : 'Guardar' }}
         </button>
