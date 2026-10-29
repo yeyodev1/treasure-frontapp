@@ -201,7 +201,7 @@ async function collect() {
   })
   if (!ok) return
   await run(async () => {
-    await apiCollectCabin({
+    const payment = await apiCollectCabin({
       cruiseId: props.cruiseId,
       cabinNumber: props.cabin.number,
       method: method.value as PaymentMethod,
@@ -213,7 +213,14 @@ async function collect() {
         country: billing.country || undefined,
       },
     })
-    toast.success(`Cabina ${props.cabin.number} cobrada`)
+    if (payment?.invoiceStatus === 'emitida') {
+      toast.success(`Cabina ${props.cabin.number} cobrada · factura ${payment.invoiceNumber ?? ''}`)
+    } else {
+      toast.success(`Cabina ${props.cabin.number} cobrada`)
+      if (payment?.invoiceStatus === 'error') {
+        toast.error(`La factura quedó pendiente: ${payment.invoiceError}. Reintenta desde Cobros.`)
+      }
+    }
   }, 'cash')
 }
 </script>
