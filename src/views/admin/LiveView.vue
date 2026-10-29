@@ -25,6 +25,10 @@ const kindFilter = shallowRef<'todo' | LiveKind>('todo')
 let timer: ReturnType<typeof setInterval> | null = null
 
 const KIND_META: Record<LiveKind, { icon: string; label: string }> = {
+  consumo: { icon: 'fa-martini-glass-citrus', label: 'Consumo' },
+  requerimiento: { icon: 'fa-dolly', label: 'Abastecimiento' },
+  compra: { icon: 'fa-truck-ramp-box', label: 'Compra' },
+  registro: { icon: 'fa-clipboard-list', label: 'Registro ISM' },
   pedido: { icon: 'fa-martini-glass-citrus', label: 'Pedido' },
   entrega: { icon: 'fa-check-double', label: 'Entrega' },
   cancelacion: { icon: 'fa-ban', label: 'Cancelación' },
@@ -40,7 +44,9 @@ const KIND_META: Record<LiveKind, { icon: string; label: string }> = {
 
 const FILTERS: Array<{ value: 'todo' | LiveKind; label: string }> = [
   { value: 'todo', label: 'Todo' },
-  { value: 'pedido', label: 'Pedidos' },
+  { value: 'consumo', label: 'Consumos' },
+  { value: 'requerimiento', label: 'Abastecimiento' },
+  { value: 'compra', label: 'Compras' },
   { value: 'entrega', label: 'Entregas' },
   { value: 'cancelacion', label: 'Cancelaciones' },
   { value: 'cuenta', label: 'Cuentas' },
