@@ -21,13 +21,27 @@ const routes: Array<RouteRecordRaw> = [
     path: '/',
     name: 'Bar',
     component: () => import('@/views/BarView.vue'),
-    meta: { title: 'Bar', roles: ['admin', 'direccion', 'bartender'] },
+    meta: { title: 'Bar', roles: ['direccion', 'bartender'] },
   },
   {
     path: '/cuentas',
     name: 'Accounts',
     component: () => import('@/views/AccountsView.vue'),
-    meta: { title: 'Cuentas', roles: ['admin', 'direccion', 'bartender'] },
+    meta: { title: 'Cuentas', roles: ['direccion', 'bartender'] },
+  },
+  {
+    // Requerimientos: el bar pide, la directora aprueba, bodega recibe.
+    path: '/abastecimiento',
+    name: 'Requisitions',
+    component: () => import('@/views/RequisitionsView.vue'),
+    meta: { title: 'Abastecimiento', roles: ['admin', 'direccion', 'bartender', 'bodega'] },
+  },
+  {
+    // Bodega en tablet: compras, recepciones, cargas al barco, conteos y mermas.
+    path: '/bodega',
+    name: 'Warehouse',
+    component: () => import('@/views/BodegaView.vue'),
+    meta: { title: 'Bodega', roles: ['admin', 'bodega', 'direccion'] },
   },
   // Controlar
   {
@@ -46,7 +60,7 @@ const routes: Array<RouteRecordRaw> = [
     path: '/admin/inventario',
     name: 'Inventory',
     component: () => import('@/views/admin/InventoryView.vue'),
-    meta: { title: 'Inventario', roles: ['admin', 'bodega', 'direccion', 'bartender'] },
+    meta: { title: 'Inventario', roles: ['admin', 'bodega', 'direccion'] },
   },
   {
     path: '/admin/pagos',
@@ -72,7 +86,7 @@ const routes: Array<RouteRecordRaw> = [
     path: '/admin/equipo',
     name: 'Users',
     component: () => import('@/views/admin/UsersView.vue'),
-    meta: { title: 'Equipo', roles: ['admin'] },
+    meta: { title: 'Equipo', roles: ['duena'] },
   },
   {
     path: '/:pathMatch(.*)*',
@@ -88,10 +102,11 @@ const router = createRouter({
 
 /** Primera vista a la que puede entrar cada rol. */
 const ROLE_HOME: Record<UserRole, string> = {
-  admin: '/admin/en-vivo',
+  duena: '/admin/en-vivo',
+  admin: '/bodega',
   direccion: '/cuentas',
   bartender: '/',
-  bodega: '/admin/inventario',
+  bodega: '/bodega',
   capitan: '/',
   tripulante: '/',
   designada: '/',
@@ -119,7 +134,8 @@ router.beforeEach(async (to) => {
   }
 
   const roles = to.meta.roles as UserRole[] | undefined
-  if (roles && userStore.role && !roles.includes(userStore.role)) {
+  // La dueña entra a todo (salvo cuando mira la app como otro rol).
+  if (roles && userStore.role && userStore.role !== 'duena' && !roles.includes(userStore.role)) {
     return ROLE_HOME[userStore.role]
   }
   return true
