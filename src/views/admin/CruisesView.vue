@@ -4,13 +4,16 @@ import { useCruiseStore } from '@/stores/cruise'
 import { useToastStore } from '@/stores/toast'
 import { useConfirmStore } from '@/stores/confirm'
 import { useSound } from '@/composables/useSound'
-import { apiCruises, apiCycleSettings, apiGenerateCycle, apiUpdateCruise } from '@/services/api'
+import { apiCruises, apiCycleSettings, apiGenerateCycle } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatDate } from '@/utils/format'
 import BaseDatePicker from '@/components/ui/BaseDatePicker.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import PassengersModal from '@/components/cruises/PassengersModal.vue'
 import CycleSettingsModal from '@/components/cruises/CycleSettingsModal.vue'
+import CruiseStartModal from '@/components/cruises/CruiseStartModal.vue'
+import CruiseFinishModal from '@/components/cruises/CruiseFinishModal.vue'
+import { useUserStore } from '@/stores/user'
 import type { Cabin, Cruise, CruiseStatus, CycleSettings } from '@/types'
 
 const toast = useToastStore()
@@ -25,14 +28,17 @@ const generating = shallowRef(false)
 const tab = shallowRef<'proximas' | 'cerradas'>('proximas')
 const showSettings = shallowRef(false)
 const paxTarget = shallowRef<{ cruise: Cruise; cabin: Cabin } | null>(null)
+const startTarget = shallowRef<Cruise | null>(null)
+const finishTarget = shallowRef<Cruise | null>(null)
+const userStore = useUserStore()
 
 const startDate = shallowRef('')
 const untilDate = shallowRef('')
 
 const STATUS_LABELS: Record<CruiseStatus, string> = {
   planificado: 'Programada',
-  abordo: 'A bordo',
-  cerrado: 'Cerrada',
+  abordo: 'En curso',
+  cerrado: 'Finalizada',
 }
 
 const LEG_ICONS = ['fa-sun', 'fa-water', 'fa-compass']
@@ -98,36 +104,11 @@ async function generate() {
   }
 }
 
-async function setStatus(cruise: Cruise, status: CruiseStatus) {
-  const occupied = cruise.cabins.filter((c) => c.passengers.length).length
-  const prompts: Partial<Record<CruiseStatus, Parameters<typeof confirmStore.ask>[0]>> = {
-    abordo: {
-      title: `¿Iniciar ${label(cruise)}?`,
-      message: `Pasa a "a bordo" y el bar podrá registrar pedidos. Cabinas con pasajeros: ${occupied} de ${cruise.cabins.length}.`,
-      confirmLabel: 'Iniciar salida',
-      icon: 'fa-ship',
-    },
-    cerrado: {
-      title: `¿Cerrar ${label(cruise)}?`,
-      message: 'No se podrán registrar más pedidos en esta salida. Las cuentas sin cobrar siguen disponibles en Cuentas.',
-      confirmLabel: 'Cerrar salida',
-      icon: 'fa-anchor',
-      danger: true,
-    },
-  }
-  const prompt = prompts[status]
-  if (prompt && !(await confirmStore.ask(prompt))) return
-
-  try {
-    await apiUpdateCruise(cruise._id, { status })
-    play('success')
-    toast.success(`${label(cruise)} · ${STATUS_LABELS[status].toLowerCase()}`)
-    await refresh()
-    await cruiseStore.loadActive(true)
-  } catch (err) {
-    play('error')
-    toast.error(apiErrorMessage(err))
-  }
+async function onLifecycleDone() {
+  startTarget.value = null
+  finishTarget.value = null
+  await refresh()
+  await cruiseStore.loadActive(true)
 }
 
 async function onPassengersSaved() {
@@ -182,16 +163,16 @@ async function onPassengersSaved() {
 
     <div class="tabs">
       <button type="button" class="tab" :class="{ 'tab--on': tab === 'proximas' }" @click="tab = 'proximas'">
-        Próximas y a bordo
+        Programadas y en curso
       </button>
       <button type="button" class="tab" :class="{ 'tab--on': tab === 'cerradas' }" @click="tab = 'cerradas'">
-        Cerradas
+        Finalizadas
       </button>
     </div>
 
     <SkeletonList v-if="loading" variant="card" :rows="3" />
     <p v-else-if="!visible.length" class="empty">
-      {{ tab === 'cerradas' ? 'Aún no hay salidas cerradas.' : 'No hay salidas programadas. Genera el ciclo arriba.' }}
+      {{ tab === 'cerradas' ? 'Aún no hay salidas finalizadas.' : 'No hay salidas programadas. Genera el ciclo arriba.' }}
     </p>
 
     <TransitionGroup v-else name="list" tag="div" class="cruises">
@@ -227,15 +208,29 @@ async function onPassengersSaved() {
         </div>
 
         <footer class="cruise-actions">
-          <button v-if="cruise.status === 'planificado'" type="button" class="btn btn-primary" @click="setStatus(cruise, 'abordo')">
-            <i class="fa-solid fa-ship" aria-hidden="true" /> Iniciar salida
+          <button
+            v-if="cruise.status === 'planificado' && userStore.isDirector"
+            type="button"
+            class="btn btn-primary"
+            @click="startTarget = cruise"
+          >
+            <i class="fa-solid fa-ship" aria-hidden="true" /> Iniciar crucero
           </button>
-          <button v-if="cruise.status === 'abordo'" type="button" class="btn btn-ghost" @click="setStatus(cruise, 'cerrado')">
-            <i class="fa-solid fa-anchor" aria-hidden="true" /> Cerrar salida
+          <button
+            v-if="cruise.status === 'abordo' && userStore.isDirector"
+            type="button"
+            class="btn btn-ghost"
+            @click="finishTarget = cruise"
+          >
+            <i class="fa-solid fa-anchor" aria-hidden="true" /> Finalizar crucero
           </button>
+          <p v-if="cruise.closeReason" class="close-reason">Cierre excepcional: {{ cruise.closeReason }}</p>
         </footer>
       </article>
     </TransitionGroup>
+
+    <CruiseStartModal v-if="startTarget" :cruise="startTarget" @close="startTarget = null" @started="onLifecycleDone" />
+    <CruiseFinishModal v-if="finishTarget" :cruise="finishTarget" @close="finishTarget = null" @finished="onLifecycleDone" />
 
     <PassengersModal
       v-if="paxTarget"
@@ -258,6 +253,11 @@ async function onPassengersSaved() {
 
 <style scoped lang="scss">
 @use '@/styles/mixins' as *;
+
+.close-reason {
+  font-size: 0.82rem;
+  color: var(--warning);
+}
 
 .head {
   display: flex;
