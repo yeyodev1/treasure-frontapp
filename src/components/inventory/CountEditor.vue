@@ -31,8 +31,15 @@ const REASONS = ['Rotura', 'Medida', 'Error de registro', 'Consumo interno', 'P�
   (r) => ({ value: r, label: r }),
 )
 
+const STATUS_LABEL: Record<string, string> = {
+  borrador: 'Borrador',
+  enviado: 'Por aprobar',
+  aprobado: 'Aprobado',
+  rechazado: 'Devuelto',
+}
+
 const editable = computed(() => count.value?.status === 'borrador' || count.value?.status === 'rechazado')
-const canApprove = computed(() => userStore.isAdmin && count.value?.status === 'enviado')
+const canApprove = computed(() => userStore.isOwner && count.value?.status === 'enviado')
 
 function diff(line: CountLine): number | null {
   if (line.physical === null || line.physical === undefined || Number.isNaN(line.physical)) return null
@@ -72,7 +79,13 @@ async function load() {
 onMounted(load)
 
 function setPhysical(line: CountLine, value: string) {
-  line.physical = value === '' ? null : Number(value)
+  const clean = value.replace(',', '.').trim()
+  if (clean === '') {
+    line.physical = null
+    return
+  }
+  const n = Number(clean)
+  if (!Number.isNaN(n)) line.physical = n
 }
 
 async function save(silent = false) {
@@ -84,7 +97,7 @@ async function save(silent = false) {
     )
     if (!silent) {
       play('success')
-      toast.success('Conteo guardado. El stock no cambia hasta que Paula apruebe.')
+      toast.success('Conteo guardado. El stock no cambia hasta que lo autorice la dueña.')
     }
     emit('changed')
     return true
@@ -100,9 +113,9 @@ async function save(silent = false) {
 async function submit() {
   if (!(await save(true))) return
   const ok = await confirmStore.ask({
-    title: `¿Enviar ${count.value?.code} a Paula?`,
-    message: `${summary.value.counted} producto(s) contados, ${summary.value.withDiff} con diferencia. Ya no se podrá editar hasta que Paula lo revise.`,
-    confirmLabel: 'Enviar a Paula',
+    title: `¿Enviar ${count.value?.code} a la dueña?`,
+    message: `${summary.value.counted} producto(s) contados, ${summary.value.withDiff} con diferencia. Ya no se podrá editar hasta que la dueña lo revise.`,
+    confirmLabel: 'Enviar a la dueña',
     icon: 'fa-shield-halved',
   })
   if (!ok) return
@@ -110,7 +123,7 @@ async function submit() {
   try {
     count.value = await apiCountAction(props.countId, 'submit')
     play('success')
-    toast.success('Conteo enviado a Paula')
+    toast.success('Conteo enviado a la dueña')
     emit('changed')
   } catch (err) {
     play('error')
@@ -173,11 +186,11 @@ async function reject() {
         <span><i class="fa-solid fa-location-dot" aria-hidden="true" /> {{ count.location === 'abordo' ? 'A bordo' : 'Bodega' }}</span>
         <span v-if="count.cruise"><i class="fa-solid fa-ship" aria-hidden="true" /> {{ count.cruise.code || count.cruise.name }}</span>
         <span><i class="fa-regular fa-clock" aria-hidden="true" /> Corte {{ formatDateTime(count.cutAt) }}</span>
-        <span class="ct-status" :class="`ct-status--${count.status}`">{{ count.status }}</span>
+        <span class="ct-status" :class="`ct-status--${count.status}`">{{ STATUS_LABEL[count.status] }}</span>
       </header>
 
       <p v-if="count.status === 'rechazado' && count.reviewNote" class="note">
-        <i class="fa-solid fa-comment" aria-hidden="true" /> Paula: {{ count.reviewNote }}
+        <i class="fa-solid fa-comment" aria-hidden="true" /> La dueña: {{ count.reviewNote }}
       </p>
 
       <div class="ct-tools">
@@ -190,55 +203,49 @@ async function reject() {
         </button>
       </div>
 
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Producto</th>
-              <th class="num">Digital al corte</th>
-              <th class="num">Físico</th>
-              <th class="num">Diferencia</th>
-              <th>Motivo</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="line in visibleLines" :key="line.product" :class="{ counted: line.physical !== null }">
-              <td class="prod">
-                {{ line.name }}
-                <small>{{ unitShort(line.stockUnit) }}</small>
-              </td>
-              <td class="num" :class="{ neg: line.digitalAtCut < 0 }">{{ formatNumber(line.digitalAtCut) }}</td>
-              <td class="num">
-                <input
-                  v-if="editable"
-                  class="physical"
-                  type="number"
-                  min="0"
-                  inputmode="decimal"
-                  :value="line.physical ?? ''"
-                  :aria-label="`Cantidad física de ${line.name}`"
-                  @input="setPhysical(line, ($event.target as HTMLInputElement).value)"
-                />
-                <strong v-else>{{ line.physical === null ? '—' : formatNumber(line.physical) }}</strong>
-              </td>
-              <td class="num">
-                <span v-if="diff(line) !== null" :class="{ neg: diff(line)! < 0, pos: diff(line)! > 0 }">
-                  {{ diff(line)! > 0 ? '+' : '' }}{{ formatNumber(diff(line)!) }}
-                </span>
-              </td>
-              <td class="reason">
-                <BaseSelect
-                  v-if="editable && diff(line)"
-                  v-model="line.reason"
-                  :options="REASONS"
-                  placeholder="Motivo…"
-                />
-                <span v-else>{{ line.reason }}</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <TransitionGroup tag="ul" name="ct-row" class="ct-list">
+        <li
+          v-for="line in visibleLines"
+          :key="line.product"
+          class="ct-row"
+          :class="{ counted: line.physical !== null, diff: Boolean(diff(line)) }"
+        >
+          <div class="ct-name">
+            <strong>{{ line.name }}</strong>
+            <small>
+              Sistema al corte:
+              <span :class="{ neg: line.digitalAtCut < 0 }">{{ formatNumber(line.digitalAtCut) }} {{ unitShort(line.stockUnit) }}</span>
+            </small>
+          </div>
+          <div class="ct-count">
+            <label class="ct-physical">
+              <span>Físico</span>
+              <input
+                v-if="editable"
+                class="physical"
+                type="text"
+                inputmode="decimal"
+                :value="line.physical ?? ''"
+                :aria-label="`Cantidad física de ${line.name}`"
+                @input="setPhysical(line, ($event.target as HTMLInputElement).value)"
+              />
+              <strong v-else>{{ line.physical === null ? '—' : formatNumber(line.physical) }}</strong>
+            </label>
+            <span v-if="diff(line) !== null" class="ct-diff" :class="{ neg: diff(line)! < 0, pos: diff(line)! > 0 }">
+              {{ diff(line)! > 0 ? '+' : '' }}{{ formatNumber(diff(line)!) }} {{ unitShort(line.stockUnit) }}
+            </span>
+          </div>
+          <div v-if="diff(line)" class="ct-reason">
+            <BaseSelect
+              v-if="editable"
+              v-model="line.reason"
+              :options="REASONS"
+              placeholder="Motivo de la diferencia…"
+            />
+            <span v-else>{{ line.reason }}</span>
+          </div>
+        </li>
+      </TransitionGroup>
 
       <p class="ct-summary">
         {{ summary.counted }} contados · {{ summary.withDiff }} con diferencia
@@ -249,16 +256,18 @@ async function reject() {
           <i class="fa-solid fa-clipboard-check" aria-hidden="true" /> Guardar conteo
         </button>
         <button type="button" class="btn btn-primary" :disabled="!editable || busy" @click="submit">
-          <i class="fa-solid fa-shield-halved" aria-hidden="true" /> Enviar a Paula
+          <i class="fa-solid fa-shield-halved" aria-hidden="true" /> Enviar a la dueña
         </button>
-        <button type="button" class="btn btn-primary" :disabled="!canApprove || busy" @click="approve">
+        <button v-if="userStore.isOwner" type="button" class="btn btn-primary" :disabled="!canApprove || busy" @click="approve">
           <i class="fa-solid fa-check" aria-hidden="true" /> Aprobar ajuste
         </button>
       </div>
       <button v-if="canApprove" type="button" class="btn btn-ghost" :disabled="busy" @click="reject">
         <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Devolver para recontar
       </button>
-      <p v-if="!userStore.isAdmin" class="only-paula">Solo Paula ve habilitado Aprobar ajuste.</p>
+      <p v-if="!userStore.isOwner && count.status === 'enviado'" class="only-paula">
+        <i class="fa-solid fa-lock" aria-hidden="true" /> Lo autoriza la dueña.
+      </p>
       <p v-if="count.status === 'aprobado'" class="done">
         <i class="fa-solid fa-circle-check" aria-hidden="true" />
         Aprobado por {{ count.reviewedBy?.name }} · {{ count.reviewedAt ? formatDateTime(count.reviewedAt) : '' }}
@@ -331,7 +340,7 @@ async function reject() {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  min-height: 44px;
+  min-height: 48px;
   padding: 0 0.8rem;
   border: 1.5px solid var(--cream-200);
   border-radius: 999px;
@@ -347,6 +356,7 @@ async function reject() {
 }
 
 .toggle {
+  min-height: 48px;
   padding: 0 0.9rem;
   border-radius: 999px;
   border: 1.5px solid var(--cream-200);
@@ -361,68 +371,91 @@ async function reject() {
   }
 }
 
-.table-wrap {
-  overflow-x: auto;
-  max-height: 46dvh;
+.ct-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 50dvh;
   overflow-y: auto;
   border: 1px solid var(--cream-200);
   border-radius: var(--radius-sm);
 }
 
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.85rem;
+.ct-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid var(--cream-200);
+  transition: background 0.2s ease;
 
-  th {
-    position: sticky;
-    top: 0;
-    background: var(--surface);
-    text-align: left;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--ink-400);
-    padding: 0.5rem 0.55rem;
-    border-bottom: 2px solid var(--cream-200);
-    white-space: nowrap;
-    z-index: 1;
+  &:last-child {
+    border-bottom: none;
   }
 
-  td {
-    padding: 0.4rem 0.55rem;
-    border-bottom: 1px solid var(--cream-200);
-  }
-
-  tr.counted td {
+  &.counted {
     background: var(--powder-100);
   }
+
+  &.diff {
+    background: rgba(185, 128, 47, 0.07);
+  }
 }
 
-.num {
-  text-align: right !important;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
+.ct-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 
-.prod {
-  font-weight: 600;
-  min-width: 150px;
+  strong {
+    font-size: 0.95rem;
+  }
 
   small {
-    margin-left: 0.3rem;
-    font-weight: 500;
+    color: var(--ink-400);
+    font-size: 0.8rem;
+  }
+}
+
+.ct-count {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.ct-physical {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+
+  span {
+    font-size: 0.75rem;
+    font-weight: 700;
     color: var(--ink-400);
   }
+}
+
+.ct-diff {
+  min-width: 70px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.88rem;
+}
+
+.ct-reason {
+  grid-column: 1 / -1;
 }
 
 .physical {
-  width: 92px;
-  min-height: 40px;
-  padding: 0.35rem 0.5rem;
+  width: 96px;
+  min-height: 48px;
+  padding: 0.35rem 0.6rem;
   border: 1.5px solid var(--cream-200);
   border-radius: 8px;
   text-align: right;
+  font-size: 1.05rem;
+  font-weight: 700;
   background: #fff;
 
   &:focus {
@@ -431,8 +464,14 @@ async function reject() {
   }
 }
 
-.reason {
-  min-width: 160px;
+.ct-row-enter-active,
+.ct-row-leave-active {
+  transition: opacity 0.18s ease;
+}
+
+.ct-row-enter-from,
+.ct-row-leave-to {
+  opacity: 0;
 }
 
 .neg {
@@ -457,13 +496,13 @@ async function reject() {
   gap: 0.5rem;
 
   @include tablet {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   }
 }
 
 .only-paula {
   margin: 0;
-  color: var(--danger);
+  color: var(--ink-600);
   font-weight: 700;
   font-size: 0.85rem;
 }
