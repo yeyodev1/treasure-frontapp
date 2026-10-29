@@ -5,6 +5,8 @@ import { apiErrorMessage } from '@/services/httpBase'
 import { useToastStore } from '@/stores/toast'
 import { formatMoney, formatDate } from '@/utils/format'
 import StatCard from '@/components/ui/StatCard.vue'
+import OwnerPanel from '@/components/owner/OwnerPanel.vue'
+import { useUserStore } from '@/stores/user'
 import BarList from '@/components/ui/BarList.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
@@ -13,6 +15,7 @@ import type { CruiseSales, SalesSummary } from '@/types'
 type RangeKey = 'semana' | 'mes' | 'todo'
 
 const toast = useToastStore()
+const userStore = useUserStore()
 const summary = shallowRef<SalesSummary | null>(null)
 const byCruise = shallowRef<CruiseSales[]>([])
 const range = shallowRef<RangeKey>('semana')
@@ -87,6 +90,8 @@ const cruiseRows = computed(() =>
 
 <template>
   <div class="page">
+    <OwnerPanel v-if="userStore.isOwner" />
+
     <header class="dash-head">
       <h1 class="page-title">Panel</h1>
       <div class="range">
