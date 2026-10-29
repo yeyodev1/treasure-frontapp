@@ -1,4 +1,5 @@
 export type UserRole =
+  | 'duena'
   | 'admin'
   | 'direccion'
   | 'bartender'
@@ -87,6 +88,8 @@ export interface Product {
   isCustom: boolean
   active: boolean
   priceHistory: PriceChange[]
+  /** Costo por unidad base (promedio de recepciones). */
+  costPerUnit?: number
   /** Producto equivalente en Contífico para facturar. */
   contificoId?: string
   contificoCode?: string
@@ -124,6 +127,7 @@ export interface Cabin {
   passengers: Passenger[]
   guestName: string
   accountToken: string
+  capacity?: number
 }
 
 export interface Cruise {
@@ -138,6 +142,44 @@ export interface Cruise {
   status: CruiseStatus
   cabins: Cabin[]
   notes: string
+  startedAt?: string | null
+  closedAt?: string | null
+  closeReason?: string
+}
+
+export interface StartCheck {
+  cruise: Cruise
+  blockers: string[]
+  warnings: { unavailable: string[]; low: string[] }
+  occupancy: { cabins: number; occupied: number; passengers: number; empty: number[] }
+}
+
+export interface FinishCabin {
+  number: number
+  guestName: string
+  passengers: number
+  consumed: number
+  paid: number
+  due: number
+  accountStatus: AccountStatus | 'sin_consumos'
+}
+
+export interface FinishCheck {
+  cruise: Cruise
+  cabins: FinishCabin[]
+  devices: Array<{
+    deviceId: string
+    label: string
+    userName: string
+    pending: number
+    lastSyncAt: string | null
+    lastSeenAt: string
+    silent: boolean
+  }>
+  issues: string[]
+  held: number
+  finance: 'por_revisar' | 'por_cobrar' | 'liquidada'
+  totals: { consumed: number; paid: number; due: number }
 }
 
 export interface CycleLeg {
@@ -163,9 +205,12 @@ export interface OrderItem {
   deliveredQty: number
   cancelledQty: number
   annulledQty: number
+  applied?: Array<{ product: string; name: string; qty: number; stockUnit: string; unitCost: number }>
+  unitCost?: number
+  costComplete?: boolean
 }
 
-export type OrderStatus = 'pendiente' | 'entregada' | 'cancelada'
+export type OrderStatus = 'pendiente' | 'entregada' | 'cancelada' | 'retenida'
 
 export interface OrderAnnulment {
   _id: string
@@ -190,6 +235,119 @@ export interface Order {
   createdBy: { _id: string; name: string; role: UserRole } | string
   annulments: OrderAnnulment[]
   createdAt: string
+  source?: 'directo' | 'pedido'
+  clientAt?: string | null
+  undo?: { by: string; at: string; reason: string } | null
+  idempotencyKey?: string | null
+}
+
+/** Barra inferior del bar: último consumo y totales de la cabina. */
+export interface CabinSummary {
+  cabinNumber: number
+  tripTotal: number
+  todayTotal: number
+  accountStatus: AccountStatus
+  last: {
+    orderId: string
+    name: string
+    qty: number
+    courtesy: boolean
+    total: number
+    at: string
+    by: string
+    canUndo: boolean
+  } | null
+}
+
+export type Availability = Record<string, { available: boolean; missing: string }>
+
+export type RequisitionStatus =
+  | 'solicitado'
+  | 'aprobado'
+  | 'rechazado'
+  | 'recibido_parcial'
+  | 'recibido'
+  | 'atendido'
+
+export interface RequisitionLine {
+  product:
+    | {
+        _id: string
+        name: string
+        stockUnit: StockUnit
+        containerSize: number
+        containerLabel: string
+        icon: string
+        warehouseStock: number
+        onboardStock: number
+      }
+    | string
+  name: string
+  qty: number
+  label: string
+  receivedQty: number
+}
+
+export interface Requisition {
+  _id: string
+  code: string
+  kind: 'abastecimiento' | 'revision'
+  cruise: { _id: string; code: string; name: string } | string | null
+  lines: RequisitionLine[]
+  note: string
+  status: RequisitionStatus
+  requestedBy: { _id: string; name: string; role: UserRole } | string
+  reviewedBy: { _id: string; name: string } | string | null
+  reviewedAt: string | null
+  reviewNote: string
+  receipts: Array<{ key: string; lines: Array<{ index: number; qty: number }>; note: string; by: { name: string } | string; at: string }>
+  createdAt: string
+}
+
+export type PurchaseStatus = 'registrada' | 'recibida_parcial' | 'recibida' | 'anulada'
+
+export interface PurchaseLine {
+  product: { _id: string; name: string; stockUnit: StockUnit; containerSize: number; containerLabel: string; icon: string } | string
+  name: string
+  containers: number
+  containerSize: number
+  containerLabel: string
+  stockUnit: StockUnit
+  qty: number
+  containerCost: number
+  receivedQty: number
+}
+
+export interface Purchase {
+  _id: string
+  code: string
+  supplier: string
+  document: string
+  documentDate: string | null
+  destination: StockLocation
+  lines: PurchaseLine[]
+  total: number
+  status: PurchaseStatus
+  note: string
+  receipts: Array<{ key: string; lines: Array<{ index: number; qty: number }>; note: string; by: { name: string } | string; at: string }>
+  createdBy: { _id: string; name: string } | string
+  cancelReason: string
+  createdAt: string
+}
+
+export interface OwnerPanel {
+  netConsumption: number
+  courtesy: number
+  collected: number
+  byMethod: Record<string, number>
+  pendingCollection: number
+  purchases: number
+  consumedCost: number
+  costsComplete: boolean
+  missingCost: string[]
+  missingCostCount: number
+  margin: number | null
+  heldConsumptions: number
 }
 
 export type AccountStatus = 'abierta' | 'en_revision' | 'aprobada' | 'cobrada'
@@ -252,6 +410,7 @@ export interface Payment {
   courtesyTotal: number
   total: number
   method: PaymentMethod
+  reference?: string
   cashConfirmed: boolean
   billing: { name: string; idNumber: string; email: string; country: string }
   invoiceStatus: InvoiceStatus
@@ -351,6 +510,10 @@ export interface CruiseSales {
 }
 
 export type LiveKind =
+  | 'consumo'
+  | 'requerimiento'
+  | 'compra'
+  | 'registro'
   | 'pedido'
   | 'entrega'
   | 'cancelacion'
