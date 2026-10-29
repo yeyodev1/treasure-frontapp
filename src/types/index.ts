@@ -87,6 +87,23 @@ export interface Product {
   isCustom: boolean
   active: boolean
   priceHistory: PriceChange[]
+  /** Producto equivalente en Contífico para facturar. */
+  contificoId?: string
+  contificoCode?: string
+}
+
+export interface ContificoProduct {
+  id: string
+  codigo: string
+  nombre: string
+  pvp: number | null
+  iva: number
+}
+
+export interface ContificoInfo {
+  configured: boolean
+  serie: string
+  products: ContificoProduct[]
 }
 
 export type CruiseStatus = 'planificado' | 'abordo' | 'cerrado'
@@ -225,7 +242,7 @@ export interface CabinAccountRow {
 }
 
 export type PaymentMethod = 'efectivo' | 'tarjeta' | 'transferencia' | 'online'
-export type InvoiceStatus = 'pendiente' | 'emitida' | 'error' | 'no_aplica'
+export type InvoiceStatus = 'pendiente' | 'emitiendo' | 'emitida' | 'error' | 'no_aplica'
 
 export interface Payment {
   _id: string
@@ -239,6 +256,8 @@ export interface Payment {
   billing: { name: string; idNumber: string; email: string; country: string }
   invoiceStatus: InvoiceStatus
   invoiceId: string
+  invoiceNumber?: string
+  invoiceUrl?: string
   invoiceError: string
   status: 'vigente' | 'reversado'
   reverseReason: string
