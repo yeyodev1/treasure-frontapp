@@ -25,8 +25,14 @@ const passengers = ref<Passenger[]>(
   props.cabin.passengers.length ? props.cabin.passengers.map((p) => ({ ...p })) : [blank(true)],
 )
 const saving = shallowRef(false)
+/** Plazas de la cabina: no se registran más pasajeros que esto. */
+const capacity = shallowRef(props.cabin.capacity ?? 2)
 
 function add() {
+  if (passengers.value.length >= capacity.value) {
+    toast.error(`La cabina ${props.cabin.number} tiene ${capacity.value} plaza(s): sube la capacidad si corresponde`)
+    return
+  }
   passengers.value.push(blank(!passengers.value.length))
 }
 
@@ -59,7 +65,7 @@ async function save() {
   }
   saving.value = true
   try {
-    await apiUpdatePassengers(props.cruiseId, props.cabin.number, clean)
+    await apiUpdatePassengers(props.cruiseId, props.cabin.number, clean, capacity.value)
     play('success')
     toast.success(`Cabina ${props.cabin.number}: ${clean.length} pasajero(s) guardados`)
     emit('saved')
@@ -78,6 +84,19 @@ async function save() {
       <p class="intro">
         Registra a cada persona. La facturación toma los datos del pagador y solo pide lo que falte.
       </p>
+
+      <div v-if="!readonly" class="capacity">
+        <span>Plazas de la cabina</span>
+        <div class="stepper">
+          <button type="button" aria-label="Menos plazas" :disabled="capacity <= Math.max(1, passengers.filter((p) => p.name.trim()).length)" @click="capacity--">
+            <i class="fa-solid fa-minus" aria-hidden="true" />
+          </button>
+          <strong>{{ capacity }}</strong>
+          <button type="button" aria-label="Más plazas" :disabled="capacity >= 6" @click="capacity++">
+            <i class="fa-solid fa-plus" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
 
       <TransitionGroup name="list" tag="div" class="list">
         <article v-for="(p, index) in passengers" :key="index" class="person" :class="{ 'person--payer': p.isPayer }">
@@ -149,6 +168,45 @@ async function save() {
 
 <style scoped lang="scss">
 @use '@/styles/mixins' as *;
+
+.capacity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.8rem;
+  font-weight: 600;
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+
+  button {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    border: 2px solid var(--cream-200);
+    transition:
+      border-color 0.15s ease,
+      opacity 0.15s ease;
+
+    &:disabled {
+      opacity: 0.35;
+    }
+
+    &:not(:disabled):hover {
+      border-color: var(--navy-600);
+    }
+  }
+
+  strong {
+    min-width: 1.5rem;
+    text-align: center;
+    font-size: 1.15rem;
+  }
+}
 
 .pax {
   display: flex;
