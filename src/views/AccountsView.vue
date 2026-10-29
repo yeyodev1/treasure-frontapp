@@ -3,20 +3,39 @@ import { computed, onMounted, shallowRef } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useCruiseStore } from '@/stores/cruise'
 import { useToastStore } from '@/stores/toast'
-import { apiCruiseAccounts } from '@/services/api'
+import { useUserStore } from '@/stores/user'
+import { useConfirmStore } from '@/stores/confirm'
+import { useSound } from '@/composables/useSound'
+import { apiCruiseAccounts, apiCruises, apiOrders, apiReviewHeld } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
-import { formatMoney } from '@/utils/format'
+import { formatDateTime, formatMoney } from '@/utils/format'
 import AccountModal from '@/components/accounts/AccountModal.vue'
+import BaseSelect from '@/components/ui/BaseSelect.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
-import type { AccountStatus, Cabin, CabinAccountRow } from '@/types'
+import type { AccountStatus, Cabin, CabinAccountRow, Cruise, Order } from '@/types'
 
+/**
+ * Cuentas por cabina. Revisión y pagos se hacen durante el viaje o después:
+ * la directora elige la salida (en curso o finalizada con saldo). El bar ve
+ * consumos, sin cobros ni costos.
+ */
 const cruiseStore = useCruiseStore()
 const toast = useToastStore()
-const { active: cruise } = storeToRefs(cruiseStore)
+const userStore = useUserStore()
+const confirmStore = useConfirmStore()
+const { play } = useSound()
+const { active } = storeToRefs(cruiseStore)
 
+const cruises = shallowRef<Cruise[]>([])
+const selectedId = shallowRef('')
 const rows = shallowRef<CabinAccountRow[]>([])
+const held = shallowRef<Order[]>([])
 const loading = shallowRef(true)
 const target = shallowRef<Cabin | null>(null)
+const reviewing = shallowRef('')
+
+const isBar = computed(() => userStore.role === 'bartender')
+const cruise = computed(() => cruises.value.find((c) => c._id === selectedId.value) ?? active.value ?? null)
 
 const STATUS: Record<AccountStatus, { label: string; icon: string }> = {
   abierta: { label: 'Abierta', icon: 'fa-folder-open' },
@@ -25,30 +44,62 @@ const STATUS: Record<AccountStatus, { label: string; icon: string }> = {
   cobrada: { label: 'Cobrada', icon: 'fa-circle-check' },
 }
 
+const cruiseOptions = computed(() =>
+  cruises.value.map((c) => ({
+    value: c._id,
+    label: `${c.code ? `Salida ${c.code}` : c.name}${c.status === 'abordo' ? ' · en curso' : c.status === 'cerrado' ? ' · finalizada' : ' · programada'}`,
+  })),
+)
+
 const totals = computed(() => ({
   open: rows.value.reduce((s, r) => s + (r.status !== 'cobrada' ? r.total : 0), 0),
   review: rows.value.filter((r) => r.status === 'en_revision').length,
   approved: rows.value.filter((r) => r.status === 'aprobada').length,
 }))
 
-async function refresh() {
-  if (!cruise.value) {
-    loading.value = false
-    return
-  }
+async function loadRows() {
+  if (!cruise.value) return
   try {
     rows.value = await apiCruiseAccounts(cruise.value._id)
   } catch (err) {
     toast.error(apiErrorMessage(err))
-  } finally {
-    loading.value = false
+  }
+}
+
+async function loadHeld() {
+  if (!userStore.isDirector) return
+  try {
+    held.value = (await apiOrders({ status: 'retenida', limit: 100 })).orders
+  } catch {
+    held.value = []
   }
 }
 
 onMounted(async () => {
-  await cruiseStore.loadActive(true)
-  await refresh()
+  try {
+    await cruiseStore.loadActive(true)
+    if (!isBar.value) {
+      const list = await apiCruises()
+      // En curso primero, luego finalizadas recientes y programadas próximas.
+      cruises.value = [
+        ...list.filter((c) => c.status === 'abordo'),
+        ...list.filter((c) => c.status === 'cerrado').reverse().slice(0, 12),
+        ...list.filter((c) => c.status === 'planificado').slice(0, 3),
+      ]
+    }
+    selectedId.value = active.value?._id ?? cruises.value[0]?._id ?? ''
+    await Promise.all([loadRows(), loadHeld()])
+  } finally {
+    loading.value = false
+  }
 })
+
+async function changeCruise(id: string) {
+  selectedId.value = id
+  loading.value = true
+  await loadRows()
+  loading.value = false
+}
 
 function open(row: CabinAccountRow) {
   const cabin = cruise.value?.cabins.find((c) => c.number === row.cabinNumber)
@@ -56,9 +107,43 @@ function open(row: CabinAccountRow) {
 }
 
 async function onChanged() {
-  await Promise.all([refresh(), cruiseStore.loadActive(true)])
-  if (target.value && cruise.value) {
-    target.value = cruise.value.cabins.find((c) => c.number === target.value!.number) ?? null
+  await Promise.all([loadRows(), cruiseStore.loadActive(true)])
+}
+
+function heldCruise(order: Order) {
+  const c = cruises.value.find((x) => x._id === order.cruise)
+  return c ? (c.code ? `Salida ${c.code}` : c.name) : 'Salida anterior'
+}
+
+/** Envío tardío: aceptar lo carga en su salida original; rechazar lo descarta con motivo. */
+async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
+  const item = order.items[0]!
+  const reason = await confirmStore.askReason({
+    title: decision === 'aceptar' ? `¿Aceptar ${item.qty} ${item.name} en cabina ${order.cabinNumber}?` : `¿Rechazar ${item.name}?`,
+    message:
+      decision === 'aceptar'
+        ? `Se carga en ${heldCruise(order)} (su salida original) y descuenta el stock a bordo. Nunca pasa al viaje nuevo.`
+        : 'No se carga ni descuenta nada. Queda registrado con el motivo.',
+    confirmLabel: decision === 'aceptar' ? 'Aceptar' : 'Rechazar',
+    danger: decision === 'rechazar',
+    icon: decision === 'aceptar' ? 'fa-check' : 'fa-ban',
+    reason: {
+      label: 'Motivo (obligatorio)',
+      suggestions: decision === 'aceptar' ? ['Se sirvió antes del cierre'] : ['No se sirvió', 'Registro duplicado'],
+    },
+  })
+  if (!reason) return
+  reviewing.value = order._id
+  try {
+    await apiReviewHeld(order._id, decision, reason)
+    play('success')
+    toast.success(decision === 'aceptar' ? 'Consumo aceptado en su salida original' : 'Consumo rechazado')
+    await Promise.all([loadHeld(), loadRows()])
+  } catch (err) {
+    play('error')
+    toast.error(apiErrorMessage(err))
+  } finally {
+    reviewing.value = ''
   }
 }
 </script>
@@ -68,17 +153,39 @@ async function onChanged() {
     <header class="head">
       <div>
         <h1 class="page-title">Cuentas por cabina</h1>
-        <p v-if="cruise" class="subtitle">
+        <p v-if="cruise && isBar" class="subtitle">
           {{ cruise.code ? `Salida ${cruise.code}` : cruise.name }}
           <template v-if="cruise.routeFrom"> · {{ cruise.routeFrom }} → {{ cruise.routeTo }}</template>
         </p>
+        <div v-else-if="cruiseOptions.length" class="cruise-pick">
+          <BaseSelect :model-value="selectedId" :options="cruiseOptions" aria-label="Salida" @update:model-value="changeCruise" />
+        </div>
       </div>
       <div v-if="!loading && rows.length" class="summary">
-        <span><strong>{{ formatMoney(totals.open) }}</strong> por cobrar</span>
+        <span v-if="!isBar"><strong>{{ formatMoney(totals.open) }}</strong> por cobrar</span>
+        <span v-else><strong>{{ formatMoney(totals.open) }}</strong> en consumos abiertos</span>
         <span v-if="totals.review" class="chip chip--review">{{ totals.review }} en revisión</span>
         <span v-if="totals.approved" class="chip chip--ok">{{ totals.approved }} aprobadas</span>
       </div>
     </header>
+
+    <Transition name="fade">
+      <section v-if="held.length" class="held">
+        <h2><i class="fa-solid fa-hourglass-half" aria-hidden="true" /> Consumos retenidos por envío tardío</h2>
+        <p class="muted">Llegaron con la salida ya finalizada. Revísalos: se cargan siempre en su salida original.</p>
+        <div v-for="order in held" :key="order._id" class="held-row">
+          <span>
+            <strong>{{ heldCruise(order) }} · cabina {{ order.cabinNumber }}</strong>
+            {{ order.items[0]?.qty }} × {{ order.items[0]?.name }}
+            <small>tocado {{ formatDateTime(order.clientAt ?? order.createdAt) }} · {{ typeof order.createdBy === 'object' ? order.createdBy.name : '' }}</small>
+          </span>
+          <span class="held-actions">
+            <button type="button" class="btn btn-ghost" :disabled="reviewing === order._id" @click="reviewHeld(order, 'rechazar')">Rechazar</button>
+            <button type="button" class="btn btn-primary" :disabled="reviewing === order._id" @click="reviewHeld(order, 'aceptar')">Aceptar</button>
+          </span>
+        </div>
+      </section>
+    </Transition>
 
     <SkeletonList v-if="loading" variant="card" :rows="9" />
 
@@ -105,7 +212,7 @@ async function onChanged() {
         <template v-if="row.orders">
           <p class="account-total">{{ formatMoney(row.total) }}</p>
           <p class="account-meta">
-            <span><i class="fa-solid fa-receipt" aria-hidden="true" /> {{ row.orders }} pedido(s)</span>
+            <span><i class="fa-solid fa-receipt" aria-hidden="true" /> {{ row.orders }} consumo(s)</span>
             <span v-if="row.pendingDeliveries" class="account-pending">
               <i class="fa-solid fa-hourglass-half" aria-hidden="true" />
               {{ row.pendingDeliveries }} por entregar
@@ -130,6 +237,63 @@ async function onChanged() {
 
 <style scoped lang="scss">
 @use '@/styles/mixins' as *;
+
+.cruise-pick {
+  min-width: 280px;
+  margin-top: 0.4rem;
+}
+
+.held {
+  margin-bottom: 1.2rem;
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius);
+  background: rgba(185, 128, 47, 0.08);
+  border: 1px solid rgba(185, 128, 47, 0.35);
+
+  h2 {
+    font-size: 1rem;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    color: #7a5419;
+  }
+
+  .muted {
+    margin: 0.3rem 0 0.7rem;
+    font-size: 0.86rem;
+    color: var(--ink-600);
+  }
+}
+
+.held-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.6rem 0;
+  border-top: 1px dashed rgba(185, 128, 47, 0.35);
+
+  small {
+    display: block;
+    color: var(--ink-400);
+  }
+}
+
+.held-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
 
 .head {
   display: flex;
