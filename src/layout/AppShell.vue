@@ -26,32 +26,35 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Operar',
     items: [
-      { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: ['admin', 'direccion', 'bartender'] },
-      { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: ['admin', 'direccion', 'bartender'] },
+      { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: ['duena', 'direccion', 'bartender'] },
+      { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: ['duena', 'direccion', 'bartender'] },
+      { to: '/abastecimiento', label: 'Abastecimiento', icon: 'fa-dolly', roles: ['duena', 'admin', 'direccion', 'bartender', 'bodega'] },
+      { to: '/bodega', label: 'Bodega', icon: 'fa-warehouse', roles: ['duena', 'admin', 'bodega', 'direccion'] },
     ],
   },
   {
     label: 'Controlar',
     items: [
-      { to: '/admin/en-vivo', label: 'En vivo', icon: 'fa-tower-broadcast', roles: ['admin', 'direccion'] },
-      { to: '/admin', label: 'Panel', icon: 'fa-chart-line', roles: ['admin', 'direccion'] },
-      { to: '/admin/inventario', label: 'Inventario', icon: 'fa-boxes-stacked', roles: ['admin', 'bodega', 'direccion', 'bartender'] },
-      { to: '/admin/pagos', label: 'Cobros', icon: 'fa-cash-register', roles: ['admin', 'direccion'] },
+      { to: '/admin/en-vivo', label: 'En vivo', icon: 'fa-tower-broadcast', roles: ['duena', 'admin', 'direccion'] },
+      { to: '/admin', label: 'Panel', icon: 'fa-chart-line', roles: ['duena', 'admin', 'direccion'] },
+      { to: '/admin/inventario', label: 'Inventario', icon: 'fa-boxes-stacked', roles: ['duena', 'admin', 'bodega', 'direccion'] },
+      { to: '/admin/pagos', label: 'Cobros', icon: 'fa-cash-register', roles: ['duena', 'admin', 'direccion'] },
     ],
   },
   {
     label: 'Administrar',
     items: [
-      { to: '/admin/salidas', label: 'Salidas', icon: 'fa-ship', roles: ['admin', 'direccion'] },
-      { to: '/admin/productos', label: 'Catálogo', icon: 'fa-wine-bottle', roles: ['admin', 'bodega'] },
-      { to: '/admin/equipo', label: 'Equipo', icon: 'fa-users', roles: ['admin'] },
+      { to: '/admin/salidas', label: 'Salidas', icon: 'fa-ship', roles: ['duena', 'admin', 'direccion'] },
+      { to: '/admin/productos', label: 'Catálogo', icon: 'fa-wine-bottle', roles: ['duena', 'admin', 'bodega'] },
+      { to: '/admin/equipo', label: 'Equipo', icon: 'fa-users', roles: ['duena'] },
     ],
   },
 ]
 
 const ROLE_LABELS: Record<UserRole, string> = {
-  admin: 'Administración',
-  direccion: 'Dirección de crucero',
+  duena: 'Dueña',
+  admin: 'Administradora',
+  direccion: 'Directora de crucero',
   bartender: 'Bartender',
   bodega: 'Bodega',
   capitan: 'Capitán',
@@ -78,24 +81,28 @@ const sections = computed(() =>
 
 const pageTitle = computed(() => (route.meta.title as string) ?? '')
 
+/** En el bar el menú lateral se recoge a íconos: la tableta necesita el ancho. */
+const railMode = computed(() => route.name === 'Bar')
+
 const VIEW_AS_OPTIONS = [
-  { value: 'admin', label: 'Mi vista (Administración)' },
-  { value: 'direccion', label: 'Ver como Dirección' },
+  { value: 'duena', label: 'Mi vista (Dueña)' },
+  { value: 'admin', label: 'Ver como Administradora' },
+  { value: 'direccion', label: 'Ver como Directora' },
   { value: 'bartender', label: 'Ver como Bartender' },
   { value: 'bodega', label: 'Ver como Bodega' },
 ]
 
 const viewAsModel = computed({
-  get: () => userStore.viewAs ?? 'admin',
+  get: () => userStore.viewAs ?? 'duena',
   set: (value: string) => {
     userStore.setViewAs(value as UserRole)
-    const target = ROLE_HOME[(userStore.role ?? 'admin') as UserRole]
+    const target = ROLE_HOME[(userStore.role ?? 'duena') as UserRole]
     router.push(target)
   },
 })
 
 function exitViewAs() {
-  viewAsModel.value = 'admin'
+  viewAsModel.value = 'duena'
 }
 
 const initials = computed(() => {
@@ -177,7 +184,7 @@ async function logout() {
         <div v-if="drawerOpen" class="scrim" @click="drawerOpen = false" />
       </Transition>
 
-      <nav class="sidenav" :class="{ 'sidenav--open': drawerOpen }">
+      <nav class="sidenav" :class="{ 'sidenav--open': drawerOpen, 'sidenav--rail': railMode && !drawerOpen }">
         <div class="sidenav-sections">
           <div v-for="section in sections" :key="section.label" class="nav-section">
             <p class="nav-section-label">{{ section.label }}</p>
@@ -186,13 +193,14 @@ async function logout() {
               :key="item.to"
               :to="item.to"
               class="nav-item"
+              :title="railMode ? item.label : undefined"
             >
               <span class="nav-indicator" aria-hidden="true" />
               <i class="fa-solid nav-icon" :class="item.icon" aria-hidden="true" />
               <span class="nav-label">{{ item.label }}</span>
             </RouterLink>
           </div>
-          <div v-if="userStore.isRealAdmin" class="nav-section">
+          <div v-if="userStore.isRealAdmin" class="nav-section nav-section--extra">
             <p class="nav-section-label">Barco</p>
             <a :href="REGISTROS_URL" class="nav-item" target="_blank" rel="noopener">
               <span class="nav-indicator" aria-hidden="true" />
@@ -458,6 +466,32 @@ async function logout() {
     transform: none;
     box-shadow: none;
     padding-top: 1.1rem;
+  }
+}
+
+// Menú recogido (solo íconos) en la pantalla del bar, desde tableta horizontal.
+.sidenav--rail {
+  @include desktop {
+    width: 76px;
+    padding-left: 0.55rem;
+    padding-right: 0.55rem;
+    transition: width 0.22s ease;
+
+    .nav-section-label,
+    .nav-label,
+    .view-as,
+    .viewing-as,
+    .nav-section--extra,
+    .user-name,
+    .user-role {
+      display: none;
+    }
+
+    .nav-item {
+      justify-content: center;
+      padding-left: 0;
+      padding-right: 0;
+    }
   }
 }
 
