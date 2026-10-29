@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { computed, reactive, ref, shallowRef } from 'vue'
-import type { Product, ProductKind, RecipeIngredient } from '@/types'
+import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
+import type { ContificoProduct, Product, ProductKind, RecipeIngredient } from '@/types'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { CATEGORY_LABELS } from '@/stores/catalog'
 import { useUserStore } from '@/stores/user'
 import { useToastStore } from '@/stores/toast'
 import { useSound } from '@/composables/useSound'
-import { apiCreateProduct, apiUpdateProduct } from '@/services/api'
+import { apiContifico, apiCreateProduct, apiUpdateProduct } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatDateTime, formatMoney, unitShort } from '@/utils/format'
 
@@ -56,6 +56,7 @@ const form = reactive({
   lowStockThreshold: editing?.lowStockThreshold ?? 0,
   servingSize: editing?.servingSize ?? 60,
   servingPrice: editing?.servingPrice ?? 0,
+  contificoId: editing?.contificoId ?? '',
 })
 
 const recipe = ref(
@@ -74,6 +75,28 @@ const ingredientOptions = computed(() =>
     .filter((p) => p._id !== editing?._id)
     .map((p) => ({ value: p._id, label: p.name, hint: unitShort(p.stockUnit) })),
 )
+/** Productos de Contífico para facturar (solo administración los vincula). */
+const contificoProducts = shallowRef<ContificoProduct[]>([])
+const contificoReady = shallowRef(false)
+onMounted(async () => {
+  if (!userStore.isAdmin) return
+  try {
+    const info = await apiContifico()
+    contificoProducts.value = info.products
+    contificoReady.value = info.configured
+  } catch {
+    contificoReady.value = false
+  }
+})
+const contificoOptions = computed(() => [
+  { value: '', label: 'Sin vincular' },
+  ...contificoProducts.value.map((p) => ({
+    value: p.id,
+    label: p.nombre,
+    hint: p.pvp === null ? p.codigo : `${p.codigo} · ${formatMoney(p.pvp * (1 + p.iva / 100))}`,
+  })),
+])
+
 const categoryOptions = Object.entries(CATEGORY_LABELS).map(([value, label]) => ({ value, label }))
 const iconOptions = Object.entries(ICONS).map(([value, label]) => ({ value, label }))
 
@@ -96,6 +119,7 @@ async function save() {
     icon: form.icon,
   }
   if (isAdmin.value) payload.price = form.price
+  if (isAdmin.value && contificoReady.value) payload.contificoId = form.contificoId
   if (form.kind === 'fisico') {
     Object.assign(payload, {
       sellable: form.sellable,
@@ -250,6 +274,19 @@ async function save() {
           <i class="fa-solid fa-lock" aria-hidden="true" /> Solo Paula cambia el precio vigente.
         </small>
         <small v-else class="help">Las ventas anteriores conservan el precio con el que se registraron.</small>
+      </div>
+
+      <!-- Facturación: producto equivalente en Contífico -->
+      <div v-if="isAdmin && contificoReady && (form.kind !== 'fisico' || form.sellable)" class="field">
+        <label id="p-contifico-label">Producto en Contífico (factura)</label>
+        <BaseSelect
+          v-model="form.contificoId"
+          :options="contificoOptions"
+          placeholder="Buscar en Contífico…"
+          searchable
+          aria-labelledby="p-contifico-label"
+        />
+        <small class="help">La factura usa este producto con el precio cobrado en el barco.</small>
       </div>
 
       <details v-if="editing?.priceHistory?.length" class="history">
