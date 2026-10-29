@@ -1,10 +1,19 @@
 import { http } from './httpBase'
 import type {
   AccountSummary,
+  Availability,
   CabinAccountRow,
+  CabinSummary,
   ContificoInfo,
   Cruise,
   CruiseSales,
+  FinishCheck,
+  OwnerPanel,
+  Purchase,
+  Requisition,
+  RequisitionStatus,
+  PurchaseStatus,
+  StartCheck,
   CycleSettings,
   LivePulse,
   Order,
@@ -24,11 +33,18 @@ import type {
 } from '@/types'
 
 // Autenticación
-export async function apiLogin(email: string, password: string) {
+export async function apiLogin(email: string, password: string, remember = false) {
   const { data } = await http.post<{ token: string; user: SessionUser }>('/auth/login', {
     email,
     password,
+    remember,
   })
+  return data
+}
+
+/** Sesión deslizante: renueva el token con la misma duración. */
+export async function apiRefresh() {
+  const { data } = await http.post<{ token: string; user: SessionUser }>('/auth/refresh')
   return data
 }
 
@@ -106,9 +122,11 @@ export async function apiUpdatePassengers(
   cruiseId: string,
   cabinNumber: number,
   passengers: Passenger[],
+  capacity?: number,
 ) {
   const { data } = await http.put(`/cruises/${cruiseId}/cabins/${cabinNumber}/passengers`, {
     passengers,
+    capacity,
   })
   return data.cabin
 }
@@ -209,6 +227,7 @@ export async function apiCollectCabin(payload: {
   cabinNumber: number
   method: PaymentMethod
   cashConfirmed?: boolean
+  reference?: string
   billing: { name?: string; idNumber?: string; email?: string; country?: string }
 }) {
   const { data } = await http.post<{ payment: Payment }>('/payments/collect', payload)
@@ -253,6 +272,8 @@ export async function apiRegisterWaste(payload: {
   qty: number
   reason: string
   location?: StockLocation
+  /** Misma clave en un reintento sin señal = no se duplica. */
+  key?: string
 }) {
   await http.post('/inventory/waste', payload)
 }
@@ -266,16 +287,13 @@ export async function apiAdjustStock(payload: {
   await http.post('/inventory/adjust', payload)
 }
 
-export async function apiPurchase(payload: {
-  supplier: string
-  document: string
-  items: Array<{ productId: string; containers: number; unitCost: number }>
-}) {
-  await http.post('/inventory/purchase', payload)
-}
-
-export async function apiTransfer(items: Array<{ productId: string; qty: number }>) {
-  await http.post('/inventory/transfer', { items })
+/** Cargar al barco: bodega → a bordo. La clave evita trasladar dos veces. */
+export async function apiTransfer(items: Array<{ productId: string; qty: number }>, key?: string) {
+  const { data } = await http.post<{ ok: boolean; transferId: string; duplicated?: boolean }>(
+    '/inventory/transfer',
+    { items, key },
+  )
+  return data
 }
 
 export async function apiMovements(
@@ -372,5 +390,192 @@ export async function apiUpdateUser(id: string, payload: Record<string, unknown>
 // Pública (pasajero)
 export async function apiPublicAccount(token: string) {
   const { data } = await http.get<PublicAccount>(`/public/account/${token}`)
+  return data
+}
+
+// Ciclo de la salida: Programada → En curso → Finalizada
+export async function apiStartCheck(id: string) {
+  const { data } = await http.get<StartCheck>(`/cruises/${id}/start-check`)
+  return data
+}
+
+export async function apiStartCruise(id: string) {
+  const { data } = await http.post<{ cruise: Cruise; warnings?: StartCheck['warnings'] }>(
+    `/cruises/${id}/start`,
+  )
+  return data
+}
+
+export async function apiFinishCheck(id: string) {
+  const { data } = await http.get<FinishCheck>(`/cruises/${id}/finish-check`)
+  return data
+}
+
+export async function apiFinishCruise(id: string, reason?: string) {
+  const { data } = await http.post<{ cruise: Cruise }>(`/cruises/${id}/finish`, { reason })
+  return data
+}
+
+// Consumo directo (un toque)
+export interface ConsumptionPayload {
+  cruiseId: string
+  cabinNumber: number
+  productId: string
+  qty?: number
+  courtesy?: boolean
+  idempotencyKey: string
+  clientAt?: string
+}
+
+export async function apiConsume(payload: ConsumptionPayload) {
+  const { data, status } = await http.post<{
+    order: Order
+    summary?: CabinSummary
+    duplicated?: boolean
+    held?: boolean
+  }>('/consumptions', payload)
+  return { ...data, status }
+}
+
+export async function apiUndoConsumption(id: string, reason?: string) {
+  const { data } = await http.post<{ order: Order; summary: CabinSummary }>(
+    `/consumptions/${id}/undo`,
+    { reason },
+  )
+  return data
+}
+
+export async function apiBonifyConsumption(id: string, reason: string) {
+  const { data } = await http.post<{ order: Order }>(`/consumptions/${id}/bonify`, { reason })
+  return data.order
+}
+
+export async function apiReviewHeld(id: string, decision: 'aceptar' | 'rechazar', reason: string) {
+  const { data } = await http.post<{ order: Order }>(`/consumptions/${id}/held-review`, {
+    decision,
+    reason,
+  })
+  return data.order
+}
+
+export async function apiCabinSummary(cruiseId: string, cabinNumber: number) {
+  const { data } = await http.get<{ summary: CabinSummary }>(
+    `/consumptions/summary/${cruiseId}/${cabinNumber}`,
+  )
+  return data.summary
+}
+
+export async function apiAvailability() {
+  const { data } = await http.get<{ availability: Availability }>('/consumptions/availability')
+  return data.availability
+}
+
+export async function apiHeartbeat(payload: {
+  deviceId: string
+  label?: string
+  pending: number
+  lastSyncAt: string | null
+  cruiseId?: string | null
+}) {
+  await http.post('/devices/heartbeat', payload)
+}
+
+// Requerimientos del bar
+export async function apiRequisitions(
+  params: { status?: RequisitionStatus[]; kind?: 'abastecimiento' | 'revision'; mine?: boolean; before?: string } = {},
+) {
+  const { data } = await http.get<{ requisitions: Requisition[]; hasMore: boolean }>('/requisitions', {
+    params: {
+      status: params.status?.join(',') || undefined,
+      kind: params.kind,
+      mine: params.mine ? '1' : undefined,
+      before: params.before,
+    },
+  })
+  return data
+}
+
+export async function apiCreateRequisition(payload: {
+  kind?: 'abastecimiento' | 'revision'
+  lines: Array<{ productId: string; qty: number; unit?: 'envase' | 'base' }>
+  note?: string
+  idempotencyKey?: string
+}) {
+  const { data } = await http.post<{ requisition: Requisition }>('/requisitions', payload)
+  return data.requisition
+}
+
+export async function apiReviewRequisition(id: string, decision: 'aprobar' | 'rechazar', note?: string) {
+  const { data } = await http.post<{ requisition: Requisition }>(`/requisitions/${id}/review`, {
+    decision,
+    note,
+  })
+  return data.requisition
+}
+
+/** Recepción física: cantidades en unidad base (ml, unidad…). */
+export async function apiReceiveRequisition(
+  id: string,
+  key: string,
+  lines: Array<{ index: number; qty: number }>,
+  note?: string,
+) {
+  const { data } = await http.post<{ requisition: Requisition }>(`/requisitions/${id}/receive`, {
+    key,
+    lines,
+    note,
+  })
+  return data.requisition
+}
+
+export async function apiResolveRequisition(id: string, note: string) {
+  const { data } = await http.post<{ requisition: Requisition }>(`/requisitions/${id}/resolve`, { note })
+  return data.requisition
+}
+
+// Compras: factura (sin stock) → recepción física (suma con costo)
+export async function apiPurchases(params: { status?: PurchaseStatus[]; before?: string } = {}) {
+  const { data } = await http.get<{ purchases: Purchase[]; hasMore: boolean }>('/purchases', {
+    params: { status: params.status?.join(',') || undefined, before: params.before },
+  })
+  return data
+}
+
+export async function apiCreatePurchase(payload: {
+  supplier: string
+  document: string
+  documentDate?: string
+  destination: StockLocation
+  lines: Array<{ productId: string; containers: number; containerCost?: number }>
+  note?: string
+  idempotencyKey?: string
+}) {
+  const { data } = await http.post<{ purchase: Purchase }>('/purchases', payload)
+  return data.purchase
+}
+
+/** Recepción física: cantidades en envases (botellas, latas…). */
+export async function apiReceivePurchase(
+  id: string,
+  key: string,
+  lines: Array<{ index: number; containers: number }>,
+  note?: string,
+) {
+  const { data } = await http.post<{ purchase: Purchase }>(`/purchases/${id}/receive`, {
+    key,
+    lines,
+    note,
+  })
+  return data.purchase
+}
+
+export async function apiCancelPurchase(id: string, reason: string) {
+  const { data } = await http.post<{ purchase: Purchase }>(`/purchases/${id}/cancel`, { reason })
+  return data.purchase
+}
+
+// Panel de la dueña
+export async function apiOwnerPanel(params: { cruiseId?: string; from?: string; to?: string } = {}) {
+  const { data } = await http.get<OwnerPanel>('/reports/owner', { params })
   return data
 }
