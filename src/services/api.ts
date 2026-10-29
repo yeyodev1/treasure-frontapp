@@ -2,6 +2,7 @@ import { http } from './httpBase'
 import type {
   AccountSummary,
   CabinAccountRow,
+  ContificoInfo,
   Cruise,
   CruiseSales,
   CycleSettings,
@@ -226,6 +227,12 @@ export async function apiPayments(
 export async function apiRetryInvoice(id: string) {
   const { data } = await http.post<{ payment: Payment }>(`/payments/${id}/retry-invoice`)
   return data.payment
+}
+
+/** Estado de Contífico y su catálogo (para vincular productos). */
+export async function apiContifico() {
+  const { data } = await http.get<ContificoInfo>('/contifico')
+  return data
 }
 
 export async function apiReversePayment(id: string, reason: string) {
