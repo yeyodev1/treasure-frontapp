@@ -13,23 +13,23 @@ defineProps<{ label: string; value: string; hint?: string }>()
 <style scoped lang="scss">
 .stat-label {
   margin: 0;
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-400);
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink-600);
 }
 
 .stat-value {
   margin: 0.25rem 0 0;
-  font-size: 1.7rem;
-  font-weight: 800;
+  font-size: 1.75rem;
+  font-weight: 600;
+  line-height: 1.15;
   color: var(--navy-800);
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-hint {
-  margin: 0.15rem 0 0;
-  font-size: 0.8rem;
+  margin: 0.2rem 0 0;
+  font-size: 0.88rem;
   color: var(--ink-400);
 }
 </style>
