@@ -77,7 +77,7 @@ watch(mode, (next, prev) => {
 
 .seg {
   display: inline-flex;
-  border: 1.5px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   overflow: hidden;
   background: #fff;
