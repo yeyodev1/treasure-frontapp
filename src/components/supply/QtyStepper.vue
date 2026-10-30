@@ -156,7 +156,7 @@ function onInput(event: Event) {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.85rem;
+  font-size: 0.92rem;
   font-weight: 600;
   color: var(--navy-700);
 
@@ -191,7 +191,7 @@ function onInput(event: Event) {
   display: grid;
   place-items: center;
   border-radius: var(--radius-sm);
-  border: 1.5px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   background: #fff;
   color: var(--navy-800);
   font-size: 1.15rem;
@@ -227,7 +227,7 @@ function onInput(event: Event) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border: 1.5px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   background: #fff;
   transition: border-color 0.15s ease;
@@ -251,7 +251,7 @@ function onInput(event: Event) {
 }
 
 .stepper-unit {
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--ink-400);
   padding-bottom: 0.3rem;
