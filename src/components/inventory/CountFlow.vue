@@ -99,7 +99,10 @@ async function create(location: StockLocation) {
       <SkeletonList v-if="loading" variant="card" :rows="2" />
       <template v-else>
         <h3 class="sub">En curso</h3>
-        <p v-if="!open.length" class="muted">No hay conteos abiertos.</p>
+        <div v-if="!open.length" class="vacio">
+          <i class="fa-solid fa-clipboard-check" aria-hidden="true" />
+          <p>No hay conteos abiertos. Empieza uno arriba.</p>
+        </div>
         <TransitionGroup tag="div" name="line" class="lines">
           <button v-for="c in open" :key="c._id" type="button" class="card count" @click="openId = c._id">
             <span class="count-top">
@@ -145,7 +148,7 @@ async function create(location: StockLocation) {
 }
 
 .sub {
-  font-size: 1.1rem;
+  font-size: 1.3rem;
   margin-top: 0.25rem;
 }
 
@@ -176,13 +179,13 @@ async function create(location: StockLocation) {
 }
 
 .count-go {
-  font-weight: 700;
-  color: var(--gold-500);
-  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--gold-600);
+  font-size: 0.97rem;
 }
 
 .pill {
-  font-size: 0.75rem;
+  font-size: 0.84rem;
   font-weight: 700;
   padding: 0.25rem 0.6rem;
   border-radius: 999px;
