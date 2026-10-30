@@ -54,7 +54,8 @@ const routes: Array<RouteRecordRaw> = [
     path: '/admin',
     name: 'Dashboard',
     component: () => import('@/views/admin/DashboardView.vue'),
-    meta: { title: 'Panel', roles: ['admin', 'direccion'] },
+    // Solo Gerencia: el servidor también lo restringe (/reports/*).
+    meta: { title: 'Resumen del negocio', roles: ['duena'] },
   },
   {
     path: '/admin/inventario',
