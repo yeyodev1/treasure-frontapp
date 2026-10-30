@@ -251,7 +251,7 @@ function linesShort(r: Requisition): string {
           <button type="button" class="action card" @click="go('conteo')">
             <span class="action-icon"><i class="fa-solid fa-clipboard-list" aria-hidden="true" /></span>
             <strong>Conteo físico</strong>
-            <small>Cuenta lo que hay. La dueña autoriza el ajuste.</small>
+            <small>Cuenta lo que hay. Si hay diferencia, se revisa antes de ajustar.</small>
           </button>
 
           <button type="button" class="action card" @click="go('merma')">
@@ -262,28 +262,28 @@ function linesShort(r: Requisition): string {
 
           <RouterLink v-if="!canBuy && userStore.isDirector" to="/abastecimiento?tab=aprobar" class="action card">
             <span class="action-icon"><i class="fa-solid fa-stamp" aria-hidden="true" /></span>
-            <strong>Requerimientos por aprobar</strong>
+            <strong>Solicitudes por aprobar</strong>
             <small>Lo que pidió el bar.</small>
           </RouterLink>
         </section>
 
-        <!-- Requerimientos por atender -->
+        <!-- Solicitudes por atender -->
         <section v-if="canBuy" class="card pending">
           <header class="pending-head">
-            <h2><i class="fa-solid fa-truck-ramp-box" aria-hidden="true" /> Requerimientos por atender</h2>
+            <h2><i class="fa-solid fa-truck-ramp-box" aria-hidden="true" /> Solicitudes por atender</h2>
             <RouterLink to="/abastecimiento?tab=recibir" class="pending-link">
               Ver todos <i class="fa-solid fa-arrow-right" aria-hidden="true" />
             </RouterLink>
           </header>
 
           <p v-if="!toReceive.length && !revisions.length" class="muted">
-            Nada pendiente: no hay requerimientos aprobados ni revisiones solicitadas.
+            Nada pendiente: no hay solicitudes aprobadas ni revisiones de inventario.
           </p>
 
           <TransitionGroup tag="ul" name="list" class="pending-list">
             <li v-for="r in toReceive.slice(0, 4)" :key="r._id">
               <button type="button" class="pending-item" @click="openRequisition(r)">
-                <span class="pending-tag">Aprobado</span>
+                <span class="pending-tag">Aprobada</span>
                 <span class="pending-text">
                   <strong>{{ r.code }} · {{ linesShort(r) }}</strong>
                   <small>{{ personName(r.requestedBy) }} · {{ formatDateTime(r.createdAt) }}</small>
