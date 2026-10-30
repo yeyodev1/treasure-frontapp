@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, shallowRef, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useCatalogStore } from '@/stores/catalog'
 import { useToastStore } from '@/stores/toast'
 import { useUserStore } from '@/stores/user'
@@ -33,7 +34,11 @@ const userStore = useUserStore()
 const confirmStore = useConfirmStore()
 const { play } = useSound()
 
-const tab = shallowRef<Tab>('abordo')
+// Las alertas del resumen abren una pestaña directa (?tab=conteos).
+const route = useRoute()
+const TABS: Tab[] = ['abordo', 'bodega', 'conteos', 'bitacora']
+const initialTab = TABS.find((t) => t === route.query.tab)
+const tab = shallowRef<Tab>(initialTab ?? 'abordo')
 const stock = shallowRef<StockItem[]>([])
 const counts = shallowRef<StockCount[]>([])
 const movements = ref<StockMovement[]>([])
