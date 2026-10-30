@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, shallowRef } from 'vue'
+import { computed, onMounted, ref, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToastStore } from '@/stores/toast'
 import { useUserStore } from '@/stores/user'
@@ -156,6 +156,12 @@ async function reverse(payment: Payment) {
   }
 }
 
+/** Suma de lo recibido en la lista (los reversados no cuentan). */
+const listTotal = computed(() =>
+  payments.value.filter((p) => p.status !== 'reversado').reduce((sum, p) => sum + p.total, 0),
+)
+const reversedCount = computed(() => payments.value.filter((p) => p.status === 'reversado').length)
+
 function cruiseName(payment: Payment): string {
   return typeof payment.cruise === 'object' ? payment.cruise.code || payment.cruise.name : ''
 }
@@ -166,114 +172,150 @@ function collectorName(payment: Payment): string {
 </script>
 
 <template>
-  <div class="page">
-    <h1 class="page-title">Cobros y facturas</h1>
+  <div class="page payments-page">
+    <header class="head">
+      <h1 class="page-title">Cobros y facturas</h1>
+      <p class="subtitle">Cada pago registrado y, por separado, el estado de su factura.</p>
+    </header>
 
     <div class="filters">
-      <div class="field">
-        <label id="f-from-label">Desde</label>
-        <BaseDatePicker v-model="from" clearable aria-labelledby="f-from-label" @update:model-value="refresh" />
+      <div class="view" role="tablist" aria-label="Qué mostrar">
+        <button
+          type="button"
+          role="tab"
+          class="view-btn"
+          :class="{ 'view-btn--on': !onlyPending }"
+          :aria-selected="!onlyPending"
+          @click="onlyPending && togglePending()"
+        >
+          Todos los cobros
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="view-btn"
+          :class="{ 'view-btn--on': onlyPending }"
+          :aria-selected="onlyPending"
+          @click="!onlyPending && togglePending()"
+        >
+          <i class="fa-solid fa-file-circle-exclamation" aria-hidden="true" /> Facturas pendientes
+        </button>
       </div>
-      <div class="field">
-        <label id="f-to-label">Hasta</label>
-        <BaseDatePicker v-model="to" clearable aria-labelledby="f-to-label" @update:model-value="refresh" />
+      <div class="dates">
+        <div class="field">
+          <label id="f-from-label">Desde</label>
+          <BaseDatePicker v-model="from" clearable aria-labelledby="f-from-label" @update:model-value="refresh" />
+        </div>
+        <div class="field">
+          <label id="f-to-label">Hasta</label>
+          <BaseDatePicker v-model="to" clearable aria-labelledby="f-to-label" @update:model-value="refresh" />
+        </div>
       </div>
-      <button
-        type="button"
-        class="pending-toggle"
-        :class="{ 'pending-toggle--on': onlyPending }"
-        :aria-pressed="onlyPending"
-        @click="togglePending"
-      >
-        <i class="fa-solid fa-file-circle-exclamation" aria-hidden="true" /> Solo facturas pendientes
-      </button>
     </div>
 
-    <section v-if="loading" class="card table-card">
-      <SkeletonList variant="row" :rows="8" />
+    <section v-if="loading" class="list-card">
+      <SkeletonList variant="row" :rows="6" />
     </section>
 
-    <section v-else class="card table-card">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Fecha</th>
-            <th>Crucero</th>
-            <th>Cabina</th>
-            <th>Total</th>
-            <th>Método</th>
-            <th>Cobró</th>
-            <th>Pago</th>
-            <th>Factura</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="payment in payments" :key="payment._id" :class="{ reversed: payment.status === 'reversado' }">
-            <td>{{ formatDateTime(payment.createdAt) }}</td>
-            <td>{{ cruiseName(payment) }}</td>
-            <td>{{ payment.cabinNumber }}</td>
-            <td><strong>{{ formatMoney(payment.total) }}</strong></td>
-            <td>{{ METHOD_LABELS[payment.method] ?? payment.method }}</td>
-            <td>{{ collectorName(payment) }}</td>
-            <td>
-              <span v-if="payment.status === 'reversado'" class="pill pill--error" :title="payment.reverseReason">
-                Pago reversado
-              </span>
-              <span v-else class="pill pill--emitida">
+    <section v-else class="list-card" aria-label="Cobros">
+      <p v-if="payments.length" class="count">
+        {{ payments.length }}{{ hasMore ? '+' : '' }} {{ payments.length === 1 ? 'cobro' : 'cobros' }}
+        <template v-if="!hasMore">
+          · {{ formatMoney(listTotal) }} recibido<template v-if="reversedCount">
+            · {{ reversedCount }} {{ reversedCount === 1 ? 'reversado' : 'reversados' }} no suman</template
+          >
+        </template>
+      </p>
+
+      <div v-if="payments.length" class="grid-head" aria-hidden="true">
+        <span>Fecha</span>
+        <span>Cabina</span>
+        <span>Método</span>
+        <span class="num">Monto</span>
+        <span>Pago y factura</span>
+      </div>
+
+      <TransitionGroup tag="ul" name="list" class="rows">
+        <li
+          v-for="payment in payments"
+          :key="payment._id"
+          class="row"
+          :class="{ 'row--reversed': payment.status === 'reversado' }"
+        >
+          <span class="c-date">{{ formatDateTime(payment.createdAt) }}</span>
+          <span class="c-id">
+            <strong>Cabina {{ payment.cabinNumber }}</strong>
+            <small v-if="cruiseName(payment)">Crucero {{ cruiseName(payment) }}</small>
+          </span>
+          <span class="c-method">
+            {{ METHOD_LABELS[payment.method] ?? payment.method }}
+            <small v-if="collectorName(payment)">cobró {{ collectorName(payment) }}</small>
+          </span>
+          <strong class="c-amount">{{ formatMoney(payment.total) }}</strong>
+
+          <span class="c-states">
+            <span v-if="payment.status === 'reversado'" class="pill pill--error">
+              <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Pago reversado
+            </span>
+            <template v-else>
+              <span class="pill pill--paid">
+                <i class="fa-solid fa-check" aria-hidden="true" />
                 {{ payment.invoiceStatus === 'parcial' ? 'Pago parcial' : 'Pago registrado' }}
               </span>
-            </td>
-            <td>
-              <span v-if="payment.status === 'reversado'" class="muted">—</span>
-              <template v-else>
-                <span class="pill" :class="`pill--${payment.invoiceStatus}`">
-                  {{ INVOICE_LABELS[payment.invoiceStatus] }}
-                </span>
-                <a
-                  v-if="payment.invoiceStatus === 'emitida' && payment.invoiceNumber"
-                  class="invoice-link"
-                  :href="payment.invoiceUrl || undefined"
-                  target="_blank"
-                  rel="noopener"
-                >
-                  <i class="fa-solid fa-file-pdf" aria-hidden="true" /> {{ payment.invoiceNumber }}
-                </a>
-                <small
-                  v-if="payment.invoiceStatus !== 'emitida' && payment.invoiceError"
-                  class="invoice-error"
-                  :class="{ 'invoice-error--soft': payment.invoiceStatus === 'pendiente' }"
-                >
-                  {{ payment.invoiceError }}
-                </small>
-                <button
-                  v-if="userStore.isDirector && (payment.invoiceStatus === 'pendiente' || payment.invoiceStatus === 'error')"
-                  type="button"
-                  class="retry"
-                  :disabled="retrying === payment._id"
-                  @click="retry(payment)"
-                >
-                  {{ retrying === payment._id ? 'Emitiendo…' : 'Reintentar emisión de factura' }}
-                </button>
-              </template>
-            </td>
-            <td>
-              <button
-                v-if="userStore.isAdmin && payment.status !== 'reversado'"
-                type="button"
-                class="reverse"
-                @click="reverse(payment)"
+              <span class="pill" :class="`pill--${payment.invoiceStatus}`">
+                <i class="fa-regular fa-file-lines" aria-hidden="true" />
+                {{ INVOICE_LABELS[payment.invoiceStatus] }}
+              </span>
+              <a
+                v-if="payment.invoiceStatus === 'emitida' && payment.invoiceNumber"
+                class="invoice-link"
+                :href="payment.invoiceUrl || undefined"
+                target="_blank"
+                rel="noopener"
               >
-                <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Reversar
-              </button>
-              <span v-else-if="payment.status === 'reversado'" class="reverse-reason">{{ payment.reverseReason }}</span>
-            </td>
-          </tr>
-          <tr v-if="!payments.length">
-            <td colspan="9" class="empty">{{ onlyPending ? 'Sin facturas pendientes en este rango.' : 'Sin cobros en este rango.' }}</td>
-          </tr>
-        </tbody>
-      </table>
+                <i class="fa-solid fa-file-pdf" aria-hidden="true" /> {{ payment.invoiceNumber }}
+              </a>
+            </template>
+            <small
+              v-if="payment.status !== 'reversado' && payment.invoiceStatus !== 'emitida' && payment.invoiceError"
+              class="invoice-error"
+              :class="{ 'invoice-error--soft': payment.invoiceStatus === 'pendiente' }"
+            >
+              {{ payment.invoiceError }}
+            </small>
+            <small v-if="payment.status === 'reversado' && payment.reverseReason" class="reverse-reason">
+              {{ payment.reverseReason }}
+            </small>
+          </span>
+
+          <span
+            v-if="
+              payment.status !== 'reversado' &&
+              ((userStore.isDirector && (payment.invoiceStatus === 'pendiente' || payment.invoiceStatus === 'error')) ||
+                userStore.isAdmin)
+            "
+            class="c-actions"
+          >
+            <button
+              v-if="userStore.isDirector && (payment.invoiceStatus === 'pendiente' || payment.invoiceStatus === 'error')"
+              type="button"
+              class="act"
+              :disabled="retrying === payment._id"
+              @click="retry(payment)"
+            >
+              <i class="fa-solid fa-rotate" :class="{ 'fa-spin': retrying === payment._id }" aria-hidden="true" />
+              {{ retrying === payment._id ? 'Emitiendo…' : 'Reintentar emisión de factura' }}
+            </button>
+            <button v-if="userStore.isAdmin" type="button" class="act act--danger" @click="reverse(payment)">
+              <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Reversar
+            </button>
+          </span>
+        </li>
+      </TransitionGroup>
+
+      <p v-if="!payments.length" class="empty">
+        {{ onlyPending ? 'Sin facturas pendientes en este rango.' : 'Sin cobros en este rango.' }}
+      </p>
       <div v-if="hasMore" ref="sentinel" class="sentinel">
         <BaseSpinner v-if="loadingMore" label="Cargando más cobros…" />
       </div>
@@ -284,120 +326,307 @@ function collectorName(payment: Payment): string {
 <style scoped lang="scss">
 @use '@/styles/mixins' as *;
 
+/*
+ * Cobros: una fila por pago. En tableta y celular cada fila se lee en tres
+ * líneas (cabina y monto, fecha y método, estados); desde 1100 px las mismas
+ * celdas se alinean en columnas bajo un encabezado.
+ */
+.payments-page {
+  --line: #dbe4eb;
+  --line-strong: #c3d1dc;
+  --muted: #55636d;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.head .page-title {
+  margin-bottom: 0.2rem;
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--muted);
+}
+
 .filters {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-  max-width: 640px;
-
-  @include tablet {
-    grid-template-columns: 1fr 1fr auto;
-  }
-  margin-bottom: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
 }
 
-.table-card {
-  overflow-x: auto;
-  padding: 0.5rem;
-
-  @include tablet {
-    padding: 0.75rem;
-  }
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.88rem;
-
-  th {
-    text-align: left;
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--ink-400);
-    padding: 0.5rem 0.6rem;
-    border-bottom: 2px solid var(--cream-200);
-    white-space: nowrap;
-  }
-
-  td {
-    padding: 0.55rem 0.6rem;
-    border-bottom: 1px solid var(--cream-200);
-    white-space: nowrap;
-  }
-}
-
-.pending-toggle {
-  align-self: end;
-  grid-column: 1 / -1;
-  justify-self: start;
-
-  @include tablet {
-    grid-column: auto;
-  }
-
-  min-height: 44px;
-  padding: 0 0.9rem;
+.view {
+  display: inline-flex;
+  flex: none;
+  padding: 4px;
   border-radius: 999px;
-  border: 1.5px solid var(--cream-200);
-  font-size: 0.84rem;
-  font-weight: 700;
+  background: var(--powder-100);
+}
+
+.view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 44px;
+  padding: 0 1.1rem;
+  border-radius: 999px;
+  font-size: 1rem;
+  font-weight: 500;
   color: var(--ink-600);
-  white-space: nowrap;
   transition:
     background 0.18s ease,
-    color 0.18s ease,
-    border-color 0.18s ease;
+    color 0.18s ease;
 
   &--on {
     background: var(--navy-800);
-    border-color: var(--navy-800);
-    color: var(--cream-100);
+    color: #fff;
   }
 }
 
-.muted {
-  color: var(--ink-400);
+.dates {
+  flex: 1 1 360px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  max-width: 520px;
+
+  .field label {
+    font-size: 0.9375rem;
+  }
+}
+
+.list-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.25rem 1rem 0.5rem;
+
+  @include tablet {
+    padding: 0.5rem 1.25rem 0.75rem;
+  }
+}
+
+.count {
+  margin: 0;
+  padding: 0.75rem 0;
+  font-size: 0.9375rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+// Fila en tableta y celular
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'id amount'
+    'meta meta'
+    'states states'
+    'actions actions';
+  gap: 0.3rem 1rem;
+  padding: 0.9rem 0;
+  border-top: 1px solid var(--line);
+  transition: opacity 0.2s ease;
+
+  &--reversed {
+    .c-id,
+    .c-amount,
+    .c-date,
+    .c-method {
+      opacity: 0.55;
+    }
+
+    .c-amount {
+      text-decoration: line-through;
+    }
+  }
+}
+
+.c-id {
+  grid-area: id;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.5rem;
+
+  strong {
+    font-size: 1.0625rem;
+    font-weight: 500;
+  }
+
+  small {
+    font-size: 0.9375rem;
+    color: var(--muted);
+  }
+}
+
+.c-amount {
+  grid-area: amount;
+  justify-self: end;
+  font-size: 1.125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+// En filas apiladas, fecha y método comparten la línea 2.
+.c-date,
+.c-method {
+  grid-area: meta;
+  font-size: 0.9375rem;
+  color: var(--muted);
+}
+
+.c-date {
+  justify-self: start;
+}
+
+.c-method {
+  justify-self: end;
+  text-align: right;
+
+  small {
+    display: block;
+    font-size: 0.875rem;
+  }
+}
+
+.c-states {
+  grid-area: states;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.2rem;
+}
+
+.c-actions {
+  grid-area: actions;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.grid-head {
+  display: none;
+}
+
+@media (min-width: 1100px) {
+  .grid-head,
+  .row {
+    grid-template-columns: 140px minmax(120px, 1fr) minmax(140px, 1fr) 100px minmax(250px, 1.5fr);
+    grid-template-areas: none;
+    column-gap: 1.25rem;
+    align-items: start;
+  }
+
+  .grid-head {
+    display: grid;
+    padding: 0.25rem 0 0.6rem;
+    font-size: 0.875rem;
+    color: var(--muted);
+
+    .num {
+      text-align: right;
+    }
+  }
+
+  .c-id,
+  .c-amount,
+  .c-date,
+  .c-method,
+  .c-states,
+  .c-actions {
+    grid-area: auto;
+    margin: 0;
+  }
+
+  .c-id {
+    flex-direction: column;
+  }
+
+  .c-date {
+    color: var(--ink-900);
+    font-size: 1rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .c-method {
+    justify-self: start;
+    text-align: left;
+    color: var(--ink-900);
+    font-size: 1rem;
+
+    small {
+      color: var(--muted);
+    }
+  }
+
+  .c-amount {
+    font-size: 1rem;
+  }
+
+  // Las acciones van bajo los estados, en la misma columna.
+  .c-actions {
+    grid-column: 5;
+    margin-top: 0.4rem;
+  }
 }
 
 .pill {
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 0.2rem 0.55rem;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.65rem;
   border-radius: 999px;
-  background: var(--cream-200);
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  background: #eef2f5;
+  color: #3c4a54;
 
-  &--emitida {
-    background: rgba(63, 174, 106, 0.15);
-    color: var(--success);
+  i {
+    font-size: 0.75rem;
   }
 
-  &--pendiente {
-    background: rgba(232, 161, 60, 0.18);
-    color: #9a6a16;
+  &--paid,
+  &--emitida {
+    background: #e2efe6;
+    color: #255a3b;
+  }
+
+  &--pendiente,
+  &--emitiendo {
+    background: #f7ecdc;
+    color: #6f4a16;
   }
 
   &--error {
-    background: rgba(224, 82, 82, 0.15);
-    color: var(--danger);
-  }
-
-  &--emitiendo {
-    background: rgba(200, 215, 231, 0.5);
-    color: var(--navy-600);
+    background: #f8e4e1;
+    color: #8a2f25;
   }
 }
 
 .invoice-link {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  margin-left: 0.4rem;
-  font-size: 0.76rem;
-  font-weight: 700;
-  color: var(--navy-600);
-  white-space: nowrap;
+  gap: 0.35rem;
+  min-height: 32px;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--navy-700);
+  text-decoration: underline;
+  text-underline-offset: 3px;
   transition: opacity 0.15s ease;
 
   &:hover {
@@ -405,50 +634,64 @@ function collectorName(payment: Payment): string {
   }
 }
 
-.invoice-error {
-  display: block;
-  max-width: 260px;
-  margin-top: 0.25rem;
-  font-size: 0.72rem;
-  line-height: 1.3;
+.invoice-error,
+.reverse-reason {
+  flex-basis: 100%;
+  font-size: 0.875rem;
+  line-height: 1.35;
   color: var(--danger);
-  white-space: normal;
-
-  &--soft {
-    color: #9a6a16;
-  }
 }
 
-.reverse {
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: var(--danger);
-  white-space: nowrap;
+.invoice-error--soft {
+  color: #6f4a16;
 }
 
 .reverse-reason {
-  font-size: 0.76rem;
-  color: var(--ink-400);
+  color: var(--muted);
 }
 
-tr.reversed td {
-  opacity: 0.6;
-}
+.act {
+  @include touch-target;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--navy-800);
+  white-space: nowrap;
+  transition:
+    border-color 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.12s ease;
 
-.retry {
-  display: block;
-  margin-top: 0.3rem;
-  min-height: 32px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: var(--navy-600);
-  text-decoration: underline;
+  &:hover:not(:disabled) {
+    border-color: currentColor;
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+  }
+
+  &--danger {
+    color: var(--danger);
+  }
 }
 
 .empty {
-  color: var(--ink-400);
-  text-align: center;
+  margin: 0.75rem 0;
   padding: 1rem;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  font-size: 1rem;
+  color: var(--muted);
 }
 
 .sentinel {
