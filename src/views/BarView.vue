@@ -19,15 +19,17 @@ import { apiErrorMessage } from '@/services/httpBase'
 import { TIMEZONE, formatMoney, formatTime } from '@/utils/format'
 import ProductCatalog, { type CatalogFilter } from '@/components/pos/ProductCatalog.vue'
 import CocktailBuilder from '@/components/pos/CocktailBuilder.vue'
+import TapConfirmation, { type TapState } from '@/components/pos/TapConfirmation.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import type { Availability, CabinSummary, Product } from '@/types'
 
 /**
  * Bar (guía auditada 27-oct-2026): elegir cabina y tocar la bebida registra
- * lo servido. Sin comanda, sin "Registrar" ni "Entregar" después. La barra
- * inferior muestra el resultado real (Enviando / Pendiente / Guardado), el
- * total de hoy y del viaje y el botón Deshacer error.
+ * lo servido. Sin comanda, sin "Registrar" ni "Entregar" después. Sobre el
+ * catálogo, una confirmación grande dice el resultado real (Enviando /
+ * Producto agregado a la cuenta / sin conexión / no se agregó); la barra
+ * inferior lo conserva junto al total de hoy y del viaje y Deshacer error.
  */
 const catalogStore = useCatalogStore()
 const cruiseStore = useCruiseStore()
@@ -48,7 +50,6 @@ const showBuilder = shallowRef(false)
 const showQueue = shallowRef(false)
 const showMenu = shallowRef(false)
 const undoing = shallowRef(false)
-type TapState = 'enviando' | 'pendiente' | 'guardado' | 'retenido' | 'rechazado'
 /**
  * Último registro de la tableta: lo que muestra la barra inferior. Toques
  * seguidos de la misma bebida y cabina se suman (dos toques = dos
@@ -70,6 +71,13 @@ const lastTap = shallowRef<LastTap | null>(null)
 const STREAK_MS = 60_000
 const catalogFilter = shallowRef<CatalogFilter>('todas')
 const pulse = shallowRef('')
+/** Bebida y cabina recién confirmadas por el servidor: se resaltan un momento. */
+const confirmed = shallowRef<{ productId: string; cabin: number } | null>(null)
+let confirmedTimer: ReturnType<typeof setTimeout> | null = null
+/** Posición de la confirmación grande para el último toque. */
+const confirmAnchor = shallowRef<{ top?: number; bottom?: number }>({})
+/** Alto aproximado de la confirmación más su margen. */
+const CONFIRM_SPACE = 104
 
 let availabilityTimer: ReturnType<typeof setInterval> | null = null
 
@@ -191,6 +199,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   queue.stop()
   if (availabilityTimer) clearInterval(availabilityTimer)
+  if (confirmedTimer) clearTimeout(confirmedTimer)
 })
 
 /** Un toque intencional suma una unidad a la cabina elegida. */
@@ -226,12 +235,30 @@ function tap(product: Product) {
   lastTap.value = sameStreak
     ? { ...prev!, keys: [...prev!.keys, entry.key], at: now }
     : { keys: [entry.key], cabin: entry.cabinNumber, productId: product._id, name: product.name, saved: [], held: [], rejected: [], at: now }
+  confirmAnchor.value = anchorFor(product._id)
   pulse.value = product._id
   setTimeout(() => {
     if (pulse.value === product._id) pulse.value = ''
   }, 380)
   play('tap')
   if (courtesyMode.value) courtesyMode.value = false
+}
+
+/**
+ * La confirmación va bajo las cabinas si cabe antes de la bebida tocada; si
+ * no, sobre la barra inferior; si tampoco, bajo la cabecera. Así no tapa la
+ * tarjeta ni la cabina que se resaltan al confirmar.
+ */
+function anchorFor(productId: string): { top?: number; bottom?: number } {
+  const card = document.querySelector(`[data-product="${productId}"]`)?.getBoundingClientRect()
+  const header = document.querySelector('.context')?.getBoundingClientRect().bottom ?? 0
+  const footer = document.querySelector('.result')?.getBoundingClientRect().top ?? window.innerHeight
+  const cabinsBottom = cabinsEl.value?.getBoundingClientRect().bottom ?? 0
+  if (!card) return {}
+  const top = Math.max(header, cabinsBottom) + 10
+  if (top + CONFIRM_SPACE <= card.top) return { top }
+  if (footer - 10 - CONFIRM_SPACE >= card.bottom) return { bottom: window.innerHeight - footer + 10 }
+  return { top: header + 10 }
 }
 
 /**
@@ -253,6 +280,22 @@ const tapState = computed<TapState | null>(() => {
 /** Unidades del último registro que siguen en pie (sin las rechazadas). */
 const tapUnits = computed(() => (lastTap.value ? lastTap.value.keys.length - lastTap.value.rejected.length : 0))
 
+/**
+ * Unidades que nombra la confirmación grande: agregadas cuando todo se
+ * guardó; las que faltan por enviar mientras envía o queda pendiente; las
+ * rechazadas si no se agregó. Nunca dice "agregado" de lo no confirmado.
+ */
+const confirmUnits = computed(() => {
+  const t = lastTap.value
+  if (!t) return 0
+  if (tapState.value === 'enviando' || tapState.value === 'pendiente') {
+    return queue.entries.value.filter((e) => t.keys.includes(e.key)).length || 1
+  }
+  if (tapState.value === 'rechazado') return t.rejected.length
+  if (tapState.value === 'retenido') return t.held.length
+  return tapUnits.value
+})
+
 function markLast(key: string, field: 'saved' | 'held' | 'rejected', message?: string) {
   const t = lastTap.value
   if (!t || !t.keys.includes(key)) return
@@ -265,19 +308,33 @@ function onOutcome(outcome: QueueOutcome) {
       summaries.value = { ...summaries.value, [outcome.summary.cabinNumber]: outcome.summary }
     }
     markLast(outcome.entry.key, 'saved')
+    flashConfirmed(outcome.entry.productId, outcome.entry.cabinNumber)
     play('success')
     void loadAvailability()
     return
   }
+  // Retenido y no guardado los dice la confirmación grande; si no es el
+  // último toque (ya se tocó otra bebida), queda también un aviso.
+  const isLast = lastTap.value?.keys.includes(outcome.entry.key)
   if (outcome.kind === 'retenido') {
     markLast(outcome.entry.key, 'held')
-    toast.push(`${outcome.entry.productName}: el crucero ya estaba finalizado; queda retenido para revisión`)
+    if (!isLast) toast.push(`${outcome.entry.productName}: el crucero ya estaba finalizado; queda retenido para revisión`)
     return
   }
   markLast(outcome.entry.key, 'rejected', outcome.message)
   play('error')
-  toast.error(`No se guardó ${outcome.entry.productName} (cabina ${outcome.entry.cabinNumber}): ${outcome.message}`)
+  if (!isLast) toast.error(`No se guardó ${outcome.entry.productName} (cabina ${outcome.entry.cabinNumber}): ${outcome.message}`)
   void loadAvailability()
+}
+
+function flashConfirmed(productId: string, cabinNumber: number) {
+  if (confirmedTimer) clearTimeout(confirmedTimer)
+  // Se suelta un cuadro para que la misma bebida confirmada otra vez vuelva a destellar.
+  confirmed.value = null
+  requestAnimationFrame(() => {
+    confirmed.value = { productId, cabin: cabinNumber }
+    confirmedTimer = setTimeout(() => (confirmed.value = null), 1400)
+  })
 }
 
 /** Deshacer registro por error: solo lo propio y con la cuenta abierta; reverso auditable. */
@@ -461,7 +518,11 @@ const statusText = computed(() => {
             type="button"
             role="radio"
             class="cabin"
-            :class="{ 'cabin--active': c.number === selectedCabin, 'cabin--empty': !c.passengers.length }"
+            :class="{
+              'cabin--active': c.number === selectedCabin,
+              'cabin--empty': !c.passengers.length,
+              'cabin--confirmed': confirmed?.cabin === c.number,
+            }"
             :aria-checked="c.number === selectedCabin"
             :data-cabin="c.number"
             @click="c.passengers.length ? (selectedCabin = c.number) : onEmptyCabin(c.number)"
@@ -488,6 +549,7 @@ const statusText = computed(() => {
           :favorites="effectiveFavorites"
           :pinned="favorites"
           :pulse="pulse"
+          :confirmed="confirmed?.productId ?? ''"
           :disabled="Boolean(blockedReason)"
           @add="tap"
           @toggle-favorite="toggleFavorite"
@@ -497,8 +559,21 @@ const statusText = computed(() => {
       </section>
     </div>
 
-    <!-- Abajo: resultado y corrección, siempre visibles -->
-    <footer class="result" aria-live="polite">
+    <!-- Confirmación grande del último toque (sobre el catálogo, no bloquea) -->
+    <TapConfirmation
+      v-if="lastTap"
+      :state="tapState"
+      :cabin="lastTap.cabin"
+      :units="confirmUnits"
+      :name="lastTap.name"
+      :message="lastTap.message"
+      :offline="queue.offlineConfirmed.value"
+      :stamp="`${lastTap.at}.${lastTap.saved.length}.${lastTap.held.length}.${lastTap.rejected.length}`"
+      :anchor="confirmAnchor"
+    />
+
+    <!-- Abajo: resultado y corrección, siempre visibles (la confirmación grande es la región viva) -->
+    <footer class="result">
       <div class="result-status" :class="tapState ? `result-status--${tapState}` : ''">
         <template v-if="lastTap && tapState">
           <i
@@ -855,6 +930,23 @@ const statusText = computed(() => {
   &--empty {
     opacity: 0.5;
     border-style: dashed;
+  }
+
+  // Recién confirmada por el servidor: destello de éxito.
+  &--confirmed {
+    animation: cabin-confirmed 1.4s ease;
+  }
+}
+
+@keyframes cabin-confirmed {
+  0%,
+  60% {
+    box-shadow:
+      0 0 0 3px var(--surface),
+      0 0 0 6px var(--success);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(63, 122, 87, 0);
   }
 }
 

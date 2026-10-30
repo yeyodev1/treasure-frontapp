@@ -21,9 +21,11 @@ const props = withDefaults(
     favorites?: string[]
     pinned?: string[]
     pulse?: string
+    /** Bebida recién confirmada por el servidor: se resalta un momento. */
+    confirmed?: string
     disabled?: boolean
   }>(),
-  { availability: () => ({}), favorites: () => [], pinned: () => [], pulse: '', disabled: false },
+  { availability: () => ({}), favorites: () => [], pinned: () => [], pulse: '', confirmed: '', disabled: false },
 )
 const emit = defineEmits<{
   add: [Product]
@@ -198,8 +200,10 @@ function onTap(p: Product) {
           v-else
           type="button"
           class="product"
+          :data-product="product._id"
           :class="{
             'product--pulse': pulse === product._id,
+            'product--confirmed': confirmed === product._id,
             'product--disabled': disabled && !editingFavorites,
             'product--fav': editingFavorites && pinned.includes(product._id),
           }"
@@ -407,6 +411,10 @@ function onTap(p: Product) {
     animation: tap-pulse 0.38s ease;
   }
 
+  &--confirmed {
+    animation: tap-confirmed 1.4s ease;
+  }
+
   &--disabled {
     opacity: 0.55;
   }
@@ -428,6 +436,18 @@ function onTap(p: Product) {
     .product-name {
       color: var(--ink-400);
     }
+  }
+}
+
+@keyframes tap-confirmed {
+  0%,
+  60% {
+    border-color: var(--success);
+    background: rgba(63, 122, 87, 0.1);
+    box-shadow: 0 0 0 3px rgba(63, 122, 87, 0.25);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(63, 122, 87, 0);
   }
 }
 
