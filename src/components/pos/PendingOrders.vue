@@ -131,7 +131,7 @@ async function requestAnnulment(order: Order, index: number) {
   const reason = await confirmStore.askReason({
     title: `¿Pedir anular 1 ${item.name}?`,
     message:
-      'Ya fue entregado: Dirección revisa la solicitud. Devolver la bebida al inventario lo decide Paula.',
+      'Ya fue entregado: Dirección revisa la solicitud. Devolver la bebida al inventario lo decide Gerencia.',
     confirmLabel: 'Enviar solicitud',
     icon: 'fa-rotate-left',
     reason: {
