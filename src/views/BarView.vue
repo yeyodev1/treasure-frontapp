@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink } from 'vue-router'
 import { useCatalogStore } from '@/stores/catalog'
@@ -17,7 +17,7 @@ import {
 } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatMoney, formatTime } from '@/utils/format'
-import ProductCatalog from '@/components/pos/ProductCatalog.vue'
+import ProductCatalog, { type CatalogFilter } from '@/components/pos/ProductCatalog.vue'
 import CocktailBuilder from '@/components/pos/CocktailBuilder.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
@@ -48,8 +48,27 @@ const showBuilder = shallowRef(false)
 const showQueue = shallowRef(false)
 const showMenu = shallowRef(false)
 const undoing = shallowRef(false)
-/** Último toque de la tableta: lo que muestra la barra inferior. */
-const lastTap = shallowRef<{ key: string; cabin: number; name: string; state: 'enviando' | 'pendiente' | 'guardado' | 'retenido' | 'rechazado'; message?: string } | null>(null)
+type TapState = 'enviando' | 'pendiente' | 'guardado' | 'retenido' | 'rechazado'
+/**
+ * Último registro de la tableta: lo que muestra la barra inferior. Toques
+ * seguidos de la misma bebida y cabina se suman (dos toques = dos
+ * unidades); cada uno conserva su clave, así un reintento nunca duplica.
+ */
+interface LastTap {
+  keys: string[]
+  cabin: number
+  productId: string
+  name: string
+  saved: string[]
+  held: string[]
+  rejected: string[]
+  at: number
+  message?: string
+}
+const lastTap = shallowRef<LastTap | null>(null)
+/** Ventana para sumar toques seguidos de la misma bebida. */
+const STREAK_MS = 60_000
+const catalogFilter = shallowRef<CatalogFilter>('todas')
 const pulse = shallowRef('')
 
 let availabilityTimer: ReturnType<typeof setInterval> | null = null
@@ -81,6 +100,48 @@ const blockedReason = computed(() => {
   if (cruise.value.status === 'cerrado') return `La operación de ${cruiseLabel.value} está finalizada: ya no se registran consumos nuevos.`
   if (!cabin.value) return 'Elige la cabina.'
   return ''
+})
+
+// ---- Contexto del bar al recargar (checklist 29-oct, 14) ----
+// Se guarda por usuario y salida: otro usuario u otro crucero empiezan de cero.
+const contextKey = computed(() =>
+  userStore.user?.id && cruise.value?._id ? `treasure.bar.${userStore.user.id}.${cruise.value._id}` : null,
+)
+let restoredKey: string | null = null
+const cabinsEl = useTemplateRef<HTMLElement>('cabinsEl')
+
+function restoreContext() {
+  const key = contextKey.value
+  if (!key || key === restoredKey) return
+  restoredKey = key
+  selectedCabin.value = null
+  catalogFilter.value = effectiveFavorites.value.length ? 'favoritos' : 'todas'
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) ?? 'null') as { cabin?: number; filter?: CatalogFilter } | null
+    if (!saved) return
+    if (saved.filter) catalogFilter.value = saved.filter
+    const c = cabins.value.find((x) => x.number === saved.cabin)
+    // Solo si la cabina sigue con pasajeros; si no, se elige de nuevo.
+    if (c?.passengers.length) {
+      selectedCabin.value = c.number
+      void nextTick(() =>
+        cabinsEl.value?.querySelector(`[data-cabin="${c.number}"]`)?.scrollIntoView({ block: 'nearest', inline: 'center' }),
+      )
+    }
+  } catch {
+    // Contexto ilegible: se elige de nuevo.
+  }
+}
+
+watch([selectedCabin, catalogFilter], ([cabinNumber, filter]) => {
+  const key = contextKey.value
+  if (!key || key !== restoredKey) return
+  localStorage.setItem(key, JSON.stringify({ cabin: cabinNumber, filter }))
+})
+
+// Cambia el usuario o el crucero: se pide elegir cabina, sin heredar nada.
+watch(contextKey, () => {
+  if (!loading.value) restoreContext()
 })
 
 const queue = useConsumptionQueue({
@@ -122,6 +183,7 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  restoreContext()
   queue.start()
   availabilityTimer = setInterval(loadAvailability, 60_000)
 })
@@ -153,7 +215,17 @@ function tap(product: Product) {
     courtesy: courtesyMode.value && userStore.isLead,
   })
   rememberUse(product._id)
-  lastTap.value = { key: entry.key, cabin: entry.cabinNumber, name: product.name, state: 'enviando' }
+  const prev = lastTap.value
+  const now = Date.now()
+  const sameStreak =
+    prev &&
+    prev.cabin === entry.cabinNumber &&
+    prev.productId === product._id &&
+    now - prev.at < STREAK_MS &&
+    prev.rejected.length < prev.keys.length
+  lastTap.value = sameStreak
+    ? { ...prev!, keys: [...prev!.keys, entry.key], at: now }
+    : { keys: [entry.key], cabin: entry.cabinNumber, productId: product._id, name: product.name, saved: [], held: [], rejected: [], at: now }
   pulse.value = product._id
   setTimeout(() => {
     if (pulse.value === product._id) pulse.value = ''
@@ -162,34 +234,47 @@ function tap(product: Product) {
   if (courtesyMode.value) courtesyMode.value = false
 }
 
-// Estado visible del último toque mientras viaja.
-watch(
-  () => queue.entries.value.map((e) => `${e.key}:${e.state}`).join('|'),
-  () => {
-    const tapState = lastTap.value
-    if (!tapState) return
-    const entry = queue.entries.value.find((e) => e.key === tapState.key)
-    if (entry) lastTap.value = { ...tapState, state: entry.state }
-  },
-)
+/**
+ * Estado real del último registro: Enviando mientras el servidor responde;
+ * Guardado solo cuando confirmó todas sus unidades (checklist 29-oct, 13).
+ */
+const tapState = computed<TapState | null>(() => {
+  const t = lastTap.value
+  if (!t) return null
+  const inQueue = queue.entries.value.filter((e) => t.keys.includes(e.key))
+  if (inQueue.some((e) => e.state === 'enviando')) return 'enviando'
+  if (inQueue.length) return 'pendiente'
+  if (t.rejected.length === t.keys.length) return 'rechazado'
+  if (t.held.length) return 'retenido'
+  if (t.saved.length + t.rejected.length >= t.keys.length) return t.rejected.length ? 'rechazado' : 'guardado'
+  return 'enviando'
+})
+
+/** Unidades del último registro que siguen en pie (sin las rechazadas). */
+const tapUnits = computed(() => (lastTap.value ? lastTap.value.keys.length - lastTap.value.rejected.length : 0))
+
+function markLast(key: string, field: 'saved' | 'held' | 'rejected', message?: string) {
+  const t = lastTap.value
+  if (!t || !t.keys.includes(key)) return
+  lastTap.value = { ...t, [field]: [...t[field], key], ...(message ? { message } : {}) }
+}
 
 function onOutcome(outcome: QueueOutcome) {
-  const isLast = lastTap.value?.key === outcome.entry.key
   if (outcome.kind === 'guardado') {
     if (outcome.summary) {
       summaries.value = { ...summaries.value, [outcome.summary.cabinNumber]: outcome.summary }
     }
-    if (isLast) lastTap.value = { ...lastTap.value!, state: 'guardado' }
+    markLast(outcome.entry.key, 'saved')
     play('success')
     void loadAvailability()
     return
   }
   if (outcome.kind === 'retenido') {
-    if (isLast) lastTap.value = { ...lastTap.value!, state: 'retenido' }
+    markLast(outcome.entry.key, 'held')
     toast.push(`${outcome.entry.productName}: el crucero ya estaba finalizado; queda retenido para revisión`)
     return
   }
-  if (isLast) lastTap.value = { ...lastTap.value!, state: 'rechazado', message: outcome.message }
+  markLast(outcome.entry.key, 'rejected', outcome.message)
   play('error')
   toast.error(`No se guardó ${outcome.entry.productName} (cabina ${outcome.entry.cabinNumber}): ${outcome.message}`)
   void loadAvailability()
@@ -236,8 +321,15 @@ async function cancelQueued(key: string, name: string) {
     icon: 'fa-ban',
   })
   if (!ok) return
-  if (!queue.cancel(key)) toast.error('Se está enviando: espera a que el servidor responda')
-  else if (lastTap.value?.key === key) lastTap.value = null
+  if (!queue.cancel(key)) {
+    toast.error('Se está enviando: espera a que el servidor responda')
+    return
+  }
+  const t = lastTap.value
+  if (t?.keys.includes(key)) {
+    const keys = t.keys.filter((k) => k !== key)
+    lastTap.value = keys.length ? { ...t, keys } : null
+  }
 }
 
 /** El producto aparece agotado pero está en la barra: pedir revisión de inventario. */
@@ -311,19 +403,21 @@ function onEmptyCabin(number: number) {
 
 const statusText = computed(() => {
   const t = lastTap.value
-  if (!t) return ''
-  const what = `Cabina ${t.cabin} · 1 ${t.name}`
-  switch (t.state) {
+  if (!t || !tapState.value) return ''
+  const what = `Cabina ${t.cabin} · ${tapState.value === 'rechazado' ? t.keys.length : tapUnits.value} ${t.name}`
+  switch (tapState.value) {
     case 'enviando':
-      return `Enviando · ${what}`
+      return `Enviando consumo… · ${what}`
     case 'pendiente':
-      return `Pendiente sin señal · ${what}`
+      return queue.offlineConfirmed.value
+        ? `Sin conexión. El consumo está pendiente de enviar · ${what}`
+        : `Sin confirmar: el servidor no respondió, se reintenta solo · ${what}`
     case 'guardado':
       return `Guardado · ${what}`
     case 'retenido':
       return `Retenido para revisión · ${what}`
     default:
-      return `No se guardó · ${what}`
+      return `No se guardó · ${what}${t.message ? `: ${t.message}` : ''}`
   }
 })
 </script>
@@ -341,6 +435,7 @@ const statusText = computed(() => {
           <template v-else>Sin crucero</template>
         </span>
         <span v-if="cruise" class="context-status" :class="`context-status--${cruise.status}`">{{ statusLabel }}</span>
+        <span v-if="tripDay && cruise?.status === 'abordo'" class="trip-day-badge">Día {{ tripDay }}</span>
       </div>
       <div class="context-date">
         <span class="today">{{ todayLabel }}</span>
@@ -359,7 +454,7 @@ const statusText = computed(() => {
       <!-- Cabinas con sus pasajeros -->
       <section class="block">
         <SkeletonList v-if="loading" variant="tile" :rows="9" />
-        <div v-else class="cabins" role="radiogroup" aria-label="Cabina">
+        <div v-else ref="cabinsEl" class="cabins" role="radiogroup" aria-label="Cabina">
           <button
             v-for="c in cabins"
             :key="c.number"
@@ -368,6 +463,7 @@ const statusText = computed(() => {
             class="cabin"
             :class="{ 'cabin--active': c.number === selectedCabin, 'cabin--empty': !c.passengers.length }"
             :aria-checked="c.number === selectedCabin"
+            :data-cabin="c.number"
             @click="c.passengers.length ? (selectedCabin = c.number) : onEmptyCabin(c.number)"
           >
             <span class="cabin-number">{{ c.number }}</span>
@@ -388,6 +484,7 @@ const statusText = computed(() => {
           v-else
           :products="sellable"
           :availability="availability"
+          v-model:filter="catalogFilter"
           :favorites="effectiveFavorites"
           :pinned="favorites"
           :pulse="pulse"
@@ -402,16 +499,17 @@ const statusText = computed(() => {
 
     <!-- Abajo: resultado y corrección, siempre visibles -->
     <footer class="result" aria-live="polite">
-      <div class="result-status" :class="lastTap ? `result-status--${lastTap.state}` : ''">
-        <template v-if="lastTap">
+      <div class="result-status" :class="tapState ? `result-status--${tapState}` : ''">
+        <template v-if="lastTap && tapState">
           <i
             class="fa-solid"
             :class="{
-              'fa-spinner fa-spin': lastTap.state === 'enviando',
-              'fa-cloud-arrow-up': lastTap.state === 'pendiente',
-              'fa-circle-check': lastTap.state === 'guardado',
-              'fa-hourglass-half': lastTap.state === 'retenido',
-              'fa-circle-exclamation': lastTap.state === 'rechazado',
+              'fa-spinner fa-spin': tapState === 'enviando',
+              'fa-wifi': tapState === 'pendiente' && queue.offlineConfirmed.value,
+              'fa-cloud-arrow-up': tapState === 'pendiente' && !queue.offlineConfirmed.value,
+              'fa-circle-check': tapState === 'guardado',
+              'fa-hourglass-half': tapState === 'retenido',
+              'fa-circle-exclamation': tapState === 'rechazado',
             }"
             aria-hidden="true"
           />
@@ -470,7 +568,8 @@ const statusText = computed(() => {
     <BaseModal v-if="showQueue" title="Sin confirmar en esta tableta" @close="showQueue = false">
       <p class="queue-help">
         <template v-if="queue.online.value">Se están enviando en orden. No cierres la sesión.</template>
-        <template v-else>Sin conexión: se envían solos al volver la conexión, sin duplicarse.</template>
+        <template v-else-if="queue.offlineConfirmed.value">Sin conexión: se envían solos al volver la conexión, sin duplicarse.</template>
+        <template v-else>El servidor no respondió: se reintentan solos, sin duplicarse.</template>
       </p>
       <ul class="queue-list">
         <li v-for="e in queue.entries.value" :key="e.key" class="queue-item">
@@ -587,12 +686,29 @@ const statusText = computed(() => {
   }
 }
 
+.trip-day-badge {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+
+  @include tablet {
+    display: none;
+  }
+}
+
 .context-date {
-  display: flex;
+  display: none;
   gap: 0.6rem;
   align-items: baseline;
   font-size: 0.85rem;
   color: var(--powder-300);
+
+  @include tablet {
+    display: flex;
+  }
 
   .today {
     text-transform: capitalize;
@@ -607,7 +723,21 @@ const statusText = computed(() => {
 .context-tabs {
   display: flex;
   gap: 0.35rem;
-  margin-left: auto;
+  flex: 1 1 100%;
+
+  .tab {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+
+  @include tablet {
+    flex: 0 0 auto;
+    margin-left: auto;
+
+    .tab {
+      flex: 0 0 auto;
+    }
+  }
 }
 
 .tab {
@@ -640,18 +770,53 @@ const statusText = computed(() => {
 }
 
 .bar-page {
-  padding-top: 0.9rem;
+  padding-top: 0.6rem;
+
+  @include tablet {
+    padding-top: 0.9rem;
+  }
 }
 
 .block {
   min-width: 0;
-  margin-bottom: 1rem;
+  margin-bottom: 0.6rem;
+
+  @include tablet {
+    margin-bottom: 1rem;
+  }
 }
 
+// Celular (checklist 29-oct, 12): las 9 cabinas en una fila deslizable para
+// que las bebidas queden a la vista; cada cabina conserva 48 px de toque.
 .cabins {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  gap: 0.5rem;
+  display: flex;
+  gap: 0.45rem;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  padding: 0.15rem 0;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  .cabin {
+    flex: 0 0 auto;
+    width: 76px;
+    scroll-snap-align: start;
+  }
+
+  @include tablet {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 0.5rem;
+    overflow: visible;
+    padding: 0;
+
+    .cabin {
+      width: auto;
+    }
+  }
 }
 
 .cabin {
