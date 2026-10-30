@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, shallowRef, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, shallowRef, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useConfirmStore } from '@/stores/confirm'
@@ -12,6 +12,8 @@ import { REGISTROS_URL, ROLE_HOME } from '@/router'
 interface NavItem {
   to: string
   label: string
+  /** Nombre corto para la barra superior de tableta y celular. */
+  short?: string
   icon: string
   roles: UserRole[]
 }
@@ -36,7 +38,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Controlar',
     items: [
       { to: '/admin/en-vivo', label: 'En vivo', icon: 'fa-tower-broadcast', roles: ['duena', 'admin', 'direccion'] },
-      { to: '/admin', label: 'Resumen del negocio', icon: 'fa-chart-line', roles: ['duena'] },
+      { to: '/admin', label: 'Resumen del negocio', short: 'Resumen', icon: 'fa-chart-line', roles: ['duena'] },
       { to: '/admin/inventario', label: 'Inventario', icon: 'fa-boxes-stacked', roles: ['duena', 'admin', 'bodega', 'direccion'] },
       { to: '/admin/pagos', label: 'Cobros', icon: 'fa-cash-register', roles: ['duena', 'admin', 'direccion'] },
     ],
@@ -84,12 +86,30 @@ const sections = computed(() =>
 const topItems = computed(() => sections.value.flatMap((section) => section.items))
 const topnav = useTemplateRef<HTMLElement>('topnav')
 
+// Si las secciones no caben, un desvanecido en el borde avisa que hay más.
+const moreLeft = shallowRef(false)
+const moreRight = shallowRef(false)
+
+function measureTopnav() {
+  const el = topnav.value
+  if (!el) return
+  moreLeft.value = el.scrollLeft > 4
+  moreRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 4
+}
+
 function revealActiveTab() {
   nextTick(() => {
     const active = topnav.value?.querySelector<HTMLElement>('.topnav-item.router-link-exact-active')
     active?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+    measureTopnav()
   })
 }
+
+onMounted(() => {
+  window.addEventListener('resize', measureTopnav, { passive: true })
+  measureTopnav()
+})
+onBeforeUnmount(() => window.removeEventListener('resize', measureTopnav))
 
 const pageTitle = computed(() => (route.meta.title as string) ?? '')
 
@@ -194,17 +214,20 @@ async function logout() {
       </div>
     </header>
 
-    <nav v-if="topItems.length" ref="topnav" class="topnav" aria-label="Secciones">
-      <RouterLink
-        v-for="item in topItems"
-        :key="item.to"
-        :to="item.to"
-        class="topnav-item"
-      >
-        <i class="fa-solid" :class="item.icon" aria-hidden="true" />
-        <span>{{ item.label }}</span>
-      </RouterLink>
-    </nav>
+    <div v-if="topItems.length" class="topnav-wrap" :class="{ 'topnav-wrap--left': moreLeft, 'topnav-wrap--right': moreRight }">
+      <nav ref="topnav" class="topnav" aria-label="Secciones" @scroll.passive="measureTopnav">
+        <RouterLink
+          v-for="item in topItems"
+          :key="item.to"
+          :to="item.to"
+          class="topnav-item"
+          :aria-label="item.label"
+        >
+          <i class="fa-solid" :class="item.icon" aria-hidden="true" />
+          <span>{{ item.short ?? item.label }}</span>
+        </RouterLink>
+      </nav>
+    </div>
     </div>
 
     <div class="body">
@@ -335,21 +358,38 @@ async function logout() {
 }
 
 // Secciones siempre visibles en tableta y celular; en escritorio está el sidebar.
-.topnav {
-  display: flex;
-  align-items: stretch;
-  gap: 0.25rem;
-  height: var(--nav-h);
-  padding: 0.35rem 0.5rem;
+.topnav-wrap {
+  position: relative;
   background: var(--surface);
-  border-bottom: 1px solid var(--cream-200);
-  box-shadow: 0 2px 8px rgba(27, 49, 66, 0.06);
-  overflow-x: auto;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
+  border-bottom: 1px solid var(--line);
 
-  &::-webkit-scrollbar {
-    display: none;
+  // Desvanecido en el borde con más secciones fuera de la vista.
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 36px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    z-index: 1;
+  }
+
+  &::before {
+    left: 0;
+    background: linear-gradient(to right, var(--surface), rgba(255, 255, 255, 0));
+  }
+
+  &::after {
+    right: 0;
+    background: linear-gradient(to left, var(--surface), rgba(255, 255, 255, 0));
+  }
+
+  &--left::before,
+  &--right::after {
+    opacity: 1;
   }
 
   @include desktop {
@@ -357,20 +397,35 @@ async function logout() {
   }
 }
 
+.topnav {
+  display: flex;
+  align-items: stretch;
+  gap: 0.2rem;
+  height: var(--nav-h);
+  padding: 0.35rem 0.5rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 // Pestañas con ícono arriba y nombre abajo: en tableta entran todas a la vista.
 .topnav-item {
   flex: 1 0 auto;
-  min-width: 76px;
+  min-width: 68px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.22rem;
-  padding: 0 0.55rem;
+  padding: 0 0.6rem;
   border-radius: 12px;
   color: var(--ink-600);
   font-weight: 600;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   line-height: 1.1;
   white-space: nowrap;
   transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
@@ -387,6 +442,7 @@ async function logout() {
 
   &:hover:not(.router-link-exact-active) {
     background: var(--powder-100);
+    color: var(--ink-900);
   }
 
   &.router-link-exact-active {
@@ -449,28 +505,28 @@ async function logout() {
 // La marca completa en pequeño arriba (nunca truncada) y la vista
 // actual como título principal: se lee de un vistazo en cualquier pantalla.
 .brand-eyebrow {
-  font-size: 0.56rem;
+  font-size: 0.66rem;
   font-weight: 600;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--navy-700);
   white-space: nowrap;
 
   @include tablet {
-    font-size: 0.62rem;
+    font-size: 0.7rem;
   }
 }
 
 .brand-page {
   font-family: var(--font-serif);
-  font-size: 1.12rem;
+  font-size: 1.2rem;
   letter-spacing: 0.02em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 
   @include tablet {
-    font-size: 1.2rem;
+    font-size: 1.3rem;
   }
 }
 
@@ -483,8 +539,6 @@ async function logout() {
 
 .icon-btn {
   @include touch-target;
-  min-width: 40px;
-  min-height: 40px;
   display: grid;
   place-items: center;
   border-radius: var(--radius-sm);
@@ -505,14 +559,14 @@ async function logout() {
   align-items: center;
   justify-content: center;
   gap: 0.45rem;
-  min-width: 40px;
-  min-height: 40px;
+  min-width: 48px;
+  min-height: 44px;
   border: 1px solid rgba(27, 43, 37, 0.35);
   border-radius: var(--radius-sm);
   padding: 0.38rem 0.6rem;
   color: var(--ink-900);
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: 0.92rem;
   transition: background 0.15s ease, border-color 0.15s ease;
 
   &:hover {
@@ -543,7 +597,6 @@ async function logout() {
   position: fixed;
   inset: 0;
   background: rgba(15, 29, 22, 0.5);
-  backdrop-filter: blur(1.5px);
   z-index: 24;
 
   @include desktop {
@@ -561,7 +614,7 @@ async function logout() {
   width: 250px;
   padding: calc(var(--header-h) + 12px + env(safe-area-inset-top)) 0.8rem 1rem;
   background: var(--surface);
-  border-right: 1px solid var(--cream-200);
+  border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -621,10 +674,8 @@ async function logout() {
 .nav-section-label {
   margin: 0 0 0.3rem;
   padding: 0 0.8rem;
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
+  font-size: 0.8rem;
+  font-weight: 600;
   color: var(--ink-400);
 }
 
@@ -633,10 +684,11 @@ async function logout() {
   display: flex;
   align-items: center;
   gap: 0.7rem;
-  padding: 0.62rem 0.8rem;
+  min-height: 46px;
+  padding: 0.6rem 0.8rem;
   border-radius: var(--radius-sm);
   font-weight: 600;
-  font-size: 0.93rem;
+  font-size: 0.97rem;
   color: var(--ink-600);
   transition: background 0.15s ease, color 0.15s ease;
 
@@ -672,7 +724,8 @@ async function logout() {
   }
 
   &:hover:not(.router-link-exact-active) {
-    background: var(--cream-200);
+    background: var(--powder-100);
+    color: var(--ink-900);
   }
 }
 
@@ -701,7 +754,7 @@ async function logout() {
   background: rgba(192, 138, 62, 0.16);
   border-bottom: 1px solid var(--warning);
   color: var(--navy-900);
-  font-size: 0.85rem;
+  font-size: 0.92rem;
 
   i {
     color: var(--warning);
@@ -710,8 +763,9 @@ async function logout() {
 
 .viewing-as-exit {
   margin-left: auto;
+  min-height: 44px;
   font-weight: 700;
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   color: var(--navy-700);
   text-decoration: underline;
   white-space: nowrap;
@@ -729,10 +783,8 @@ async function logout() {
 
 .view-as-label {
   margin: 0 0 0.35rem;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: 0.82rem;
+  font-weight: 600;
   color: var(--ink-400);
 
   i {
@@ -746,7 +798,7 @@ async function logout() {
   align-items: center;
   gap: 0.65rem;
   padding: 0.7rem 0.6rem;
-  border-top: 1px solid var(--cream-200);
+  border-top: 1px solid var(--line);
 }
 
 .user-avatar {
@@ -778,7 +830,7 @@ async function logout() {
 }
 
 .user-role {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--ink-400);
 }
 
