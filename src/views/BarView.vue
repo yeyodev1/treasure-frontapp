@@ -57,13 +57,13 @@ let availabilityTimer: ReturnType<typeof setInterval> | null = null
 const cabin = computed(() => cabins.value.find((c) => c.number === selectedCabin.value) ?? null)
 const summary = computed(() => (selectedCabin.value ? summaries.value[selectedCabin.value] : undefined))
 const cruiseLabel = computed(() =>
-  cruise.value ? (cruise.value.code ? `Salida ${cruise.value.code}` : cruise.value.name) : '',
+  cruise.value ? (cruise.value.code ? `Crucero ${cruise.value.code}` : cruise.value.name) : '',
 )
 const statusLabel = computed(() =>
-  cruise.value?.status === 'abordo' ? 'En curso' : cruise.value?.status === 'planificado' ? 'Programada' : 'Finalizada',
+  cruise.value?.status === 'abordo' ? 'En curso' : cruise.value?.status === 'planificado' ? 'Programado' : 'Finalizado',
 )
 
-/** Fecha comercial y día del viaje (hora de Ecuador). */
+/** Día de operación y día del viaje (hora de Ecuador). */
 const todayLabel = computed(() =>
   new Intl.DateTimeFormat('es-EC', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'America/Guayaquil' }).format(new Date()),
 )
@@ -76,9 +76,9 @@ const tripDay = computed(() => {
 })
 
 const blockedReason = computed(() => {
-  if (!cruise.value) return 'No hay salida programada. La directora la crea en Salidas.'
-  if (cruise.value.status === 'planificado') return `${cruiseLabel.value} está programada: la directora debe iniciar el crucero.`
-  if (cruise.value.status === 'cerrado') return `${cruiseLabel.value} está finalizada.`
+  if (!cruise.value) return 'Aún no hay crucero programado.'
+  if (cruise.value.status === 'planificado') return `${cruiseLabel.value} aún no ha iniciado. Dirección de crucero debe iniciarlo.`
+  if (cruise.value.status === 'cerrado') return `La operación de ${cruiseLabel.value} está finalizada: ya no se registran consumos nuevos.`
   if (!cabin.value) return 'Elige la cabina.'
   return ''
 })
@@ -186,7 +186,7 @@ function onOutcome(outcome: QueueOutcome) {
   }
   if (outcome.kind === 'retenido') {
     if (isLast) lastTap.value = { ...lastTap.value!, state: 'retenido' }
-    toast.push(`${outcome.entry.productName}: la salida ya estaba finalizada; queda retenido para la directora`)
+    toast.push(`${outcome.entry.productName}: el crucero ya estaba finalizado; queda retenido para revisión`)
     return
   }
   if (isLast) lastTap.value = { ...lastTap.value!, state: 'rechazado', message: outcome.message }
@@ -195,14 +195,14 @@ function onOutcome(outcome: QueueOutcome) {
   void loadAvailability()
 }
 
-/** Deshacer error: solo lo propio y con la cuenta abierta; reverso auditable. */
+/** Deshacer registro por error: solo lo propio y con la cuenta abierta; reverso auditable. */
 async function undoLast() {
   const last = summary.value?.last
   if (!last?.canUndo || undoing.value) return
   const reason = await confirmStore.askReason({
     title: `¿Deshacer ${last.qty} ${last.name} de cabina ${summary.value!.cabinNumber}?`,
-    message: 'Se quita el cargo y los ingredientes vuelven al stock a bordo. Queda registrado quién y por qué.',
-    confirmLabel: 'Deshacer',
+    message: 'Se quitará el cargo y se devolverán los ingredientes porque la bebida no se sirvió. Queda registrado quién y por qué. Si se sirvió y no se cobra, no lo deshagas: márcalo como cortesía en Cuentas.',
+    confirmLabel: 'Deshacer registro',
     danger: true,
     icon: 'fa-rotate-left',
     reason: {
@@ -217,7 +217,7 @@ async function undoLast() {
     summaries.value = { ...summaries.value, [data.summary.cabinNumber]: data.summary }
     lastTap.value = null
     play('success')
-    toast.success('Consumo deshecho: cargo y stock revertidos')
+    toast.success('Registro deshecho: se quitó el cargo y los ingredientes volvieron al stock')
     void loadAvailability()
   } catch (err) {
     play('error')
@@ -244,7 +244,7 @@ async function cancelQueued(key: string, name: string) {
 async function requestReview(product: Product) {
   const reason = await confirmStore.askReason({
     title: `¿Pedir revisión de inventario de ${product.name}?`,
-    message: 'La administradora lo revisa con un conteo físico. No se registra el consumo hasta que el stock esté corregido.',
+    message: 'Se revisará con un conteo físico. No se registra el consumo hasta corregir el stock.',
     confirmLabel: 'Pedir revisión',
     icon: 'fa-clipboard-question',
     reason: { label: 'Qué ves', suggestions: ['Hay una botella abierta en la barra', 'Llegó mercadería sin registrar'] },
@@ -261,7 +261,7 @@ async function requestReview(product: Product) {
       idempotencyKey: crypto.randomUUID(),
     })
     play('success')
-    toast.success(`Revisión ${req.code} enviada a la administradora`)
+    toast.success(`Revisión ${req.code} enviada · Se revisará con un conteo.`)
   } catch (err) {
     play('error')
     toast.error(apiErrorMessage(err))
@@ -306,7 +306,7 @@ function onCocktailCreated(product: Product) {
 }
 
 function onEmptyCabin(number: number) {
-  toast.push(`La cabina ${number} está vacía: la directora registra sus pasajeros en Salidas`)
+  toast.push(`Cabina ${number} sin pasajeros. Dirección de crucero debe registrarlos.`)
 }
 
 const statusText = computed(() => {
@@ -338,7 +338,7 @@ const statusText = computed(() => {
           <template v-if="cruise">
             {{ cruiseLabel }}<template v-if="cruise.routeFrom"> · {{ cruise.routeFrom }} → {{ cruise.routeTo }}</template>
           </template>
-          <template v-else>Sin salida</template>
+          <template v-else>Sin crucero</template>
         </span>
         <span v-if="cruise" class="context-status" :class="`context-status--${cruise.status}`">{{ statusLabel }}</span>
       </div>
@@ -371,7 +371,7 @@ const statusText = computed(() => {
             @click="c.passengers.length ? (selectedCabin = c.number) : onEmptyCabin(c.number)"
           >
             <span class="cabin-number">{{ c.number }}</span>
-            <span class="cabin-guests">{{ c.passengers.length ? passengerNames(c) : 'Vacía' }}</span>
+            <span class="cabin-guests">{{ c.passengers.length ? passengerNames(c) : 'Sin pasajeros' }}</span>
           </button>
         </div>
         <Transition name="fade">
@@ -458,10 +458,10 @@ const statusText = computed(() => {
           type="button"
           class="undo-btn"
           :disabled="!summary?.last?.canUndo || undoing || queue.pending.value > 0"
-          :title="summary?.last && !summary.last.canUndo ? 'Solo lo que registraste tú y con la cuenta abierta; si no, la directora lo revisa' : undefined"
+          :title="summary?.last && !summary.last.canUndo ? 'Solo lo que registraste tú y con la cuenta abierta; si no, lo revisa Dirección de crucero' : undefined"
           @click="undoLast"
         >
-          <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Deshacer error
+          <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Deshacer registro por error
         </button>
       </div>
     </footer>
@@ -470,7 +470,7 @@ const statusText = computed(() => {
     <BaseModal v-if="showQueue" title="Sin confirmar en esta tableta" @close="showQueue = false">
       <p class="queue-help">
         <template v-if="queue.online.value">Se están enviando en orden. No cierres la sesión.</template>
-        <template v-else>Sin señal: se envían solos al volver la conexión, sin duplicarse.</template>
+        <template v-else>Sin conexión: se envían solos al volver la conexión, sin duplicarse.</template>
       </p>
       <ul class="queue-list">
         <li v-for="e in queue.entries.value" :key="e.key" class="queue-item">
@@ -498,13 +498,13 @@ const statusText = computed(() => {
       <div class="menu-grid">
         <RouterLink to="/abastecimiento?nuevo=1" class="menu-tile" @click="showMenu = false">
           <i class="fa-solid fa-dolly" aria-hidden="true" />
-          <strong>Solicitar abastecimiento</strong>
-          <small>Producto, cantidad y unidad. La directora lo aprueba.</small>
+          <strong>Solicitar producto</strong>
+          <small>Producto, cantidad y unidad. Dirección de crucero la aprueba.</small>
         </RouterLink>
         <RouterLink to="/abastecimiento" class="menu-tile" @click="showMenu = false">
           <i class="fa-solid fa-list-check" aria-hidden="true" />
-          <strong>Mis requerimientos</strong>
-          <small>Solicitado, aprobado, recibido.</small>
+          <strong>Mis solicitudes</strong>
+          <small>Solicitada, aprobada, recibida.</small>
         </RouterLink>
         <button type="button" class="menu-tile" @click="(showMenu = false), (showBuilder = true)">
           <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true" />
