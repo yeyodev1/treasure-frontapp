@@ -89,7 +89,9 @@ const rows = computed<Row[]>(() => {
         title: `${p.code} · ${p.supplier}`,
         meta: `Doc. ${p.document} · ${formatDate(p.at)} · ${p.partial ? `recibida parcial (factura ${formatMoney(p.invoiceTotal)})` : 'recibida'}`,
         amount: p.amount,
-        sub: p.lines.map((l) => `${formatNumber(l.containers)} ${l.label} · ${l.name} · ${formatMoney(l.amount)}`),
+        sub: p.lines.map(
+          (l) => `${formatNumber(l.containers)} ${l.containers === 1 ? l.label : `${l.label}s`} · ${l.name} · ${formatMoney(l.amount)}`,
+        ),
       }))
     case 'margen':
       return [
