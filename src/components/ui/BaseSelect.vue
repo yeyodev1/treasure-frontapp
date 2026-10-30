@@ -181,23 +181,28 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
   justify-content: space-between;
   gap: 0.6rem;
   padding: 0.6rem 0.85rem;
-  border: 1.5px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   background: #fff;
   text-align: left;
-  font-size: 0.95rem;
+  font-size: 1rem;
+  color: var(--ink-900);
   user-select: none;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 
+  &:hover:not(:disabled) {
+    border-color: var(--navy-600);
+  }
+
   .select--open & {
-    border-color: var(--gold-500);
-    box-shadow: 0 0 0 3px rgba(195, 161, 105, 0.18);
+    border-color: var(--navy-600);
+    box-shadow: var(--focus-ring);
   }
 
   &:focus-visible {
     outline: none;
-    border-color: var(--gold-500);
-    box-shadow: 0 0 0 3px rgba(195, 161, 105, 0.22);
+    border-color: var(--navy-600);
+    box-shadow: var(--focus-ring);
   }
 }
 
@@ -212,8 +217,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 }
 
 .select-caret {
-  font-size: 0.7rem;
-  color: var(--ink-400);
+  font-size: 0.8rem;
+  color: var(--ink-600);
   transition: transform 0.2s ease;
 
   .select--open & {
@@ -233,9 +238,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
   z-index: 90;
   display: flex;
   flex-direction: column;
-  padding: 0.3rem;
+  padding: 0.35rem;
   background: var(--surface);
-  border: 1px solid var(--cream-200);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
@@ -256,10 +261,11 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
   align-items: center;
   gap: 0.5rem;
   padding: 0.45rem 0.6rem;
+  min-height: 48px;
   margin-bottom: 0.3rem;
-  border-bottom: 1px solid var(--cream-200);
+  border-bottom: 1px solid var(--rule);
   color: var(--ink-400);
-  font-size: 0.85rem;
+  font-size: 0.95rem;
 
   input {
     flex: 1;
@@ -267,7 +273,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
     border: none;
     outline: none;
     background: transparent;
-    font-size: 0.92rem;
+    font-size: 1rem;
     color: var(--ink-900);
     user-select: text;
   }
@@ -275,8 +281,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 
 .select-empty {
   margin: 0;
-  padding: 0.6rem 0.7rem;
-  font-size: 0.85rem;
+  padding: 0.75rem 0.8rem;
+  font-size: 0.95rem;
   color: var(--ink-400);
 }
 
@@ -284,13 +290,15 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.55rem 0.7rem;
+  min-height: 46px;
+  padding: 0.55rem 0.8rem;
   border-radius: 7px;
   cursor: pointer;
-  font-size: 0.92rem;
+  font-size: 1rem;
+  transition: background-color 0.12s ease;
 
   &--highlighted {
-    background: var(--cream-200);
+    background: var(--powder-100);
   }
 
   &--active {
@@ -308,14 +316,14 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 }
 
 .select-option-hint {
-  font-size: 0.78rem;
+  font-size: 0.86rem;
   color: var(--ink-400);
   white-space: nowrap;
 }
 
 .select-option-check {
-  font-size: 0.75rem;
-  color: var(--gold-500);
+  font-size: 0.85rem;
+  color: var(--navy-700);
 }
 
 .pop-enter-active,
