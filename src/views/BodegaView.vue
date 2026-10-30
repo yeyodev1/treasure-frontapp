@@ -226,7 +226,7 @@ function linesShort(r: Requisition): string {
                   <small>{{ linesShort(r) }}</small>
                   <small class="todo-meta">{{ personName(r.requestedBy) }} · {{ formatDateTime(r.createdAt) }}</small>
                 </span>
-                <span class="todo-go">Entregar <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
+                <span class="todo-go">Recibir <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
               </button>
             </li>
             <li v-for="r in revisions.slice(0, 3)" :key="r._id">
