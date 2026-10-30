@@ -108,20 +108,20 @@ const scopeText = computed(() => {
   const cut = formatDateTime(scope.cut)
   if (scope.mode === 'crucero' && scope.cruise) {
     const route = scope.cruise.route ? ` · ${scope.cruise.route}` : ''
-    return `Crucero ${scope.cruise.code}${route} (${STATUS_LABEL[scope.cruise.status] ?? ''}). Consumos y pagos de este crucero hasta el corte del ${cut}.`
+    return `Crucero ${scope.cruise.code}${route} (${STATUS_LABEL[scope.cruise.status] ?? ''}). Consumos y pagos de este crucero hasta el corte (${cut}).`
   }
   if (scope.mode === 'periodo') {
-    const start = scope.from ? formatDate(scope.from) : 'el inicio'
-    return `Del ${start} al corte del ${cut}. Consumos por su fecha de consumo y pagos por su fecha de pago, de todos los cruceros.`
+    const start = scope.from ? `el ${formatDate(scope.from)}` : 'el inicio'
+    return `Desde ${start} hasta el corte (${cut}). Consumos por su fecha de consumo y pagos por su fecha de pago, de todos los cruceros.`
   }
-  return `Todo el historial hasta el corte del ${cut}, de todos los cruceros.`
+  return `Todo el historial hasta el corte (${cut}), de todos los cruceros.`
 })
 
 const purchaseScope = computed(() => {
   const scope = data.value?.scope
   if (!scope) return ''
   const start = scope.purchasesFrom ? formatDate(scope.purchasesFrom) : 'el inicio'
-  return `Recepciones del ${start} al ${formatDate(scope.purchasesTo)}${scope.mode === 'crucero' ? ' (fechas del crucero: las compras no pertenecen a un crucero)' : ''}.`
+  return `Recibidas del ${start} al ${formatDate(scope.purchasesTo)}${scope.mode === 'crucero' ? ', fechas del crucero' : ''}.`
 })
 
 async function load() {
@@ -185,7 +185,7 @@ const cruiseRows = computed(
     data.value?.byCruise.map((c) => ({
       label: c.startDate ? `${c.name} (${formatDate(c.startDate)})` : c.name,
       value: c.collected,
-      detail: `${c.payments} pagos`,
+      detail: `${c.payments} pago(s)`,
     })) ?? [],
 )
 
@@ -488,7 +488,12 @@ function act(alert: OwnerAlert) {
 
 .dates {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr);
+
+  @include tablet {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   gap: 0.75rem;
   max-width: 520px;
 }
@@ -512,10 +517,10 @@ function act(alert: OwnerAlert) {
 
 .scope {
   margin: 0;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: auto 1fr;
   align-items: baseline;
-  gap: 0.35rem 0.5rem;
+  gap: 0.2rem 0.5rem;
   font-size: 0.86rem;
   color: var(--ink-600);
 
@@ -525,6 +530,7 @@ function act(alert: OwnerAlert) {
 }
 
 .updated {
+  grid-column: 2;
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
