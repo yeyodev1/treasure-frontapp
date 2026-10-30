@@ -33,7 +33,7 @@ const REASONS = ['Rotura', 'Medida', 'Error de registro', 'Consumo interno', 'P�
 
 const STATUS_LABEL: Record<string, string> = {
   borrador: 'Borrador',
-  enviado: 'Por aprobar',
+  enviado: 'Pendiente de aprobación',
   aprobado: 'Aprobado',
   rechazado: 'Devuelto',
 }
@@ -97,7 +97,7 @@ async function save(silent = false) {
     )
     if (!silent) {
       play('success')
-      toast.success('Conteo guardado. El stock no cambia hasta que lo autorice la dueña.')
+      toast.success('Conteo guardado. El stock no cambia hasta que se apruebe el ajuste.')
     }
     emit('changed')
     return true
@@ -113,9 +113,9 @@ async function save(silent = false) {
 async function submit() {
   if (!(await save(true))) return
   const ok = await confirmStore.ask({
-    title: `¿Enviar ${count.value?.code} a la dueña?`,
-    message: `${summary.value.counted} producto(s) contados, ${summary.value.withDiff} con diferencia. Ya no se podrá editar hasta que la dueña lo revise.`,
-    confirmLabel: 'Enviar a la dueña',
+    title: `¿Enviar ${count.value?.code} para revisión?`,
+    message: `${summary.value.counted} producto(s) contados, ${summary.value.withDiff} con diferencia. Ya no se podrá editar mientras se revisa.`,
+    confirmLabel: 'Enviar para revisión',
     icon: 'fa-shield-halved',
   })
   if (!ok) return
@@ -123,7 +123,7 @@ async function submit() {
   try {
     count.value = await apiCountAction(props.countId, 'submit')
     play('success')
-    toast.success('Conteo enviado a la dueña')
+    toast.success('Conteo enviado para revisión')
     emit('changed')
   } catch (err) {
     play('error')
@@ -190,7 +190,7 @@ async function reject() {
       </header>
 
       <p v-if="count.status === 'rechazado' && count.reviewNote" class="note">
-        <i class="fa-solid fa-comment" aria-hidden="true" /> La dueña: {{ count.reviewNote }}
+        <i class="fa-solid fa-comment" aria-hidden="true" /> Observación: {{ count.reviewNote }}
       </p>
 
       <div class="ct-tools">
@@ -213,26 +213,26 @@ async function reject() {
           <div class="ct-name">
             <strong>{{ line.name }}</strong>
             <small>
-              Sistema al corte:
+              Según el sistema al iniciar:
               <span :class="{ neg: line.digitalAtCut < 0 }">{{ formatNumber(line.digitalAtCut) }} {{ unitShort(line.stockUnit) }}</span>
             </small>
           </div>
           <div class="ct-count">
             <label class="ct-physical">
-              <span>Físico</span>
+              <span>Cantidad contada</span>
               <input
                 v-if="editable"
                 class="physical"
                 type="text"
                 inputmode="decimal"
                 :value="line.physical ?? ''"
-                :aria-label="`Cantidad física de ${line.name}`"
+                :aria-label="`Cantidad contada de ${line.name}`"
                 @input="setPhysical(line, ($event.target as HTMLInputElement).value)"
               />
               <strong v-else>{{ line.physical === null ? '—' : formatNumber(line.physical) }}</strong>
             </label>
             <span v-if="diff(line) !== null" class="ct-diff" :class="{ neg: diff(line)! < 0, pos: diff(line)! > 0 }">
-              {{ diff(line)! > 0 ? '+' : '' }}{{ formatNumber(diff(line)!) }} {{ unitShort(line.stockUnit) }}
+              Diferencia: {{ diff(line)! > 0 ? 'sobra' : 'falta' }} {{ formatNumber(Math.abs(diff(line)!)) }} {{ unitShort(line.stockUnit) }}
             </span>
           </div>
           <div v-if="diff(line)" class="ct-reason">
@@ -256,7 +256,7 @@ async function reject() {
           <i class="fa-solid fa-clipboard-check" aria-hidden="true" /> Guardar conteo
         </button>
         <button type="button" class="btn btn-primary" :disabled="!editable || busy" @click="submit">
-          <i class="fa-solid fa-shield-halved" aria-hidden="true" /> Enviar a la dueña
+          <i class="fa-solid fa-shield-halved" aria-hidden="true" /> Enviar para revisión
         </button>
         <button v-if="userStore.isOwner" type="button" class="btn btn-primary" :disabled="!canApprove || busy" @click="approve">
           <i class="fa-solid fa-check" aria-hidden="true" /> Aprobar ajuste
@@ -265,8 +265,8 @@ async function reject() {
       <button v-if="canApprove" type="button" class="btn btn-ghost" :disabled="busy" @click="reject">
         <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Devolver para recontar
       </button>
-      <p v-if="!userStore.isOwner && count.status === 'enviado'" class="only-paula">
-        <i class="fa-solid fa-lock" aria-hidden="true" /> Lo autoriza la dueña.
+      <p v-if="!userStore.isOwner && count.status === 'enviado'" class="only-owner">
+        <i class="fa-solid fa-lock" aria-hidden="true" /> Pendiente de aprobación.
       </p>
       <p v-if="count.status === 'aprobado'" class="done">
         <i class="fa-solid fa-circle-check" aria-hidden="true" />
@@ -500,7 +500,7 @@ async function reject() {
   }
 }
 
-.only-paula {
+.only-owner {
   margin: 0;
   color: var(--ink-600);
   font-weight: 700;
