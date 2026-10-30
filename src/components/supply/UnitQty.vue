@@ -15,6 +15,8 @@ const props = defineProps<{
   maxBase?: number
   /** Permitir elegir ml además de envases. */
   allowBase?: boolean
+  /** Cero es válido (recepciones). */
+  allowZero?: boolean
 }>()
 
 const qty = defineModel<number>({ default: 1 })
@@ -34,7 +36,7 @@ const base = computed(() => toBase(qty.value, mode.value, props.product))
 
 /** Al cambiar de unidad se conserva la misma cantidad física. */
 watch(mode, (next, prev) => {
-  if (next === prev) return
+  if (next === prev || !Number.isFinite(qty.value)) return
   qty.value =
     next === 'base'
       ? toBase(qty.value, 'envase', props.product)
@@ -52,8 +54,8 @@ watch(mode, (next, prev) => {
         {{ unitShort(product.stockUnit) }}
       </button>
     </div>
-    <QtyStepper v-model="qty" :min="0" :max="max" :step="step" :label="label" :unit="unit" />
-    <span class="conv">
+    <QtyStepper v-model="qty" :min="0" :max="max" :step="step" :label="label" :unit="unit" :allow-zero="allowZero" />
+    <span v-if="Number.isFinite(qty) && qty >= 0" class="conv">
       <template v-if="container && mode === 'envase'">
         {{ formatNumber(qty) }} {{ unit }} = {{ baseText(base, product.stockUnit) }}
       </template>
