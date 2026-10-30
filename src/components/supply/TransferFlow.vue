@@ -20,7 +20,7 @@ const emit = defineEmits<{ back: []; changed: [] }>()
 const catalog = useCatalogStore()
 const toast = useToastStore()
 const { play } = useSound()
-const save = useSaveAttempt()
+const save = useSaveAttempt('la carga')
 
 interface Line {
   product: Product
