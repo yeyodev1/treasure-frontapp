@@ -203,7 +203,12 @@ function act(alert: OwnerAlert) {
   else if (alert.kind === 'cuentas') detail.value = 'porCobrar'
   else if (alert.kind === 'conteos') router.push({ path: '/admin/inventario', query: { tab: 'conteos' } })
   else if (alert.kind === 'facturas') router.push({ path: '/admin/pagos', query: { factura: 'pendiente' } })
-  else router.push('/cuentas')
+  else openHeld()
+}
+
+/** Retenidos: se revisan en Cuentas (alerta y tarjeta llevan al mismo lugar). */
+function openHeld() {
+  router.push('/cuentas')
 }
 </script>
 
@@ -291,6 +296,7 @@ function act(alert: OwnerAlert) {
             <i class="fa-solid" :class="ALERT_ICON[alert.kind]" aria-hidden="true" />
             <span>
               {{ alert.text }}<template v-if="alert.amount"> · {{ formatMoney(alert.amount) }}</template>
+              <small v-if="alert.scope === 'total'" class="alert-scope">Pendientes en total</small>
             </span>
             <button type="button" class="alert-action" @click="act(alert)">
               {{ alert.action }} <i class="fa-solid fa-arrow-right" aria-hidden="true" />
@@ -335,7 +341,11 @@ function act(alert: OwnerAlert) {
 
           <button type="button" class="card kpi" :class="{ 'kpi--incomplete': data.consumedCost === null }" @click="detail = 'costo'">
             <span class="kpi-label">Costo de lo servido</span>
-            <template v-if="data.consumedCost !== null">
+            <template v-if="data.noConsumption">
+              <span class="kpi-value">{{ formatMoney(0) }}</span>
+              <span class="kpi-hint">Sin consumos en este alcance.</span>
+            </template>
+            <template v-else-if="data.consumedCost !== null">
               <span class="kpi-value">{{ formatMoney(data.consumedCost) }}</span>
               <span class="kpi-hint">Insumos al costo histórico, incluidas las cortesías servidas.</span>
             </template>
@@ -352,7 +362,9 @@ function act(alert: OwnerAlert) {
             <span class="kpi-label">Margen del bar</span>
             <span v-if="data.margin !== null" class="kpi-value">{{ formatMoney(data.margin) }}</span>
             <span v-else class="kpi-value kpi-value--warn">No disponible: faltan costos</span>
-            <span class="kpi-hint">Consumos del bar − costo de lo servido. No es utilidad neta; mermas y ajustes van aparte.</span>
+            <span class="kpi-hint">
+              {{ data.noConsumption ? 'Sin consumos en este alcance.' : 'Consumos del bar − costo de lo servido. No es utilidad neta; mermas y ajustes van aparte.' }}
+            </span>
             <span class="kpi-more">Ver detalle <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
           </button>
         </div>
@@ -369,11 +381,15 @@ function act(alert: OwnerAlert) {
             <span class="kpi-value">{{ formatMoney(data.purchases) }}</span>
             <span class="kpi-hint">{{ purchaseScope }} No es el costo de lo servido.</span>
           </button>
-          <div class="card kpi kpi--small kpi--static">
+          <!-- Abre los retenidos igual que su alerta (09) -->
+          <button type="button" class="card kpi kpi--small" @click="openHeld">
             <span class="kpi-label">Consumos retenidos</span>
             <span class="kpi-value" :class="{ 'kpi-value--warn': data.heldConsumptions > 0 }">{{ data.heldConsumptions }}</span>
-            <span class="kpi-hint">Consumos enviados tarde, pendientes de revisión.</span>
-          </div>
+            <span class="kpi-hint">
+              Consumos enviados tarde, pendientes de revisión.{{ data.pendingScope === 'total' ? ' Pendientes en total.' : '' }}
+            </span>
+            <span class="kpi-more">Revisar consumos retenidos <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
+          </button>
         </div>
 
         <!-- Bloque de consumos (mismo filtro) -->
@@ -578,6 +594,15 @@ function act(alert: OwnerAlert) {
     flex: 1;
     min-width: 180px;
   }
+}
+
+.alert-scope {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-400);
 }
 
 .alert-action {

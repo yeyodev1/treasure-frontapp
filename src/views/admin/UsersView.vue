@@ -163,7 +163,7 @@ async function toggleActive(user: TeamUser) {
     </header>
 
     <p class="note">
-      Cada persona tiene su propio acceso: así se sabe quién registró cada pedido, merma o cobro.
+      Cada persona tiene su propio acceso: así se sabe quién registró cada consumo, merma o cobro.
     </p>
 
     <SkeletonList v-if="loading" variant="card" :rows="4" />

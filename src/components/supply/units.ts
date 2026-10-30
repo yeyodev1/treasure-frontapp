@@ -93,6 +93,7 @@ export const PURCHASE_STATUS: Record<PurchaseStatus, string> = {
   recibida_parcial: 'Recibida parcial',
   recibida: 'Recibida',
   anulada: 'Anulada',
+  cerrada: 'Cerrada con faltante',
 }
 
 export const REQUISITION_STATUS: Record<RequisitionStatus, string> = {

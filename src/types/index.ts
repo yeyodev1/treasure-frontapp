@@ -329,7 +329,7 @@ export interface Requisition {
   createdAt: string
 }
 
-export type PurchaseStatus = 'registrada' | 'recibida_parcial' | 'recibida' | 'anulada'
+export type PurchaseStatus = 'registrada' | 'recibida_parcial' | 'recibida' | 'anulada' | 'cerrada'
 
 export interface PurchaseLine {
   product: { _id: string; name: string; stockUnit: StockUnit; containerSize: number; containerLabel: string; icon: string } | string
@@ -388,6 +388,10 @@ export interface OwnerPanel {
   /** null = No disponible: faltan costos (un costo desconocido no vale cero). */
   consumedCost: number | null
   costsComplete: boolean
+  /** Sin consumos en el alcance: costo y margen $0. */
+  noConsumption?: boolean
+  /** Retenidos y facturas: del crucero elegido o pendientes en total. */
+  pendingScope?: 'alcance' | 'total'
   missingCost: string[]
   missingCostCount: number
   margin: number | null
@@ -441,6 +445,8 @@ export interface OwnerAlert {
   amount?: number
   text: string
   action: string
+  /** alcance: sigue el filtro; total: pendientes de todo el sistema. */
+  scope?: 'alcance' | 'total'
 }
 
 export interface OwnerConsumptionLine {

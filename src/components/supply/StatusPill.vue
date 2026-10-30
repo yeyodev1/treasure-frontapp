@@ -20,6 +20,7 @@ const tone = computed(() => {
       return 'ok'
     case 'recibida_parcial':
     case 'recibido_parcial':
+    case 'cerrada':
       return 'partial'
     case 'aprobado':
       return 'approved'

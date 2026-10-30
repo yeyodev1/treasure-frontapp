@@ -172,6 +172,35 @@ async function cancelPurchase(p: Purchase) {
   }
 }
 
+/** Recibida en parte: lo que falta no llegará; se cierra con motivo (P09). */
+async function closePending(p: Purchase) {
+  const missing = p.lines
+    .filter((l) => pendingOf(l) > 0)
+    .map((l) => `${containerText(pendingOf(l), l)} de ${l.name}`)
+    .join(', ')
+  const reason = await confirmStore.askReason({
+    title: `¿Cerrar lo pendiente de ${p.code}?`,
+    message: `No llegará: ${missing}. Lo ya recibido se queda en el stock y la compra deja de esperar recepciones.`,
+    confirmLabel: 'Cerrar lo pendiente',
+    icon: 'fa-box-archive',
+    reason: {
+      label: 'Motivo (obligatorio)',
+      suggestions: ['El proveedor no tiene más', 'Llegó roto y no se repone', 'Se factura aparte'],
+    },
+  })
+  if (!reason) return
+  try {
+    const updated = await apiCancelPurchase(p._id, reason)
+    play('success')
+    toast.success(`${updated.code} cerrada con faltante`)
+    purchases.value = purchases.value.map((x) => (x._id === updated._id ? updated : x))
+    if (current.value?._id === updated._id) current.value = updated
+  } catch (err) {
+    play('error')
+    toast.error(apiErrorMessage(err))
+  }
+}
+
 function receiptLines(p: Purchase, r: Purchase['receipts'][number]): string {
   return r.lines
     .map((l) => {
@@ -254,6 +283,9 @@ function receiptLines(p: Purchase, r: Purchase['receipts'][number]): string {
         <p v-if="current.status === 'anulada'" class="lead">
           Anulada: {{ current.cancelReason }}
         </p>
+        <p v-else-if="current.status === 'cerrada'" class="lead">
+          Cerrada con faltante: {{ current.cancelReason }}
+        </p>
 
         <template v-if="canReceive">
           <p class="lead">
@@ -328,6 +360,14 @@ function receiptLines(p: Purchase, r: Purchase['receipts'][number]): string {
             @click="cancelPurchase(current)"
           >
             <i class="fa-solid fa-ban" aria-hidden="true" /> Anular factura
+          </button>
+          <button
+            v-if="userStore.isWarehouse && current.status === 'recibida_parcial'"
+            type="button"
+            class="btn btn-ghost big"
+            @click="closePending(current)"
+          >
+            <i class="fa-solid fa-box-archive" aria-hidden="true" /> Cerrar lo pendiente
           </button>
         </div>
       </div>
