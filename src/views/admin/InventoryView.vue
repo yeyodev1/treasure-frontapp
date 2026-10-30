@@ -238,6 +238,13 @@ async function createCount(location: StockLocation) {
   }
 }
 
+const TAB_META: Array<{ id: Tab; label: string; icon: string }> = [
+  { id: 'abordo', label: 'A bordo', icon: 'fa-ship' },
+  { id: 'bodega', label: 'Bodega', icon: 'fa-warehouse' },
+  { id: 'conteos', label: 'Conteos', icon: 'fa-clipboard-list' },
+  { id: 'bitacora', label: 'Bitácora', icon: 'fa-clock-rotate-left' },
+]
+
 const COUNT_STATUS: Record<string, string> = {
   borrador: 'Borrador',
   enviado: 'Por aprobar',
@@ -247,50 +254,61 @@ const COUNT_STATUS: Record<string, string> = {
 </script>
 
 <template>
-  <div class="page">
-    <header class="head">
-      <h1 class="page-title">Inventario</h1>
-      <p class="hint">Todo se mide en su unidad: los licores en ml, así cada trago descuenta su medida.</p>
+  <div class="page inv">
+    <header class="page-head">
+      <div class="page-head-text">
+        <h1 class="page-title">Inventario</h1>
+        <p class="page-lead">Saldos de a bordo y bodega. Los licores se miden en ml: cada trago descuenta su medida.</p>
+      </div>
+      <div class="page-actions">
+        <button v-if="userStore.isOwner" type="button" class="btn btn-secondary" @click="openModal('ajuste')">
+          <i class="fa-solid fa-sliders" aria-hidden="true" /> Ajuste manual
+        </button>
+        <button type="button" class="btn btn-primary" @click="showNewCount = true">
+          <i class="fa-solid fa-clipboard-check" aria-hidden="true" /> Conteo físico
+        </button>
+      </div>
     </header>
 
-    <div class="tabs" role="tablist">
-      <button type="button" class="tab" :class="{ 'tab--on': tab === 'abordo' }" @click="tab = 'abordo'">
-        <i class="fa-solid fa-ship" aria-hidden="true" /> A bordo
-      </button>
-      <button type="button" class="tab" :class="{ 'tab--on': tab === 'bodega' }" @click="tab = 'bodega'">
-        <i class="fa-solid fa-warehouse" aria-hidden="true" /> Bodega
-      </button>
-      <button type="button" class="tab" :class="{ 'tab--on': tab === 'conteos' }" @click="tab = 'conteos'">
-        <i class="fa-solid fa-clipboard-list" aria-hidden="true" /> Conteos
-      </button>
-      <button type="button" class="tab" :class="{ 'tab--on': tab === 'bitacora' }" @click="tab = 'bitacora'">
-        <i class="fa-solid fa-clock-rotate-left" aria-hidden="true" /> Bitácora
+    <div class="segs inv-tabs" role="tablist" aria-label="Vista del inventario">
+      <button
+        v-for="t in TAB_META"
+        :key="t.id"
+        type="button"
+        role="tab"
+        class="segs-item"
+        :class="{ 'segs-item--on': tab === t.id }"
+        :aria-selected="tab === t.id"
+        @click="tab = t.id"
+      >
+        <i class="fa-solid" :class="t.icon" aria-hidden="true" /> {{ t.label }}
       </button>
     </div>
 
-    <div class="actions">
-      <RouterLink v-if="canPurchase" class="btn btn-ghost" :to="{ path: '/bodega', query: { flujo: 'compra' } }">
-        <i class="fa-solid fa-file-invoice-dollar" aria-hidden="true" /> Compras en Bodega
+    <!-- Atajos a los movimientos, que se hacen en la pantalla de Bodega -->
+    <nav class="shortcuts" aria-label="Movimientos en Bodega">
+      <span class="shortcuts-label">En Bodega:</span>
+      <RouterLink v-if="canPurchase" class="shortcut" :to="{ path: '/bodega', query: { flujo: 'compra' } }">
+        <i class="fa-solid fa-file-invoice-dollar" aria-hidden="true" /> Registrar compra
       </RouterLink>
-      <RouterLink v-if="canPurchase" class="btn btn-ghost" :to="{ path: '/bodega', query: { flujo: 'recibir' } }">
+      <RouterLink v-if="canPurchase" class="shortcut" :to="{ path: '/bodega', query: { flujo: 'recibir' } }">
         <i class="fa-solid fa-box-open" aria-hidden="true" /> Recibir mercadería
       </RouterLink>
-      <RouterLink v-if="canTransfer" class="btn btn-ghost" :to="{ path: '/bodega', query: { flujo: 'carga' } }">
+      <RouterLink v-if="canTransfer" class="shortcut" :to="{ path: '/bodega', query: { flujo: 'carga' } }">
         <i class="fa-solid fa-dolly" aria-hidden="true" /> Cargar al barco
       </RouterLink>
-      <RouterLink class="btn btn-ghost" :to="{ path: '/bodega', query: { flujo: 'merma' } }">
+      <RouterLink class="shortcut" :to="{ path: '/bodega', query: { flujo: 'merma' } }">
         <i class="fa-solid fa-wine-glass-empty" aria-hidden="true" /> Merma
       </RouterLink>
-      <button type="button" class="btn btn-ghost" @click="showNewCount = true">
-        <i class="fa-solid fa-clipboard-check" aria-hidden="true" /> Conteo físico
-      </button>
-      <button v-if="userStore.isOwner" type="button" class="btn btn-ghost" @click="openModal('ajuste')">
-        <i class="fa-solid fa-sliders" aria-hidden="true" /> Ajuste manual
-      </button>
-    </div>
+    </nav>
+
     <p v-if="negatives" class="needs-count">
       <i class="fa-solid fa-clipboard-question" aria-hidden="true" />
-      {{ negatives === 1 ? '1 producto tiene' : `${negatives} productos tienen` }} saldo bajo cero en el sistema: requiere conteo físico. No se corrige solo: el ajuste se aplica solo cuando se aprueba.
+      <span>
+        <strong>{{ negatives === 1 ? '1 producto tiene' : `${negatives} productos tienen` }} saldo bajo cero:
+          requiere conteo físico.</strong>
+        No se corrige solo; el ajuste se aplica cuando se aprueba el conteo.
+      </span>
     </p>
 
     <!-- Stock por ubicación -->
@@ -300,9 +318,15 @@ const COUNT_STATUS: Record<string, string> = {
           <i class="fa-solid fa-magnifying-glass" aria-hidden="true" />
           <input v-model="query" type="search" placeholder="Buscar insumo" aria-label="Buscar insumo" />
         </label>
-        <button type="button" class="toggle" :class="{ on: showOnlyAlerts }" @click="showOnlyAlerts = !showOnlyAlerts">
-          <i class="fa-solid fa-triangle-exclamation" aria-hidden="true" /> Alertas
-          <span v-if="alerts" class="badge">{{ alerts }}</span>
+        <button
+          type="button"
+          class="toggle"
+          :class="{ on: showOnlyAlerts }"
+          :aria-pressed="showOnlyAlerts"
+          @click="showOnlyAlerts = !showOnlyAlerts"
+        >
+          <i class="fa-solid fa-triangle-exclamation" aria-hidden="true" /> Solo alertas
+          <span v-if="alerts" class="badge num">{{ alerts }}</span>
         </button>
       </div>
 
@@ -313,35 +337,45 @@ const COUNT_STATUS: Record<string, string> = {
             <tr>
               <th>Insumo</th>
               <th class="num">Stock</th>
-              <th>Costo</th>
-              <th>Estado</th>
+              <th class="col-cost">Costo</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="item in visibleStock" :key="item.product._id" :class="{ negative: item.negative }">
-              <td class="prod">
-                <ProductIcon :icon="item.product.icon" :size="20" />
-                <span>{{ item.product.name }}</span>
+            <tr
+              v-for="item in visibleStock"
+              :key="item.product._id"
+              :class="{ negative: item.negative, low: item.low && !item.negative }"
+            >
+              <td>
+                <span class="prod">
+                  <ProductIcon :icon="item.product.icon" :size="20" />
+                  <span class="prod-text">
+                    <span class="prod-name">{{ item.product.name }}</span>
+                    <small class="prod-cost">
+                      {{ costText(item.product.costPerUnit, item.product) || 'Sin costo' }}
+                    </small>
+                  </span>
+                </span>
               </td>
               <td class="num">
                 <template v-if="item.negative">
-                  <strong class="neg">Requiere conteo</strong>
+                  <span class="pill pill--neg">Requiere conteo</span>
                   <small class="sys">Sistema: {{ formatNumber(item.qty) }} {{ unitShort(item.product.stockUnit) }}</small>
                 </template>
-                <strong v-else>{{ stockText(item.qty, item.product) }}</strong>
+                <template v-else>
+                  <strong :class="{ zero: item.qty === 0 }">{{ stockText(item.qty, item.product) }}</strong>
+                  <span v-if="item.low" class="pill pill--low">Stock bajo</span>
+                  <span v-else-if="item.qty === 0" class="pill">Sin stock</span>
+                </template>
               </td>
-              <td class="muted">
+              <td class="muted col-cost">
                 {{ costText(item.product.costPerUnit, item.product) || 'Sin costo' }}
-              </td>
-              <td>
-                <span v-if="item.negative" class="pill pill--neg">Requiere conteo</span>
-                <span v-else-if="item.low" class="pill pill--low">Stock bajo</span>
-                <span v-else-if="item.qty === 0" class="pill">Sin stock</span>
-                <span v-else class="pill pill--ok">OK</span>
               </td>
             </tr>
             <tr v-if="!visibleStock.length">
-              <td colspan="4" class="empty">Sin resultados.</td>
+              <td colspan="3" class="empty">
+                {{ showOnlyAlerts ? 'Sin alertas: todo con stock suficiente.' : 'Ningún insumo con ese nombre.' }}
+              </td>
             </tr>
           </tbody>
         </table>
@@ -351,9 +385,10 @@ const COUNT_STATUS: Record<string, string> = {
     <!-- Conteos físicos -->
     <section v-else-if="tab === 'conteos'" class="card table-card">
       <SkeletonList v-if="loading" variant="row" :rows="5" />
-      <p v-else-if="!counts.length" class="empty">
-        Aún no hay conteos. Usa "Conteo físico" para registrar lo que hay realmente.
-      </p>
+      <div v-else-if="!counts.length" class="vacio">
+        <i class="fa-solid fa-clipboard-list" aria-hidden="true" />
+        <p>Aún no hay conteos. Usa «Conteo físico» para registrar lo que hay realmente.</p>
+      </div>
       <div v-else class="table-wrap">
         <table class="table">
           <thead>
@@ -374,7 +409,7 @@ const COUNT_STATUS: Record<string, string> = {
               <td>{{ c.createdBy?.name }}</td>
               <td><span class="pill" :class="`pill--${c.status}`">{{ COUNT_STATUS[c.status] }}</span></td>
               <td>
-                <button type="button" class="link-btn" @click="openCountId = c._id">
+                <button type="button" class="btn btn-secondary link-btn" @click="openCountId = c._id">
                   {{ c.status === 'enviado' && userStore.isOwner ? 'Revisar' : 'Abrir' }}
                   <i class="fa-solid fa-chevron-right" aria-hidden="true" />
                 </button>
@@ -446,7 +481,7 @@ const COUNT_STATUS: Record<string, string> = {
           </label>
           <div class="qty-row">
             <input id="mv-qty" v-model.number="form.qty" type="number" step="any" />
-            <div v-if="selectedProduct && selectedProduct.containerSize > 1" class="seg">
+            <div v-if="selectedProduct && selectedProduct.containerSize > 1" class="unit-seg">
               <button type="button" :class="{ on: form.mode === 'envases' }" @click="form.mode = 'envases'">
                 {{ selectedProduct.containerLabel }}s
               </button>
@@ -474,7 +509,7 @@ const COUNT_STATUS: Record<string, string> = {
           <input id="mv-reason" v-model="form.reason" type="text" placeholder="Ej. corrección autorizada tras revisión" />
         </div>
 
-        <button type="button" class="btn btn-gold" :disabled="saving" @click="submitModal">
+        <button type="button" class="btn btn-primary btn-lg" :disabled="saving" @click="submitModal">
           <i class="fa-solid fa-check" aria-hidden="true" /> {{ saving ? 'Guardando…' : 'Registrar ajuste' }}
         </button>
       </div>
@@ -512,74 +547,92 @@ const COUNT_STATUS: Record<string, string> = {
 <style scoped lang="scss">
 @use '@/styles/mixins' as *;
 
-.head {
-  margin-bottom: 1rem;
-
-  .page-title {
-    margin-bottom: 0.15rem;
-  }
+.inv {
+  max-width: 1180px;
 }
 
-.hint {
-  margin: 0;
-  color: var(--ink-400);
-  font-size: 0.88rem;
+.inv-tabs {
+  margin-bottom: 0.85rem;
 }
 
-.tabs {
+// Atajos discretos: los movimientos viven en Bodega.
+.shortcuts {
   display: flex;
-  gap: 0.35rem;
-  margin-bottom: 0.75rem;
+  align-items: center;
+  gap: 0 1.1rem;
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+  white-space: nowrap;
   overflow-x: auto;
   scrollbar-width: none;
-}
 
-.tab {
-  flex-shrink: 0;
-  min-height: 42px;
-  padding: 0.45rem 1rem;
-  border-radius: 999px;
-  font-weight: 600;
-  font-size: 0.86rem;
-  background: var(--surface);
-  border: 1.5px solid var(--cream-200);
-  color: var(--ink-600);
-  transition: all 0.15s ease;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 
-  &--on {
-    background: var(--navy-800);
-    border-color: var(--navy-800);
-    color: #fff;
+  @include tablet {
+    flex-wrap: wrap;
+    overflow: visible;
   }
 }
 
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+.shortcuts-label {
+  color: var(--ink-400);
+}
+
+.shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  font-weight: 600;
+  color: var(--navy-700);
+  transition: color 0.15s ease;
+
+  i {
+    color: var(--gold-500);
+  }
+
+  &:hover {
+    color: var(--navy-900);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
 }
 
 .table-card {
   padding: 0.75rem;
+
+  @include tablet {
+    padding: 1rem 1.1rem;
+  }
 }
 
 .tools {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
 }
 
 .search {
-  flex: 1;
+  flex: 1 1 240px;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  min-height: 44px;
-  padding: 0 0.85rem;
-  border: 1.5px solid var(--cream-200);
+  gap: 0.55rem;
+  min-height: 48px;
+  padding: 0 0.95rem;
+  border: 1px solid var(--line-strong);
   border-radius: 999px;
   color: var(--ink-400);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+
+  &:focus-within {
+    border-color: var(--navy-600);
+    box-shadow: var(--focus-ring);
+  }
 
   input {
     flex: 1;
@@ -587,36 +640,53 @@ const COUNT_STATUS: Record<string, string> = {
     border: none;
     outline: none;
     background: transparent;
+    font-size: 1rem;
+    color: var(--ink-900);
   }
 }
 
 .toggle {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0 0.9rem;
+  gap: 0.45rem;
+  min-height: 48px;
+  padding: 0 1rem;
   border-radius: 999px;
-  border: 1.5px solid var(--cream-200);
-  font-size: 0.82rem;
+  border: 1px solid var(--line-strong);
+  font-size: 0.95rem;
   font-weight: 600;
   color: var(--ink-600);
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+
+  i {
+    color: var(--warning);
+  }
 
   &.on {
     background: var(--navy-800);
     border-color: var(--navy-800);
     color: #fff;
+
+    i {
+      color: var(--powder-300);
+    }
   }
 }
 
 .badge {
-  min-width: 20px;
-  height: 20px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 0.4rem;
   display: grid;
   place-items: center;
   border-radius: 999px;
   background: var(--danger);
   color: #fff;
-  font-size: 0.7rem;
+  font-size: 0.82rem;
 }
 
 .table-wrap {
@@ -626,26 +696,38 @@ const COUNT_STATUS: Record<string, string> = {
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.86rem;
+  font-size: 1rem;
 
   th {
     text-align: left;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-size: 0.88rem;
+    font-weight: 500;
     color: var(--ink-400);
-    padding: 0.5rem 0.6rem;
-    border-bottom: 2px solid var(--cream-200);
+    padding: 0.65rem 0.6rem;
+    border-bottom: 1px solid var(--line);
     white-space: nowrap;
   }
 
   td {
-    padding: 0.55rem 0.6rem;
-    border-bottom: 1px solid var(--cream-200);
+    padding: 0.7rem 0.6rem;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: middle;
+  }
+
+  tbody tr {
+    transition: background-color 0.15s ease;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: none;
   }
 
   tr.negative td {
-    background: rgba(180, 72, 59, 0.06);
+    background: #fbf0ee;
+  }
+
+  tr.low td {
+    background: #fbf6ee;
   }
 }
 
@@ -653,6 +735,14 @@ const COUNT_STATUS: Record<string, string> = {
   text-align: right !important;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+
+  @media (max-width: 639px) {
+    white-space: normal;
+  }
+
+  .pill {
+    margin-left: 0.5rem;
+  }
 }
 
 .nowrap {
@@ -662,9 +752,11 @@ const COUNT_STATUS: Record<string, string> = {
 .prod {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-weight: 600;
-  min-width: 180px;
+  gap: 0.6rem;
+
+  @include tablet {
+    min-width: 200px;
+  }
 
   svg {
     color: var(--navy-700);
@@ -672,36 +764,69 @@ const COUNT_STATUS: Record<string, string> = {
   }
 }
 
+.prod-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.prod-name {
+  font-weight: 600;
+}
+
+// En celular el costo baja como segunda línea bajo el nombre.
+.prod-cost {
+  font-size: 0.88rem;
+  color: var(--ink-400);
+
+  @include tablet {
+    display: none;
+  }
+}
+
+.col-cost {
+  display: none;
+
+  @include tablet {
+    display: table-cell;
+  }
+}
+
 .muted {
   color: var(--ink-400);
-  font-size: 0.82rem;
+  font-size: 0.92rem;
+}
+
+.zero {
+  color: var(--ink-400);
 }
 
 .neg {
-  color: var(--danger);
+  color: var(--danger-ink);
   font-weight: 700;
 }
 
 .pill {
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 0.2rem 0.55rem;
+  display: inline-block;
+  font-size: 0.84rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
   border-radius: 999px;
-  background: var(--cream-100);
-  color: var(--ink-600);
+  background: var(--pill-neutral-bg);
+  color: var(--pill-neutral-ink);
   white-space: nowrap;
 
   &--neg,
   &--merma,
   &--rechazado {
-    background: rgba(180, 72, 59, 0.12);
-    color: var(--danger);
+    background: var(--pill-danger-bg);
+    color: var(--pill-danger-ink);
   }
 
   &--low,
   &--enviado {
-    background: rgba(185, 128, 47, 0.15);
-    color: #8a5d1d;
+    background: var(--pill-warn-bg);
+    color: var(--pill-warn-ink);
   }
 
   &--ok,
@@ -709,48 +834,56 @@ const COUNT_STATUS: Record<string, string> = {
   &--carga,
   &--aprobado,
   &--devolucion {
-    background: rgba(63, 122, 87, 0.13);
-    color: var(--success);
+    background: var(--pill-ok-bg);
+    color: var(--pill-ok-ink);
   }
 
   &--venta {
-    background: var(--powder-100);
-    color: var(--navy-700);
+    background: var(--pill-info-bg);
+    color: var(--pill-info-ink);
   }
 }
 
 .needs-count {
   margin: 0 0 1rem;
   display: flex;
-  gap: 0.5rem;
+  gap: 0.65rem;
   align-items: flex-start;
-  padding: 0.75rem 0.9rem;
+  padding: 0.85rem 1rem;
   border-radius: var(--radius-sm);
-  background: rgba(180, 72, 59, 0.08);
-  color: var(--danger);
-  font-weight: 600;
-  font-size: 0.9rem;
+  border: 1px solid #ecc9c3;
+  background: #fbf0ee;
+  color: var(--ink-900);
+  font-size: 1rem;
+  line-height: 1.45;
+
+  i {
+    margin-top: 0.2rem;
+    color: var(--danger);
+  }
+
+  strong {
+    color: var(--danger-ink);
+  }
 }
 
 .sys {
   display: block;
-  font-size: 0.75rem;
+  margin-top: 0.15rem;
+  font-size: 0.86rem;
   color: var(--ink-400);
   font-weight: 500;
 }
 
 .link-btn {
-  font-weight: 700;
-  color: var(--gold-500);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
+  min-height: 44px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.95rem;
 }
 
 .empty {
-  color: var(--ink-400);
-  text-align: center;
-  padding: 1rem;
+  color: var(--ink-600);
+  padding: 1.25rem 0.6rem;
 }
 
 .sentinel {
@@ -760,17 +893,7 @@ const COUNT_STATUS: Record<string, string> = {
 .modal-form {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
-}
-
-.row {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.75rem;
-
-  @include tablet {
-    grid-template-columns: 1fr 1fr;
-  }
+  gap: 1rem;
 }
 
 .qty-row {
@@ -783,17 +906,21 @@ const COUNT_STATUS: Record<string, string> = {
   }
 }
 
-.seg {
+.unit-seg {
   display: flex;
-  border: 1.5px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   overflow: hidden;
 
   button {
-    padding: 0 0.85rem;
+    min-width: 64px;
+    padding: 0 0.9rem;
     font-weight: 600;
-    font-size: 0.85rem;
+    font-size: 0.95rem;
     color: var(--ink-600);
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease;
 
     &.on {
       background: var(--navy-800);
@@ -808,13 +935,15 @@ const COUNT_STATUS: Record<string, string> = {
 }
 
 .equiv {
-  color: var(--ink-400);
+  color: var(--ink-600);
+  font-size: 0.95rem;
 }
 
 .count-intro {
   margin: 0 0 1rem;
   color: var(--ink-600);
-  font-size: 0.9rem;
+  font-size: 1rem;
+  line-height: 1.5;
 }
 
 .count-choice {
@@ -826,26 +955,41 @@ const COUNT_STATUS: Record<string, string> = {
 .choice {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.3rem;
-  padding: 1.2rem 0.8rem;
-  border: 1.5px solid var(--cream-200);
+  min-height: 112px;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  text-align: left;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    transform 0.12s var(--ease-out);
 
   i {
-    font-size: 1.5rem;
-    color: var(--gold-500);
+    font-size: 1.4rem;
+    color: var(--navy-700);
+    margin-bottom: 0.2rem;
+  }
+
+  strong {
+    font-size: 1.1rem;
+    font-weight: 600;
   }
 
   span {
-    font-size: 0.8rem;
-    color: var(--ink-400);
+    font-size: 0.92rem;
+    color: var(--ink-600);
   }
 
   &:hover {
-    border-color: var(--gold-500);
-    transform: translateY(-2px);
+    border-color: var(--navy-600);
+    background: var(--powder-100);
+  }
+
+  &:active {
+    transform: scale(0.98);
   }
 }
 </style>
