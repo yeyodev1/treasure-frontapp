@@ -301,90 +301,102 @@ const emptyText = computed(
       />
 
       <div v-else key="list" class="wrap">
-        <header class="head">
-          <h1 class="page-title">Abastecimiento</h1>
-          <p class="hint">
-            El bar solicita, Dirección de crucero aprueba y bodega lo sube al barco. El stock solo cambia cuando se recibe.
-          </p>
+        <header class="page-head">
+          <div class="page-head-text">
+            <h1 class="page-title">Abastecimiento</h1>
+            <p class="page-lead">
+              El bar solicita, Dirección de crucero aprueba y bodega lo entrega a bordo. El stock cambia
+              solo cuando se recibe.
+            </p>
+          </div>
+          <div v-if="!isBar" class="page-actions">
+            <button type="button" class="btn btn-secondary" @click="openCreate">
+              <i class="fa-solid fa-hand-holding-droplet" aria-hidden="true" /> Solicitar producto
+            </button>
+          </div>
         </header>
 
-        <button type="button" class="cta card" @click="openCreate">
-          <span class="cta-icon"><i class="fa-solid fa-hand-holding-droplet" aria-hidden="true" /></span>
+        <!-- En el bar, solicitar es el trabajo de esta pantalla: va arriba y grande.
+             Para quien aprueba o entrega, lo primero es su cola. -->
+        <button v-if="isBar" type="button" class="cta" @click="openCreate">
+          <i class="fa-solid fa-hand-holding-droplet cta-icon" aria-hidden="true" />
           <span class="cta-text">
             <strong>Solicitar producto</strong>
             <small>Producto, cantidad y unidad (envase o ml). También revisión de inventario.</small>
           </span>
-          <i class="fa-solid fa-chevron-right" aria-hidden="true" />
+          <span class="cta-go">Solicitar <i class="fa-solid fa-arrow-right" aria-hidden="true" /></span>
         </button>
 
-        <div v-if="tabs.length > 1" class="tabs" role="tablist">
-          <button
-            v-for="t in tabs"
-            :key="t"
-            type="button"
-            role="tab"
-            class="tab"
-            :class="{ 'tab--on': tab === t }"
-            :aria-selected="tab === t"
-            @click="tab = t"
-          >
-            <i class="fa-solid" :class="TAB_ICON[t]" aria-hidden="true" />
-            {{ TAB_LABEL[t] }}
-            <span v-if="badges[t]" class="badge">{{ badges[t] }}</span>
-          </button>
-        </div>
-        <h2 v-else class="section-title">{{ TAB_LABEL[tab] }}</h2>
+        <section class="list" :aria-label="TAB_LABEL[tab]">
+          <div v-if="tabs.length > 1" class="segs" role="tablist" aria-label="Solicitudes">
+            <button
+              v-for="t in tabs"
+              :key="t"
+              type="button"
+              role="tab"
+              class="segs-item"
+              :class="{ 'segs-item--on': tab === t }"
+              :aria-selected="tab === t"
+              @click="tab = t"
+            >
+              <i class="fa-solid" :class="TAB_ICON[t]" aria-hidden="true" />
+              {{ TAB_LABEL[t] }}
+              <span v-if="badges[t]" class="segs-count segs-count--alert num">{{ badges[t] }}</span>
+            </button>
+          </div>
+          <h2 v-else class="section-title">{{ TAB_LABEL[tab] }}</h2>
 
-        <div v-if="tab === 'historial'" class="filters">
-          <button
-            v-for="f in HISTORY_FILTERS"
-            :key="f.value"
-            type="button"
-            class="chip"
-            :class="{ on: historyFilter === f.value }"
-            @click="historyFilter = f.value"
-          >
-            {{ f.label }}
-          </button>
-        </div>
+          <div v-if="tab === 'historial'" class="segs filters" aria-label="Filtrar por estado">
+            <button
+              v-for="f in HISTORY_FILTERS"
+              :key="f.value"
+              type="button"
+              class="segs-item segs-item--sm"
+              :class="{ 'segs-item--on': historyFilter === f.value }"
+              @click="historyFilter = f.value"
+            >
+              {{ f.label }}
+            </button>
+          </div>
 
-        <SkeletonList v-if="loading" variant="card" :rows="3" />
-        <div v-else-if="!rows.length" class="card empty">
-          <i class="fa-solid fa-inbox" aria-hidden="true" />
-          <p>{{ emptyText }}</p>
-        </div>
-        <TransitionGroup v-else tag="div" name="list" class="cards">
-          <RequisitionCard v-for="r in rows" :key="r._id" :requisition="r">
-            <template v-if="tab === 'aprobar' && canReview && r.status === 'solicitado'">
-              <button type="button" class="btn btn-gold" :disabled="busyId === r._id" @click="approve(r)">
-                <i class="fa-solid fa-thumbs-up" aria-hidden="true" /> Aprobar
-              </button>
-              <button type="button" class="btn btn-ghost reject" :disabled="busyId === r._id" @click="reject(r)">
-                <i class="fa-solid fa-ban" aria-hidden="true" /> Rechazar
-              </button>
-            </template>
-            <template v-else-if="canReceive && r.kind === 'abastecimiento' && ['aprobado', 'recibido_parcial'].includes(r.status)">
-              <button type="button" class="btn btn-gold" @click="openReceive(r)">
-                <i class="fa-solid fa-truck-ramp-box" aria-hidden="true" /> Recibir
-              </button>
-            </template>
-            <template v-else-if="canReceive && r.kind === 'revision' && r.status === 'solicitado'">
-              <RouterLink class="btn btn-ghost" :to="{ path: '/bodega', query: { flujo: 'conteo' } }">
-                <i class="fa-solid fa-clipboard-list" aria-hidden="true" /> Abrir conteo físico
-              </RouterLink>
-              <button type="button" class="btn btn-gold" :disabled="busyId === r._id" @click="resolve(r)">
-                <i class="fa-solid fa-clipboard-check" aria-hidden="true" /> Marcar atendida
-              </button>
-            </template>
-          </RequisitionCard>
-        </TransitionGroup>
+          <SkeletonList v-if="loading" variant="card" :rows="3" />
+          <div v-else-if="!rows.length" class="vacio">
+            <i class="fa-solid fa-inbox" aria-hidden="true" />
+            <p>{{ emptyText }}</p>
+          </div>
+          <TransitionGroup v-else tag="div" name="list" class="cards">
+            <RequisitionCard v-for="r in rows" :key="r._id" :requisition="r">
+              <template v-if="tab === 'aprobar' && canReview && r.status === 'solicitado'">
+                <button type="button" class="btn btn-primary" :disabled="busyId === r._id" @click="approve(r)">
+                  <i class="fa-solid fa-thumbs-up" aria-hidden="true" /> Aprobar
+                </button>
+                <button type="button" class="btn btn-secondary reject" :disabled="busyId === r._id" @click="reject(r)">
+                  <i class="fa-solid fa-ban" aria-hidden="true" /> Rechazar
+                </button>
+              </template>
+              <template v-else-if="canReceive && r.kind === 'abastecimiento' && ['aprobado', 'recibido_parcial'].includes(r.status)">
+                <button type="button" class="btn btn-primary" @click="openReceive(r)">
+                  <i class="fa-solid fa-truck-ramp-box" aria-hidden="true" /> Recibir
+                </button>
+              </template>
+              <template v-else-if="canReceive && r.kind === 'revision' && r.status === 'solicitado'">
+                <button type="button" class="btn btn-primary" :disabled="busyId === r._id" @click="resolve(r)">
+                  <i class="fa-solid fa-clipboard-check" aria-hidden="true" /> Marcar atendida
+                </button>
+                <RouterLink class="btn btn-secondary" :to="{ path: '/bodega', query: { flujo: 'conteo' } }">
+                  <i class="fa-solid fa-clipboard-list" aria-hidden="true" /> Abrir conteo físico
+                </RouterLink>
+              </template>
+            </RequisitionCard>
+          </TransitionGroup>
 
-        <div v-if="hasMore && !loading" class="more">
-          <button type="button" class="btn btn-ghost" :disabled="loadingMore" @click="loadMore">
-            <BaseSpinner v-if="loadingMore" />
-            <template v-else><i class="fa-solid fa-angles-down" aria-hidden="true" /> Ver más</template>
-          </button>
-        </div>
+          <div v-if="hasMore && !loading" class="more">
+            <button type="button" class="btn btn-secondary" :disabled="loadingMore" @click="loadMore">
+              <BaseSpinner v-if="loadingMore" />
+              <template v-else><i class="fa-solid fa-angles-down" aria-hidden="true" /> Ver más</template>
+            </button>
+          </div>
+        </section>
       </div>
     </Transition>
   </div>
@@ -396,38 +408,50 @@ const emptyText = computed(
 .wrap {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  max-width: 880px;
+  gap: 1.25rem;
+  max-width: 900px;
 }
 
-.head .page-title {
-  margin-bottom: 0.2rem;
+.wrap > .page-head {
+  margin-bottom: 0;
 }
 
-.hint {
-  margin: 0;
-  color: var(--ink-400);
-  font-size: 0.92rem;
-}
-
+// Acción principal: una franja ancha y clara, imposible de pasar por alto.
 .cta {
   display: flex;
   align-items: center;
   gap: 1rem;
   min-height: 88px;
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius);
+  background: var(--navy-800);
+  color: #fff;
   text-align: left;
-  border: 2px solid transparent;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
   transition:
-    border-color 0.15s ease,
-    transform 0.12s ease;
+    background-color 0.16s ease,
+    transform 0.12s var(--ease-out);
 
-  > i {
-    margin-left: auto;
-    color: var(--gold-500);
+  // Las algas del menú como acento, solo a la derecha.
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url('/brand/algas.png') right -40px center / 300px auto no-repeat;
+    opacity: 0.12;
+    filter: invert(1);
+    z-index: -1;
+    pointer-events: none;
   }
 
   &:hover {
-    border-color: var(--gold-500);
+    background: var(--navy-700);
+
+    .cta-go i {
+      transform: translateX(3px);
+    }
   }
 
   &:active {
@@ -436,103 +460,66 @@ const emptyText = computed(
 }
 
 .cta-icon {
-  width: 52px;
-  height: 52px;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  border-radius: 14px;
-  background: var(--navy-800);
-  color: #fff;
-  font-size: 1.3rem;
+  flex: none;
+  width: 2rem;
+  text-align: center;
+  font-size: 1.6rem;
+  color: var(--powder-300);
 }
 
 .cta-text {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
+  flex: 1;
+  min-width: 0;
 
   strong {
-    font-size: 1.1rem;
+    font-family: var(--font-serif);
+    font-weight: 400;
+    font-size: 1.4rem;
+    line-height: 1.2;
   }
 
   small {
-    color: var(--ink-400);
-    font-size: 0.86rem;
+    color: var(--powder-200);
+    font-size: 0.95rem;
+    line-height: 1.35;
   }
 }
 
-.tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.tab {
-  min-height: 48px;
-  display: inline-flex;
+.cta-go {
+  flex: none;
+  display: none;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0 1rem;
-  border-radius: 999px;
-  font-weight: 600;
-  font-size: 0.9rem;
-  background: var(--surface);
-  border: 1.5px solid var(--cream-200);
-  color: var(--ink-600);
-  transition:
-    background 0.15s ease,
-    color 0.15s ease,
-    border-color 0.15s ease;
-
-  &--on {
-    background: var(--navy-800);
-    border-color: var(--navy-800);
-    color: #fff;
-  }
-}
-
-.badge {
-  min-width: 22px;
-  height: 22px;
-  padding: 0 0.35rem;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
+  gap: 0.5rem;
+  min-height: 48px;
+  padding: 0 1.1rem;
+  border-radius: var(--radius-sm);
   background: var(--gold-500);
   color: #fff;
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-
-.section-title {
-  font-size: 1.2rem;
-}
-
-.filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.chip {
-  min-height: 48px;
-  padding: 0 1rem;
-  border-radius: 999px;
-  border: 1.5px solid var(--cream-200);
-  background: #fff;
   font-weight: 600;
-  font-size: 0.86rem;
-  color: var(--ink-600);
-  transition:
-    background 0.15s ease,
-    color 0.15s ease;
 
-  &.on {
-    background: var(--navy-800);
-    border-color: var(--navy-800);
-    color: #fff;
+  i {
+    transition: transform 0.16s var(--ease-out);
   }
+
+  @include tablet {
+    display: inline-flex;
+  }
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+.filters .segs-item--sm {
+  min-height: 44px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.92rem;
 }
 
 .cards {
@@ -541,26 +528,13 @@ const emptyText = computed(
   gap: 0.75rem;
 }
 
-.empty {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.5rem;
-  color: var(--ink-600);
-
-  i {
-    font-size: 1.5rem;
-    color: var(--gold-500);
-  }
-
-  p {
-    margin: 0;
-  }
-}
-
 .reject {
-  border-color: var(--danger);
-  color: var(--danger);
+  color: var(--danger-ink);
+
+  &:hover:not(:disabled) {
+    border-color: var(--danger);
+    background: var(--pill-danger-bg);
+  }
 }
 
 .more {
