@@ -6,7 +6,7 @@ import { useCatalogStore } from '@/stores/catalog'
 import { useSound } from '@/composables/useSound'
 import { useSaveAttempt } from '@/composables/useSaveAttempt'
 import { apiCreatePurchase, apiPurchases } from '@/services/api'
-import { formatMoney } from '@/utils/format'
+import { formatMoney, todayKey } from '@/utils/format'
 import { apiErrorMessage } from '@/services/httpBase'
 import { useToastStore } from '@/stores/toast'
 import type { Product, Purchase, StockLocation } from '@/types'
@@ -28,10 +28,6 @@ interface Line {
   product: Product
   containers: number
   cost: string
-}
-
-function todayKey(): string {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' })
 }
 
 const step = shallowRef(0)
