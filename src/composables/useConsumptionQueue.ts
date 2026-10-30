@@ -55,6 +55,12 @@ export function useConsumptionQueue(options: {
   const entries = ref<QueueEntry[]>([])
   const lastSyncAt = shallowRef<string | null>(null)
   const online = shallowRef(navigator.onLine)
+  /**
+   * "Sin conexión" solo cuando el equipo confirma que no tiene red
+   * (checklist 29-oct, 13). Si hay red pero el servidor no respondió, se
+   * dice eso y se reintenta igual con la misma clave.
+   */
+  const offlineConfirmed = shallowRef(!navigator.onLine)
   let running = false
   let retryTimer: ReturnType<typeof setTimeout> | null = null
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null
@@ -132,6 +138,7 @@ export function useConsumptionQueue(options: {
           remove(entry.key)
           sent += 1
           online.value = true
+          offlineConfirmed.value = false
           lastSyncAt.value = new Date().toISOString()
           localStorage.setItem(`${storageKey()}.sync`, lastSyncAt.value)
           options.onOutcome({
@@ -145,6 +152,7 @@ export function useConsumptionQueue(options: {
             // Sin señal o sesión vencida: queda pendiente con la misma clave.
             entry.state = 'pendiente'
             online.value = !isNetworkError(err)
+            offlineConfirmed.value = isNetworkError(err) && !navigator.onLine
             scheduleRetry(Math.min(30_000, 3_000 * entry.attempts))
             return
           }
@@ -164,7 +172,7 @@ export function useConsumptionQueue(options: {
       }
     } finally {
       running = false
-      // Cola vacía: la directora ve al instante que esta tableta ya sincronizó.
+      // Cola vacía: Dirección de crucero ve al instante que esta tableta ya sincronizó.
       if (sent && !entries.value.length) void heartbeat()
     }
   }
@@ -180,18 +188,24 @@ export function useConsumptionQueue(options: {
         cruiseId: options.cruiseId(),
       })
       online.value = true
+      offlineConfirmed.value = false
     } catch (err) {
-      if (isNetworkError(err)) online.value = false
+      if (isNetworkError(err)) {
+        online.value = false
+        offlineConfirmed.value = !navigator.onLine
+      }
     }
   }
 
   function onOnline() {
     online.value = true
+    offlineConfirmed.value = false
     void run()
     void heartbeat()
   }
   function onOffline() {
     online.value = false
+    offlineConfirmed.value = true
   }
 
   function start() {
@@ -210,5 +224,5 @@ export function useConsumptionQueue(options: {
     if (retryTimer) clearTimeout(retryTimer)
   }
 
-  return { entries, pending, online, lastSyncAt, enqueue, cancel, run, start, stop, heartbeat }
+  return { entries, pending, online, offlineConfirmed, lastSyncAt, enqueue, cancel, run, start, stop, heartbeat }
 }
