@@ -10,8 +10,10 @@ export type SaveState = 'idle' | 'saving' | 'saved' | 'error'
  * - Sin señal, la clave se conserva: reintentar no duplica (el servidor
  *   reconoce la clave y devuelve lo ya guardado).
  * - Si el servidor rechaza (stock, validación), no se guardó nada.
+ * `what` nombra lo que se intenta guardar ("la factura") para que el aviso
+ * diga qué no se guardó y qué hacer (checklist 29-oct, 24).
  */
-export function useSaveAttempt() {
+export function useSaveAttempt(what = 'el registro') {
   const state = shallowRef<SaveState>('idle')
   const message = shallowRef('')
   const offline = shallowRef(false)
@@ -39,7 +41,7 @@ export function useSaveAttempt() {
       state.value = 'error'
       offline.value = isNetworkError(error)
       message.value = offline.value
-        ? 'Sin conexión: no sabemos si llegó. Reintenta; no se duplica.'
+        ? `No se pudo guardar ${what}. Revisa la conexión e inténtalo de nuevo; no se duplica. Los datos escritos siguen en pantalla.`
         : apiErrorMessage(error)
       // El servidor lo rechazó: no quedó nada guardado; el próximo intento es otro.
       if (!offline.value) key = null
