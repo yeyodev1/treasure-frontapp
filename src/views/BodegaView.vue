@@ -64,6 +64,20 @@ function summary(items: StockItem[]) {
 const bodega = computed(() => summary(stock.value.bodega))
 const abordo = computed(() => summary(stock.value.abordo))
 
+const LOCATIONS = [
+  { key: 'bodega' as const, label: 'Bodega', icon: 'fa-warehouse' },
+  { key: 'abordo' as const, label: 'A bordo', icon: 'fa-ship' },
+]
+
+function sumFor(loc: StockLocation) {
+  return loc === 'bodega' ? bodega.value : abordo.value
+}
+
+/** Cuántas cosas esperan a bodega: lo primero que se ve al entrar. */
+const pendingCount = computed(
+  () => toReceive.value.length + revisions.value.length + (canBuy.value ? pendingPurchases.value : 0),
+)
+
 /** Lo más bajo de cada almacén, para tenerlo a la vista. */
 function lowest(items: StockItem[]) {
   return items
@@ -166,142 +180,179 @@ function linesShort(r: Requisition): string {
 
       <!-- Tablero -->
       <div v-else key="hub" class="hub">
-        <header class="head">
-          <h1 class="page-title">Bodega</h1>
-          <p class="hint">Toca lo que vas a hacer. Cada paso te pide confirmar antes de guardar.</p>
+        <header class="page-head">
+          <div class="page-head-text">
+            <h1 class="page-title">Bodega</h1>
+            <p class="page-lead">Elige qué vas a hacer. Nada se guarda sin que confirmes.</p>
+          </div>
         </header>
 
-        <!-- Stock resumido -->
-        <section class="stock" aria-label="Stock resumido">
-          <template v-if="loadingStock">
-            <SkeletonBlock height="150px" />
-            <SkeletonBlock height="150px" />
-          </template>
-          <template v-else>
-            <article
-              v-for="loc in ['bodega', 'abordo'] as const"
-              :key="loc"
-              class="card stock-card"
-            >
-              <header class="stock-head">
-                <i class="fa-solid" :class="loc === 'bodega' ? 'fa-warehouse' : 'fa-ship'" aria-hidden="true" />
-                <h2>{{ loc === 'bodega' ? 'Bodega' : 'A bordo' }}</h2>
-              </header>
-              <p class="stock-big">
-                {{ (loc === 'bodega' ? bodega : abordo).withStock }}
-                <small>de {{ (loc === 'bodega' ? bodega : abordo).total }} productos con stock</small>
-              </p>
-              <div class="stock-flags">
-                <span v-if="(loc === 'bodega' ? bodega : abordo).negative" class="flag flag--neg">
-                  <i class="fa-solid fa-clipboard-question" aria-hidden="true" />
-                  {{ (loc === 'bodega' ? bodega : abordo).negative }}
-                  {{ (loc === 'bodega' ? bodega : abordo).negative === 1 ? 'requiere conteo' : 'requieren conteo' }}
-                </span>
-                <span v-if="(loc === 'bodega' ? bodega : abordo).low" class="flag flag--low">
-                  <i class="fa-solid fa-arrow-trend-down" aria-hidden="true" />
-                  {{ (loc === 'bodega' ? bodega : abordo).low }} con stock bajo
-                </span>
-                <span v-if="(loc === 'bodega' ? bodega : abordo).empty" class="flag">
-                  <i class="fa-solid fa-circle-minus" aria-hidden="true" />
-                  {{ (loc === 'bodega' ? bodega : abordo).empty }} sin stock
-                </span>
-                <span
-                  v-if="!(loc === 'bodega' ? bodega : abordo).low && !(loc === 'bodega' ? bodega : abordo).empty && !(loc === 'bodega' ? bodega : abordo).negative"
-                  class="flag flag--ok"
-                >
-                  <i class="fa-solid fa-circle-check" aria-hidden="true" /> Sin alertas
-                </span>
-              </div>
-              <ul v-if="lowest(stock[loc]).length" class="stock-low">
-                <li v-for="item in lowest(stock[loc])" :key="item.product._id">
-                  <span>{{ item.product.name }}</span>
-                  <strong :class="{ neg: item.negative }">
-                    {{ item.negative ? 'Requiere conteo' : stockText(item.qty, item.product) }}
-                  </strong>
-                </li>
-              </ul>
-            </article>
-          </template>
-          <RouterLink to="/admin/inventario" class="stock-link">
-            Ver todos los saldos <i class="fa-solid fa-arrow-right" aria-hidden="true" />
-          </RouterLink>
-        </section>
-
-        <!-- Acciones -->
-        <section class="actions" aria-label="Acciones de bodega">
-          <button v-if="canBuy" type="button" class="action card" @click="go('compra')">
-            <span class="action-icon"><i class="fa-solid fa-file-invoice-dollar" aria-hidden="true" /></span>
-            <strong>Registrar compra</strong>
-            <small>Factura del proveedor. Aún no suma stock.</small>
-          </button>
-
-          <button v-if="canBuy" type="button" class="action card" @click="go('recibir')">
-            <span class="action-icon"><i class="fa-solid fa-box-open" aria-hidden="true" /></span>
-            <strong>Recibir mercadería</strong>
-            <small>Marca lo que llegó. Suma al almacén destino.</small>
-            <span v-if="pendingPurchases" class="action-badge">{{ pendingPurchases }} por recibir</span>
-          </button>
-
-          <button v-if="canTransfer" type="button" class="action card" @click="go('carga')">
-            <span class="action-icon"><i class="fa-solid fa-dolly" aria-hidden="true" /></span>
-            <strong>Cargar al barco</strong>
-            <small>De bodega a bordo, con el saldo a la vista.</small>
-          </button>
-
-          <button type="button" class="action card" @click="go('conteo')">
-            <span class="action-icon"><i class="fa-solid fa-clipboard-list" aria-hidden="true" /></span>
-            <strong>Conteo físico</strong>
-            <small>Cuenta lo que hay. Si hay diferencia, se revisa antes de ajustar.</small>
-          </button>
-
-          <button type="button" class="action card" @click="go('merma')">
-            <span class="action-icon action-icon--danger"><i class="fa-solid fa-wine-glass-empty" aria-hidden="true" /></span>
-            <strong>Merma o rotura</strong>
-            <small>Algo se rompió o se perdió. Con motivo.</small>
-          </button>
-
-          <RouterLink v-if="!canBuy && userStore.isDirector" to="/abastecimiento?tab=aprobar" class="action card">
-            <span class="action-icon"><i class="fa-solid fa-stamp" aria-hidden="true" /></span>
-            <strong>Solicitudes por aprobar</strong>
-            <small>Lo que pidió el bar.</small>
-          </RouterLink>
-        </section>
-
-        <!-- Solicitudes por atender -->
-        <section v-if="canBuy" class="card pending">
-          <header class="pending-head">
-            <h2><i class="fa-solid fa-truck-ramp-box" aria-hidden="true" /> Solicitudes por atender</h2>
-            <RouterLink to="/abastecimiento?tab=recibir" class="pending-link">
-              Ver todos <i class="fa-solid fa-arrow-right" aria-hidden="true" />
+        <!-- Lo que espera a bodega: primero, porque es lo que hay que hacer hoy -->
+        <section v-if="canBuy" class="todo" aria-labelledby="todo-title">
+          <header class="block-head">
+            <h2 id="todo-title" class="section-title">
+              Por atender
+              <span v-if="pendingCount" class="estado estado--warn num">{{ pendingCount }}</span>
+            </h2>
+            <RouterLink to="/abastecimiento?tab=recibir" class="link-action">
+              Todas las solicitudes <i class="fa-solid fa-arrow-right" aria-hidden="true" />
             </RouterLink>
           </header>
 
-          <p v-if="!toReceive.length && !revisions.length" class="muted">
-            Nada pendiente: no hay solicitudes aprobadas ni revisiones de inventario.
-          </p>
+          <div v-if="!pendingCount" class="vacio">
+            <i class="fa-solid fa-circle-check" aria-hidden="true" />
+            <p>Nada pendiente: no hay compras por recibir, solicitudes aprobadas ni revisiones.</p>
+          </div>
 
-          <TransitionGroup tag="ul" name="list" class="pending-list">
-            <li v-for="r in toReceive.slice(0, 4)" :key="r._id">
-              <button type="button" class="pending-item" @click="openRequisition(r)">
-                <span class="pending-tag">Aprobada</span>
-                <span class="pending-text">
-                  <strong>{{ r.code }} · {{ linesShort(r) }}</strong>
-                  <small>{{ personName(r.requestedBy) }} · {{ formatDateTime(r.createdAt) }}</small>
+          <TransitionGroup v-else tag="ul" name="list" class="todo-list">
+            <li v-if="pendingPurchases" key="compras">
+              <button type="button" class="todo-row" @click="go('recibir')">
+                <i class="fa-solid fa-box-open todo-icon" aria-hidden="true" />
+                <span class="todo-text">
+                  <strong>
+                    {{ pendingPurchases }}
+                    {{ pendingPurchases === 1 ? 'compra por recibir' : 'compras por recibir' }}
+                  </strong>
+                  <small>Marca lo que llegó del proveedor para sumarlo al stock.</small>
                 </span>
-                <span class="pending-go">Recibir <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
+                <span class="todo-go">Recibir <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
+              </button>
+            </li>
+            <li v-for="r in toReceive.slice(0, 4)" :key="r._id">
+              <button type="button" class="todo-row" @click="openRequisition(r)">
+                <i class="fa-solid fa-truck-ramp-box todo-icon" aria-hidden="true" />
+                <span class="todo-text">
+                  <strong>Solicitud {{ r.code }} aprobada</strong>
+                  <small>{{ linesShort(r) }}</small>
+                  <small class="todo-meta">{{ personName(r.requestedBy) }} · {{ formatDateTime(r.createdAt) }}</small>
+                </span>
+                <span class="todo-go">Entregar <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
               </button>
             </li>
             <li v-for="r in revisions.slice(0, 3)" :key="r._id">
-              <RouterLink to="/abastecimiento?tab=revisiones" class="pending-item">
-                <span class="pending-tag pending-tag--rev">Revisión</span>
-                <span class="pending-text">
-                  <strong>{{ r.code }} · {{ linesShort(r) }}</strong>
-                  <small>{{ r.note }}</small>
+              <RouterLink to="/abastecimiento?tab=revisiones" class="todo-row">
+                <i class="fa-solid fa-magnifying-glass todo-icon" aria-hidden="true" />
+                <span class="todo-text">
+                  <strong>Revisión {{ r.code }}: {{ linesShort(r) }}</strong>
+                  <small v-if="r.note">{{ r.note }}</small>
                 </span>
-                <span class="pending-go">Atender <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
+                <span class="todo-go">Atender <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
               </RouterLink>
             </li>
           </TransitionGroup>
+        </section>
+
+        <!-- Acciones agrupadas por lo que pasa con la mercadería -->
+        <section class="tasks" aria-label="Acciones de bodega">
+          <div v-if="canBuy" class="task-group">
+            <h2 class="group-title">Entra mercadería</h2>
+            <p class="group-note">El stock sube recién al recibir.</p>
+            <button type="button" class="task" @click="go('compra')">
+              <i class="fa-solid fa-file-invoice-dollar task-icon" aria-hidden="true" />
+              <span class="task-text">
+                <strong>Registrar compra</strong>
+                <small>Factura del proveedor. Aún no suma stock.</small>
+              </span>
+              <i class="fa-solid fa-chevron-right task-chev" aria-hidden="true" />
+            </button>
+            <button type="button" class="task" @click="go('recibir')">
+              <i class="fa-solid fa-box-open task-icon" aria-hidden="true" />
+              <span class="task-text">
+                <strong>Recibir mercadería</strong>
+                <small>Marca lo que llegó. Suma al almacén destino.</small>
+              </span>
+              <span v-if="pendingPurchases" class="estado estado--warn num">{{ pendingPurchases }} por recibir</span>
+              <i class="fa-solid fa-chevron-right task-chev" aria-hidden="true" />
+            </button>
+          </div>
+
+          <div class="task-group">
+            <h2 class="group-title">Mueve y controla</h2>
+            <p class="group-note">Queda registrado quién y cuándo.</p>
+            <button v-if="canTransfer" type="button" class="task" @click="go('carga')">
+              <i class="fa-solid fa-dolly task-icon" aria-hidden="true" />
+              <span class="task-text">
+                <strong>Cargar al barco</strong>
+                <small>De bodega a bordo, con el saldo a la vista.</small>
+              </span>
+              <i class="fa-solid fa-chevron-right task-chev" aria-hidden="true" />
+            </button>
+            <button type="button" class="task" @click="go('conteo')">
+              <i class="fa-solid fa-clipboard-list task-icon" aria-hidden="true" />
+              <span class="task-text">
+                <strong>Conteo físico</strong>
+                <small>Cuenta lo que hay. Si hay diferencia, se revisa antes de ajustar.</small>
+              </span>
+              <i class="fa-solid fa-chevron-right task-chev" aria-hidden="true" />
+            </button>
+            <button type="button" class="task" @click="go('merma')">
+              <i class="fa-solid fa-wine-glass-empty task-icon task-icon--danger" aria-hidden="true" />
+              <span class="task-text">
+                <strong>Merma o rotura</strong>
+                <small>Algo se rompió o se perdió. Con motivo.</small>
+              </span>
+              <i class="fa-solid fa-chevron-right task-chev" aria-hidden="true" />
+            </button>
+            <RouterLink v-if="!canBuy && userStore.isDirector" to="/abastecimiento?tab=aprobar" class="task">
+              <i class="fa-solid fa-stamp task-icon" aria-hidden="true" />
+              <span class="task-text">
+                <strong>Solicitudes por aprobar</strong>
+                <small>Lo que pidió el bar.</small>
+              </span>
+              <i class="fa-solid fa-chevron-right task-chev" aria-hidden="true" />
+            </RouterLink>
+          </div>
+        </section>
+
+        <!-- Saldos resumidos de los dos almacenes -->
+        <section class="stock" aria-labelledby="stock-title">
+          <header class="block-head">
+            <h2 id="stock-title" class="section-title">Saldos</h2>
+            <RouterLink to="/admin/inventario" class="link-action">
+              Ver todos los saldos <i class="fa-solid fa-arrow-right" aria-hidden="true" />
+            </RouterLink>
+          </header>
+
+          <div class="stock-grid">
+            <template v-if="loadingStock">
+              <SkeletonBlock height="148px" />
+              <SkeletonBlock height="148px" />
+            </template>
+            <template v-else>
+              <article v-for="loc in LOCATIONS" :key="loc.key" class="card stock-card">
+                <header class="stock-head">
+                  <h3><i class="fa-solid" :class="loc.icon" aria-hidden="true" /> {{ loc.label }}</h3>
+                  <span v-if="sumFor(loc.key).negative" class="estado estado--danger">
+                    {{ sumFor(loc.key).negative }}
+                    {{ sumFor(loc.key).negative === 1 ? 'requiere conteo' : 'requieren conteo' }}
+                  </span>
+                  <span v-else-if="!sumFor(loc.key).low && !sumFor(loc.key).empty" class="estado estado--ok">
+                    <i class="fa-solid fa-circle-check" aria-hidden="true" /> Sin alertas
+                  </span>
+                </header>
+                <p class="stock-big num">
+                  {{ sumFor(loc.key).withStock }}
+                  <small>de {{ sumFor(loc.key).total }} productos con stock</small>
+                </p>
+                <p v-if="sumFor(loc.key).low || sumFor(loc.key).empty" class="stock-flags">
+                  <span v-if="sumFor(loc.key).low" class="estado estado--warn">
+                    {{ sumFor(loc.key).low }} con stock bajo
+                  </span>
+                  <span v-if="sumFor(loc.key).empty" class="estado">
+                    {{ sumFor(loc.key).empty }} sin stock
+                  </span>
+                </p>
+                <ul v-if="lowest(stock[loc.key]).length" class="stock-low">
+                  <li v-for="item in lowest(stock[loc.key])" :key="item.product._id">
+                    <span>{{ item.product.name }}</span>
+                    <strong class="num" :class="{ neg: item.negative }">
+                      {{ item.negative ? 'Requiere conteo' : stockText(item.qty, item.product) }}
+                    </strong>
+                  </li>
+                </ul>
+              </article>
+            </template>
+          </div>
         </section>
       </div>
     </Transition>
@@ -314,24 +365,221 @@ function linesShort(r: Requisition): string {
 .hub {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 2rem;
   max-width: 1100px;
 }
 
-.head .page-title {
-  margin-bottom: 0.2rem;
+.hub > .page-head {
+  margin-bottom: -0.75rem;
 }
 
-.hint {
+.block-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  margin-bottom: 0.5rem;
+
+  .section-title {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+}
+
+// ── Por atender ──
+.todo-list {
+  list-style: none;
   margin: 0;
-  color: var(--ink-400);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.todo-row {
+  width: 100%;
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--gold-500);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  text-align: left;
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    transform 0.12s var(--ease-out);
+
+  &:hover {
+    border-color: var(--navy-600);
+    border-left-color: var(--gold-500);
+  }
+
+  &:active {
+    transform: scale(0.99);
+    background: var(--powder-100);
+  }
+}
+
+.todo-icon {
+  flex: none;
+  width: 1.6rem;
+  text-align: center;
+  font-size: 1.25rem;
+  color: var(--navy-700);
+}
+
+.todo-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  flex: 1;
+  min-width: 0;
+
+  strong {
+    font-size: 1.05rem;
+    font-weight: 600;
+  }
+
+  small {
+    font-size: 0.95rem;
+    color: var(--ink-600);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.todo-meta {
+  color: var(--ink-400) !important;
+  font-size: 0.88rem !important;
+}
+
+.todo-go {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0 0.9rem;
+  border-radius: var(--radius-sm);
+  background: var(--navy-800);
+  color: #fff;
+  font-weight: 600;
   font-size: 0.95rem;
 }
 
-.stock {
+// ── Acciones ──
+.tasks {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+
+  @include tablet {
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+  }
+}
+
+.task-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.group-title {
+  font-size: 1.3rem;
+}
+
+.group-note {
+  margin: -0.25rem 0 0.25rem;
+  color: var(--ink-600);
+  font-size: 0.95rem;
+}
+
+.task {
+  position: relative;
+  width: 100%;
+  min-height: 84px;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.9rem 1rem 0.9rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: left;
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    transform 0.12s var(--ease-out);
+
+  &:hover {
+    border-color: var(--navy-600);
+
+    .task-chev {
+      transform: translateX(3px);
+      color: var(--navy-800);
+    }
+  }
+
+  &:active {
+    transform: scale(0.985);
+    background: var(--powder-100);
+  }
+}
+
+.task-icon {
+  flex: none;
+  width: 2rem;
+  text-align: center;
+  font-size: 1.5rem;
+  color: var(--navy-800);
+
+  &--danger {
+    color: var(--danger);
+  }
+}
+
+.task-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1;
+  min-width: 0;
+
+  strong {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--ink-900);
+  }
+
+  small {
+    font-size: 0.95rem;
+    line-height: 1.35;
+    color: var(--ink-600);
+  }
+}
+
+.task-chev {
+  flex: none;
+  color: var(--ink-300);
+  transition:
+    transform 0.16s var(--ease-out),
+    color 0.16s ease;
+}
+
+// ── Saldos ──
+.stock-grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: 0.75rem;
+  align-items: start;
 
   @include tablet {
     grid-template-columns: 1fr 1fr;
@@ -341,200 +589,21 @@ function linesShort(r: Requisition): string {
 .stock-card {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
+  gap: 0.6rem;
 }
 
 .stock-head {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
-
-  i {
-    color: var(--gold-500);
-    font-size: 1.1rem;
-  }
-
-  h2 {
-    font-size: 1.2rem;
-  }
-}
-
-.stock-big {
-  margin: 0;
-  font-size: 2rem;
-  font-weight: 800;
-  color: var(--navy-800);
-  line-height: 1.1;
-
-  small {
-    font-size: 0.88rem;
-    font-weight: 600;
-    color: var(--ink-400);
-  }
-}
-
-.stock-flags {
-  display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.flag {
-  display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.3rem 0.6rem;
-  border-radius: 999px;
-  background: var(--cream-100);
-  color: var(--ink-600);
-  font-size: 0.8rem;
-  font-weight: 700;
-
-  &--low {
-    background: rgba(185, 128, 47, 0.14);
-    color: #8a5d1d;
-  }
-
-  &--neg {
-    background: rgba(180, 72, 59, 0.12);
-    color: var(--danger);
-  }
-
-  &--ok {
-    background: rgba(63, 122, 87, 0.12);
-    color: var(--success);
-  }
-}
-
-.stock-low {
-  list-style: none;
-  margin: 0;
-  padding: 0.45rem 0 0;
-  border-top: 1px solid var(--cream-200);
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.86rem;
-
-  li {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.75rem;
-    color: var(--ink-600);
-  }
-
-  strong {
-    text-align: right;
-    flex-shrink: 0;
-  }
-}
-
-.neg {
-  color: var(--danger);
-}
-
-.stock-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-height: 48px;
-  font-weight: 700;
-  color: var(--gold-500);
-
-  @include tablet {
-    grid-column: 1 / -1;
-  }
-}
-
-.actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-
-  @include desktop {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-.action {
-  position: relative;
-  min-height: 150px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.35rem;
-  text-align: left;
-  border: 2px solid transparent;
-  transition:
-    transform 0.14s ease,
-    border-color 0.18s ease,
-    box-shadow 0.18s ease;
-
-  strong {
-    font-size: 1.12rem;
-    color: var(--ink-900);
-  }
-
-  small {
-    color: var(--ink-400);
-    font-size: 0.88rem;
-  }
-
-  &:hover {
-    border-color: var(--gold-500);
-  }
-
-  &:active {
-    transform: scale(0.98);
-  }
-}
-
-.action-icon {
-  width: 54px;
-  height: 54px;
-  margin-bottom: 0.35rem;
-  display: grid;
-  place-items: center;
-  border-radius: 14px;
-  background: var(--navy-800);
-  color: #fff;
-  font-size: 1.35rem;
-
-  &--danger {
-    background: var(--danger);
-  }
-}
-
-.action-badge {
-  position: absolute;
-  top: 0.9rem;
-  right: 0.9rem;
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-  background: var(--gold-500);
-  color: #fff;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.pending {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.pending-head {
-  display: flex;
-  flex-wrap: wrap;
   justify-content: space-between;
-  align-items: center;
   gap: 0.5rem;
 
-  h2 {
-    font-size: 1.2rem;
+  h3 {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    font-size: 1.25rem;
 
     i {
       color: var(--gold-500);
@@ -543,85 +612,58 @@ function linesShort(r: Requisition): string {
   }
 }
 
-.pending-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-height: 48px;
-  font-weight: 700;
-  color: var(--gold-500);
-}
-
-.muted {
+.stock-big {
   margin: 0;
-  color: var(--ink-400);
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--navy-800);
+  line-height: 1.1;
+
+  small {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--ink-600);
+  }
 }
 
-.pending-list {
+.stock-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.stock-low {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-}
+  font-size: 0.97rem;
 
-.pending-item {
-  width: 100%;
-  min-height: 64px;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.6rem 0.9rem;
-  border: 1.5px solid var(--cream-200);
-  border-radius: var(--radius-sm);
-  background: #fff;
-  text-align: left;
-  transition:
-    border-color 0.15s ease,
-    background 0.15s ease;
-
-  &:active {
-    background: var(--powder-100);
+  li {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    border-top: 1px solid var(--rule);
+    color: var(--ink-900);
   }
-}
-
-.pending-tag {
-  flex-shrink: 0;
-  padding: 0.25rem 0.55rem;
-  border-radius: 999px;
-  background: var(--powder-300);
-  color: var(--navy-800);
-  font-size: 0.75rem;
-  font-weight: 700;
-
-  &--rev {
-    background: rgba(185, 128, 47, 0.15);
-    color: #8a5d1d;
-  }
-}
-
-.pending-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
 
   strong {
-    font-size: 0.95rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  small {
-    color: var(--ink-400);
+    text-align: right;
+    flex-shrink: 0;
+    font-weight: 600;
   }
 }
 
-.pending-go {
-  flex-shrink: 0;
-  font-weight: 700;
-  color: var(--gold-500);
-  font-size: 0.9rem;
+.neg {
+  color: var(--danger-ink);
+}
+
+@include tablet {
+  .todo-text small {
+    white-space: normal;
+  }
 }
 </style>
