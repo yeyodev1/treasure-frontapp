@@ -36,7 +36,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Controlar',
     items: [
       { to: '/admin/en-vivo', label: 'En vivo', icon: 'fa-tower-broadcast', roles: ['duena', 'admin', 'direccion'] },
-      { to: '/admin', label: 'Panel', icon: 'fa-chart-line', roles: ['duena', 'admin', 'direccion'] },
+      { to: '/admin', label: 'Resumen del negocio', icon: 'fa-chart-line', roles: ['duena'] },
       { to: '/admin/inventario', label: 'Inventario', icon: 'fa-boxes-stacked', roles: ['duena', 'admin', 'bodega', 'direccion'] },
       { to: '/admin/pagos', label: 'Cobros', icon: 'fa-cash-register', roles: ['duena', 'admin', 'direccion'] },
     ],
