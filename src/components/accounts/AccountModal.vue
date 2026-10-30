@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, shallowRef } from 'vue'
+import { computed, nextTick, onMounted, reactive, shallowRef, useTemplateRef } from 'vue'
 import type { AccountSummary, Cabin, Order, PaymentMethod } from '@/types'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
@@ -22,7 +22,7 @@ import {
 } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { COUNTRY_OPTIONS } from '@/utils/countries'
-import { formatDateTime, formatMoney } from '@/utils/format'
+import { dayKeyOf, formatDateTime, formatDayHeading, formatHour, formatMoney } from '@/utils/format'
 
 const props = defineProps<{ cruiseId: string; cabin: Cabin }>()
 const emit = defineEmits<{ close: []; changed: [] }>()
@@ -51,8 +51,8 @@ const ACTION_LABEL: Record<string, string> = {
   cargo_cambiado: 'Cargo actualizado',
   enviada_revision: 'Enviada a revisión',
   aprobada: 'Aprobada',
-  devuelta: 'Devuelta con motivo',
-  invalidada: 'Aprobación sin efecto',
+  devuelta: 'Reabierta para modificar',
+  invalidada: 'Aprobación anulada',
   cobrada: 'Pagada',
   pago_parcial: 'Pago parcial',
   reversada: 'Pago reversado',
@@ -115,6 +115,36 @@ const deliveredLines = computed(() => linesOf(account.value?.orders ?? []))
 const paidLines = computed(() => linesOf(account.value?.paidOrders ?? []))
 const neverCharged = computed(() => !deliveredLines.value.length && !paidLines.value.length)
 
+type Line = ReturnType<typeof linesOf>[number] & { paid: boolean }
+const lineAmount = (l: { courtesy: boolean; chargeableQty: number; unitPrice: number }) =>
+  l.courtesy ? 0 : l.chargeableQty * l.unitPrice
+
+/**
+ * Consumos por día de Galápagos: subtotal del día y total acumulado de la
+ * cabina (lo pagado y lo abierto, en orden).
+ */
+const days = computed(() => {
+  const all: Line[] = [
+    ...paidLines.value.map((l) => ({ ...l, paid: true })),
+    ...deliveredLines.value.map((l) => ({ ...l, paid: false })),
+  ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+  const groups: Array<{ key: string; label: string; lines: Line[]; subtotal: number; cumulative: number }> = []
+  let cumulative = 0
+  for (const line of all) {
+    const key = dayKeyOf(line.at)
+    let group = groups.at(-1)
+    if (!group || group.key !== key) {
+      group = { key, label: formatDayHeading(key), lines: [], subtotal: 0, cumulative: 0 }
+      groups.push(group)
+    }
+    group.lines.push(line)
+    group.subtotal += lineAmount(line)
+    cumulative += lineAmount(line)
+    group.cumulative = cumulative
+  }
+  return groups
+})
+
 const INVOICE_LABEL: Record<string, string> = {
   pendiente: 'Factura pendiente',
   emitiendo: 'Emitiendo factura…',
@@ -136,15 +166,30 @@ const emailError = computed(() =>
 
 const publicUrl = computed(() => `${window.location.origin}/cuenta/${props.cabin.accountToken}`)
 
+/**
+ * Quien aprueba (Dirección de crucero o Gerencia) ve dos acciones en la
+ * misma cuenta: Modificar y Aprobar. El bar envía a revisión.
+ */
+const isApprover = computed(() => userStore.isDirector)
+const hasOpenCharges = computed(() => (account.value?.orders.length ?? 0) > 0)
 const canSubmit = computed(
-  () => account.value?.status === 'abierta' && (account.value?.orders.length ?? 0) > 0,
+  () => !isApprover.value && account.value?.status === 'abierta' && hasOpenCharges.value,
 )
-const canReview = computed(() => userStore.isLead && account.value?.status === 'en_revision')
-const canReturn = computed(
+const canApprove = computed(
   () =>
-    userStore.isLead &&
-    (account.value?.status === 'en_revision' || account.value?.status === 'aprobada'),
+    isApprover.value &&
+    hasOpenCharges.value &&
+    (account.value?.status === 'abierta' || account.value?.status === 'en_revision'),
 )
+const canModify = computed(
+  () =>
+    isApprover.value &&
+    hasOpenCharges.value &&
+    ['abierta', 'en_revision', 'aprobada'].includes(account.value?.status ?? ''),
+)
+/** Modo Modificar: cortesía y retiro por línea. */
+const editing = shallowRef(false)
+const collectSection = useTemplateRef<HTMLElement>('collectSection')
 const collectReady = computed(
   () =>
     Boolean(account.value?.readyToCollect) &&
@@ -156,8 +201,10 @@ const collectReady = computed(
     (method.value !== 'transferencia' || reference.value.trim()),
 )
 
-/** Dirección corrige: cortesía (se sirvió) o deshacer registro por error (no se sirvió). */
-const canCorrect = computed(() => userStore.isDirector && account.value?.status !== 'cobrada')
+/** Dirección corrige en modo Modificar: cortesía (se sirvió) o retiro con motivo. */
+const canCorrect = computed(
+  () => editing.value && isApprover.value && account.value?.status === 'abierta',
+)
 const isBar = computed(() => userStore.role === 'bartender')
 
 async function load() {
@@ -167,6 +214,7 @@ async function load() {
       apiOrders({ cruiseId: props.cruiseId, cabinNumber: props.cabin.number, annulment: 'pendiente' }),
     ])
     account.value = acc
+    if (acc.status !== 'abierta' || !acc.orders.length) editing.value = false
     amount.value = acc.due > 0 ? acc.due.toFixed(2) : ''
     annulmentOrders.value = ann.orders
   } catch (err) {
@@ -200,28 +248,73 @@ function submitReview() {
   })
 }
 
-function approve() {
-  return run(async () => {
+/** Aprobar en un toque: el modal muestra los consumos y el total; luego se cobra aquí mismo. */
+async function approve() {
+  const acc = account.value
+  if (!acc) return
+  if (acc.pendingDeliveries > 0) {
+    toast.error(`Hay ${acc.pendingDeliveries} bebida(s) sin entregar: entrégalas o cancélalas en el Bar`)
+    return
+  }
+  const ok = await confirmStore.ask({
+    title: `¿Aprobar la cuenta de cabina ${props.cabin.number}?`,
+    message: 'Queda lista para cobrar. Si después cambia un cargo, la aprobación se anula.',
+    confirmLabel: 'Aprobar',
+    icon: 'fa-shield-halved',
+    details: {
+      rows: deliveredLines.value.map((l) => ({
+        label: `${l.chargeableQty} × ${l.name}${l.courtesy ? ' (cortesía)' : ''}`,
+        note: formatDateTime(l.at),
+        value: formatMoney(lineAmount(l)),
+      })),
+      total: { label: acc.partialPaid > 0 ? 'Saldo por cobrar' : 'Total', value: formatMoney(acc.due) },
+    },
+  })
+  if (!ok) return
+  await run(async () => {
     account.value = await apiAccountAction(props.cruiseId, props.cabin.number, 'approve')
+    editing.value = false
     toast.success('Cuenta aprobada. Lista para cobrar.')
   })
+  if (account.value?.readyToCollect) {
+    await nextTick()
+    collectSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 }
 
-async function giveBack() {
+/**
+ * Modificar: con la cuenta abierta entra directo a la edición; en revisión
+ * o aprobada la reabre con motivo (la aprobación queda anulada).
+ */
+async function modify() {
+  const acc = account.value
+  if (!acc) return
+  if (editing.value) {
+    editing.value = false
+    return
+  }
+  if (acc.status === 'abierta') {
+    editing.value = true
+    return
+  }
   const reason = await confirmStore.askReason({
-    title: `¿Devolver la cuenta de cabina ${props.cabin.number}?`,
-    message: 'El bar la corrige y la vuelve a enviar. El cobro queda bloqueado.',
-    confirmLabel: 'Devolver',
-    icon: 'fa-clipboard-check',
+    title: `¿Modificar la cuenta de cabina ${props.cabin.number}?`,
+    message:
+      acc.status === 'aprobada'
+        ? 'La aprobación queda anulada. Corrige los consumos y vuelve a aprobar.'
+        : 'La cuenta vuelve a abierta para corregir los consumos.',
+    confirmLabel: 'Modificar',
+    icon: 'fa-pen',
     reason: {
       label: 'Motivo (obligatorio)',
-      suggestions: ['Falta un consumo', 'Cargo equivocado', 'Revisar cortesía'],
+      suggestions: ['El pasajero reclama un cargo', 'Falta un consumo', 'Revisar cortesía'],
     },
   })
   if (!reason) return
   await run(async () => {
     account.value = await apiAccountAction(props.cruiseId, props.cabin.number, 'return', reason)
-    toast.success('Cuenta devuelta con motivo')
+    editing.value = true
+    toast.success('Cuenta abierta para modificar')
   })
 }
 
@@ -253,7 +346,7 @@ async function reviewAnnulment(order: Order, annulmentId: string, decision: 'apr
 async function bonify(line: { orderId: string; name: string; chargeableQty: number }) {
   const reason = await confirmStore.askReason({
     title: `¿Marcar ${line.chargeableQty} ${line.name} como cortesía?`,
-    message: 'Deja de cobrarse, pero se sirvió: los ingredientes siguen descontados. La aprobación de la cuenta queda sin efecto.',
+    message: 'Deja de cobrarse, pero se sirvió: los ingredientes siguen descontados. Queda en el historial.',
     confirmLabel: 'Marcar como cortesía',
     icon: 'fa-gift',
     reason: { label: 'Motivo (obligatorio)', suggestions: ['Cortesía de la casa', 'Compensación al pasajero'] },
@@ -265,23 +358,43 @@ async function bonify(line: { orderId: string; name: string; chargeableQty: numb
   })
 }
 
-async function removeLine(line: { orderId: string; name: string; chargeableQty: number }) {
+/**
+ * Retirar un consumo que el pasajero dice que no hizo. Si no se sirvió, se
+ * deshace y vuelven los ingredientes; si se sirvió, queda como cortesía y el
+ * stock sigue descontado. El total se actualiza y queda en el historial.
+ */
+async function retire(line: { orderId: string; name: string; chargeableQty: number }) {
   if (account.value?.status !== 'abierta') {
-    toast.error('Devuelve primero la cuenta (Devolver con motivo) para corregirla')
+    toast.error('Toca Modificar para corregir la cuenta')
     return
   }
-  const reason = await confirmStore.askReason({
-    title: `¿Deshacer ${line.chargeableQty} ${line.name} registrado por error?`,
-    message: 'Se quitará el cargo y se devolverán los ingredientes porque la bebida no se sirvió.',
-    confirmLabel: 'Deshacer registro',
+  const answer = await confirmStore.askChoice({
+    title: `¿Retirar ${line.chargeableQty} ${line.name} de la cuenta?`,
+    message: 'El total se actualiza al instante y la corrección queda en el historial.',
+    confirmLabel: 'Retirar consumo',
     danger: true,
     icon: 'fa-rotate-left',
-    reason: { label: 'Motivo (obligatorio)', suggestions: ['No se sirvió', 'Cabina equivocada'] },
+    choice: {
+      label: '¿Se sirvió la bebida?',
+      options: [
+        { value: 'no', label: 'No se sirvió', hint: 'Vuelven los ingredientes' },
+        { value: 'si', label: 'Sí se sirvió', hint: 'Queda como cortesía; el stock sigue descontado' },
+      ],
+    },
+    reason: {
+      label: 'Motivo (obligatorio)',
+      suggestions: ['El pasajero dice que no lo pidió', 'Cabina equivocada', 'Compensación al pasajero'],
+    },
   })
-  if (!reason) return
+  if (!answer) return
   await run(async () => {
-    await apiUndoConsumption(line.orderId, reason)
-    toast.success('Registro deshecho: cargo quitado e ingredientes devueltos')
+    if (answer.choice === 'no') {
+      await apiUndoConsumption(line.orderId, answer.reason)
+      toast.success('Consumo retirado: ingredientes devueltos')
+    } else {
+      await apiBonifyConsumption(line.orderId, `Retirado por reclamo (se sirvió): ${answer.reason}`)
+      toast.success('Consumo retirado como cortesía')
+    }
   })
 }
 
@@ -404,7 +517,9 @@ async function openProforma(download: boolean) {
 
     <div v-else-if="account" class="acc">
       <header class="acc-state" :class="`acc-state--${account.status}`">
-        <span class="acc-status">{{ STATUS_LABEL[account.status] }}</span>
+        <span class="acc-status">
+          {{ STATUS_LABEL[account.status] }}{{ account.status !== 'cobrada' && account.partialPaid > 0 ? ' · pago parcial' : '' }}
+        </span>
         <strong class="acc-total">{{ formatMoney(account.status === 'cobrada' ? account.consumed : account.due) }}</strong>
       </header>
 
@@ -430,55 +545,64 @@ async function openProforma(download: boolean) {
         antes de enviar a revisión.
       </p>
 
-      <!-- Consumos entregados con su autor -->
+      <!-- Consumos por día (Galápagos): subtotal del día y acumulado de la cabina -->
       <section class="lines">
+        <Transition name="fade">
+          <p v-if="editing" class="edit-banner">
+            <i class="fa-solid fa-pen" aria-hidden="true" />
+            Modificando: marca cortesías o retira consumos. Cada cambio actualiza el total y queda en el historial.
+          </p>
+        </Transition>
         <p v-if="neverCharged" class="muted">Sin consumos en esta cuenta.</p>
-        <p v-else-if="!deliveredLines.length" class="muted">Sin consumos por cobrar.</p>
-        <div v-for="line in deliveredLines" :key="`${line.orderId}-${line.index}`" class="line">
-          <div class="line-main">
-            <span class="line-name">
-              {{ line.chargeableQty }} × {{ line.name }}
-              <em v-if="line.courtesy" class="tag-courtesy">cortesía</em>
-              <em v-if="line.pendingQty" class="tag-pending">{{ line.pendingQty }} por entregar</em>
-            </span>
-            <span class="line-meta">
-              <i class="fa-regular fa-user" aria-hidden="true" /> {{ line.by }} ·
-              {{ formatDateTime(line.at) }}
-            </span>
+        <div v-for="day in days" :key="day.key" class="day">
+          <h4 class="day-head">
+            <span>{{ day.label }}</span>
+            <span class="day-sub">{{ formatMoney(day.subtotal) }}</span>
+          </h4>
+          <div
+            v-for="line in day.lines"
+            :key="`${line.paid ? 'p' : 'o'}-${line.orderId}-${line.index}`"
+            class="line"
+            :class="{ 'line--paid': line.paid }"
+          >
+            <div class="line-main">
+              <span class="line-name">
+                {{ line.chargeableQty }} × {{ line.name }}
+                <em v-if="line.courtesy" class="tag-courtesy">cortesía</em>
+                <em v-if="line.paid" class="tag-paid">pagado</em>
+                <em v-if="line.pendingQty" class="tag-pending">{{ line.pendingQty }} por entregar</em>
+              </span>
+              <span class="line-meta">
+                {{ formatHour(line.at) }} · <i class="fa-regular fa-user" aria-hidden="true" /> {{ line.by }}
+              </span>
+            </div>
+            <span class="line-amount">{{ formatMoney(lineAmount(line)) }}</span>
+            <Transition name="fade">
+              <div v-if="canCorrect && !line.paid && line.single" class="line-actions">
+                <button v-if="!line.courtesy" type="button" class="line-btn" :disabled="busy" @click="bonify(line)">
+                  <i class="fa-solid fa-gift" aria-hidden="true" /> Marcar como cortesía
+                </button>
+                <button type="button" class="line-btn line-btn--danger" :disabled="busy" @click="retire(line)">
+                  <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Retirar consumo
+                </button>
+              </div>
+            </Transition>
           </div>
-          <span class="line-amount">
-            {{ formatMoney(line.courtesy ? 0 : line.chargeableQty * line.unitPrice) }}
-          </span>
-          <div v-if="canCorrect && line.single" class="line-actions">
-            <button v-if="!line.courtesy" type="button" class="line-btn" :disabled="busy" @click="bonify(line)">
-              <i class="fa-solid fa-gift" aria-hidden="true" /> Marcar como cortesía
-            </button>
-            <button type="button" class="line-btn line-btn--danger" :disabled="busy" @click="removeLine(line)">
-              <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Deshacer registro por error
-            </button>
-          </div>
+          <p class="day-total">
+            <span>Acumulado de la cabina</span>
+            <strong>{{ formatMoney(day.cumulative) }}</strong>
+          </p>
         </div>
-        <p v-if="account.courtesyTotal" class="muted small">
-          Cortesías registradas: {{ formatMoney(account.courtesyTotal) }}
+        <p v-if="!neverCharged && !deliveredLines.length" class="muted">Nada por cobrar.</p>
+        <p v-if="account.courtesyAll" class="muted small">
+          Cortesías registradas: {{ formatMoney(account.courtesyAll) }}
         </p>
       </section>
 
-      <!-- Consumos ya pagados y sus pagos: solo lectura -->
-      <section v-if="paidLines.length || account.payments.length" class="paid">
-        <h4><i class="fa-solid fa-circle-check" aria-hidden="true" /> Pagado</h4>
-        <div v-for="line in paidLines" :key="`p-${line.orderId}-${line.index}`" class="line line--paid">
-          <div class="line-main">
-            <span class="line-name">
-              {{ line.chargeableQty }} × {{ line.name }}
-              <em v-if="line.courtesy" class="tag-courtesy">cortesía</em>
-            </span>
-            <span class="line-meta">
-              <i class="fa-regular fa-user" aria-hidden="true" /> {{ line.by }} · {{ formatDateTime(line.at) }}
-            </span>
-          </div>
-          <span class="line-amount">{{ formatMoney(line.courtesy ? 0 : line.chargeableQty * line.unitPrice) }}</span>
-        </div>
-        <ul v-if="!isBar" class="payments">
+      <!-- Pagos recibidos: solo lectura -->
+      <section v-if="account.payments.length && !isBar" class="paid">
+        <h4><i class="fa-solid fa-circle-check" aria-hidden="true" /> Pagos recibidos</h4>
+        <ul class="payments">
           <li v-for="p in account.payments" :key="p.id">
             <span>
               <strong>{{ p.invoiceStatus === 'parcial' ? 'Pago parcial' : 'Pago registrado' }}</strong> ·
@@ -577,8 +701,8 @@ async function openProforma(download: boolean) {
         </p>
       </section>
 
-      <!-- Acciones del flujo según rol y estado -->
-      <div class="flow">
+      <!-- Acciones según rol: el bar envía; quien aprueba ve Modificar y Aprobar -->
+      <div v-if="canSubmit || canApprove || canModify || account.status === 'en_revision'" class="flow">
         <button
           v-if="canSubmit"
           type="button"
@@ -588,24 +712,47 @@ async function openProforma(download: boolean) {
         >
           <i class="fa-solid fa-paper-plane" aria-hidden="true" /> Enviar a revisión
         </button>
-        <div v-if="canReview || canReturn" class="flow-pair">
-          <button v-if="canReturn" type="button" class="btn btn-return" :disabled="busy" @click="giveBack">
-            <i class="fa-solid fa-clipboard-check" aria-hidden="true" /> Devolver con motivo
+        <div v-if="canApprove || canModify" class="flow-pair" :class="{ 'flow-pair--single': !canApprove }">
+          <button
+            v-if="canModify"
+            type="button"
+            class="btn btn-ghost"
+            :class="{ 'btn-editing': editing }"
+            :disabled="busy"
+            :aria-pressed="editing"
+            @click="modify"
+          >
+            <i class="fa-solid" :class="editing ? 'fa-check' : 'fa-pen'" aria-hidden="true" />
+            {{ editing ? 'Terminar cambios' : 'Modificar' }}
           </button>
-          <button v-if="canReview" type="button" class="btn btn-primary" :disabled="busy" @click="approve">
-            <i class="fa-solid fa-shield-halved" aria-hidden="true" /> Aprobar cuenta
+          <button
+            v-if="canApprove"
+            type="button"
+            class="btn btn-primary"
+            :disabled="busy || account.pendingDeliveries > 0 || account.pendingAnnulments > 0"
+            @click="approve"
+          >
+            <i class="fa-solid fa-shield-halved" aria-hidden="true" /> Aprobar
           </button>
         </div>
-        <p v-if="account.status === 'en_revision' && !userStore.isLead" class="muted small">
+        <p v-if="canApprove && account.pendingAnnulments > 0" class="muted small">
+          Resuelve las anulaciones pendientes para aprobar.
+        </p>
+        <p v-if="account.status === 'en_revision' && !isApprover" class="muted small">
           Cuenta en revisión.
         </p>
       </div>
 
       <!-- Cobro: bloqueado hasta aprobar -->
-      <section v-if="account.status !== 'cobrada' && !isBar" class="collect" :class="{ 'collect--locked': !account.readyToCollect }">
+      <section
+        v-if="account.status !== 'cobrada' && !isBar && hasOpenCharges"
+        ref="collectSection"
+        class="collect"
+        :class="{ 'collect--locked': !account.readyToCollect }"
+      >
         <h4>
           <i class="fa-solid fa-receipt" aria-hidden="true" />
-          {{ account.readyToCollect ? 'Facturar y cobrar' : 'Facturar / cobrar · Bloqueado hasta aprobar' }}
+          {{ account.readyToCollect ? 'Cobrar' : 'Cobrar · disponible al aprobar' }}
         </h4>
 
         <template v-if="account.readyToCollect && userStore.canCollect">
@@ -1072,9 +1219,71 @@ async function openProforma(download: boolean) {
   gap: 0.5rem;
 }
 
-.btn-return {
-  background: #8c5a1d;
+.btn-editing {
+  border-color: var(--navy-800);
+  background: var(--powder-100);
+  color: var(--navy-900);
+}
+
+.edit-banner {
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--radius-sm);
+  background: var(--powder-100);
+  border-left: 3px solid var(--navy-700);
+  color: var(--navy-900);
+  font-size: 0.85rem;
+  font-weight: 600;
+
+  i {
+    margin-right: 0.35rem;
+  }
+}
+
+.day {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.day-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.45rem 0.7rem;
+  border-radius: var(--radius-sm);
+  background: var(--navy-800);
   color: #fff;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.day-sub {
+  font-variant-numeric: tabular-nums;
+}
+
+.day-total {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  color: var(--ink-600);
+
+  strong {
+    font-variant-numeric: tabular-nums;
+    color: var(--navy-900);
+  }
+}
+
+.tag-paid {
+  font-style: normal;
+  font-size: 0.7rem;
+  font-weight: 700;
+  margin-left: 0.35rem;
+  color: var(--navy-600);
 }
 
 .collect {

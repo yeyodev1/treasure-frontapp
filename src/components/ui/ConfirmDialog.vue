@@ -8,7 +8,11 @@ const { play } = useSound()
 const reasonInput = useTemplateRef<HTMLTextAreaElement>('reasonInput')
 
 const needsReason = computed(() => Boolean(confirmStore.current?.reason))
-const canConfirm = computed(() => !needsReason.value || confirmStore.reasonText.trim().length > 0)
+const canConfirm = computed(
+  () =>
+    (!needsReason.value || confirmStore.reasonText.trim().length > 0) &&
+    (!confirmStore.current?.choice || Boolean(confirmStore.choiceValue)),
+)
 
 watch(
   () => confirmStore.visible,
@@ -46,6 +50,38 @@ function pick(suggestion: string) {
           </span>
           <h3 class="dialog-title">{{ confirmStore.current.title }}</h3>
           <p class="dialog-message">{{ confirmStore.current.message }}</p>
+
+          <div v-if="confirmStore.current.details" class="dialog-details">
+            <ul>
+              <li v-for="(row, i) in confirmStore.current.details.rows" :key="i">
+                <span>
+                  {{ row.label }}
+                  <small v-if="row.note">{{ row.note }}</small>
+                </span>
+                <strong>{{ row.value }}</strong>
+              </li>
+            </ul>
+            <p v-if="confirmStore.current.details.total" class="dialog-details-total">
+              <span>{{ confirmStore.current.details.total.label }}</span>
+              <strong>{{ confirmStore.current.details.total.value }}</strong>
+            </p>
+          </div>
+
+          <fieldset v-if="confirmStore.current.choice" class="dialog-choice">
+            <legend>{{ confirmStore.current.choice.label }}</legend>
+            <button
+              v-for="option in confirmStore.current.choice.options"
+              :key="option.value"
+              type="button"
+              class="dialog-option"
+              :class="{ 'dialog-option--on': confirmStore.choiceValue === option.value }"
+              :aria-pressed="confirmStore.choiceValue === option.value"
+              @click="confirmStore.choiceValue = option.value"
+            >
+              <strong>{{ option.label }}</strong>
+              <small v-if="option.hint">{{ option.hint }}</small>
+            </button>
+          </fieldset>
 
           <div v-if="confirmStore.current.reason" class="dialog-reason">
             <label for="confirm-reason">{{ confirmStore.current.reason.label }}</label>
@@ -179,6 +215,106 @@ function pick(suggestion: string) {
       border-color: var(--gold-500);
       box-shadow: 0 0 0 3px rgba(159, 107, 60, 0.18);
     }
+  }
+}
+
+.dialog-details {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--cream-200);
+  border-radius: var(--radius-sm);
+  background: var(--cream-100);
+
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0.35rem 0.8rem;
+    max-height: 38vh;
+    overflow-y: auto;
+  }
+
+  li {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.4rem 0;
+    font-size: 0.88rem;
+
+    & + li {
+      border-top: 1px dashed var(--cream-200);
+    }
+
+    small {
+      display: block;
+      color: var(--ink-400);
+      font-size: 0.74rem;
+    }
+
+    strong {
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+  }
+}
+
+.dialog-details-total {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  border-top: 1.5px solid var(--navy-700);
+  font-size: 1rem;
+  color: var(--navy-900);
+
+  strong {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.dialog-choice {
+  width: 100%;
+  margin: 0.3rem 0 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+  text-align: left;
+
+  legend {
+    padding: 0;
+    margin-bottom: 0.45rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--ink-600);
+  }
+}
+
+.dialog-option {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-height: 44px;
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--cream-200);
+  text-align: left;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+
+  strong {
+    font-size: 0.88rem;
+  }
+
+  small {
+    font-size: 0.74rem;
+    color: var(--ink-400);
+  }
+
+  &--on {
+    border-color: var(--navy-800);
+    background: var(--powder-100);
   }
 }
 

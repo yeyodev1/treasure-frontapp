@@ -106,3 +106,26 @@ export function newKey(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
+
+/** 'YYYY-MM-DD' del día de Galápagos de una fecha (agrupa consumos por día). */
+export function dayKeyOf(value: string | Date): string {
+  return new Date(value).toLocaleDateString('en-CA', { timeZone: TIMEZONE })
+}
+
+/** 'YYYY-MM-DD' → "Viernes, 30 de octubre" (sin año), para encabezados de día. */
+export function formatDayHeading(dateKey: string): string {
+  const date = new Date(`${dateKey}T12:00:00-06:00`)
+  const weekday = date.toLocaleDateString('es-EC', { weekday: 'long', timeZone: TIMEZONE })
+  const day = date.toLocaleDateString('es-EC', { day: 'numeric', month: 'long', timeZone: TIMEZONE })
+  return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}, ${day}`
+}
+
+/** "21:30" en hora de Galápagos. */
+export function formatHour(value: string | Date): string {
+  return new Date(value).toLocaleTimeString('es-EC', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: TIMEZONE,
+  })
+}

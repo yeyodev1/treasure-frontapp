@@ -16,6 +16,16 @@ export interface ConfirmRequest {
     /** Motivos frecuentes para tocar en vez de escribir. */
     suggestions?: string[]
   }
+  /** Detalle a revisar antes de confirmar (p. ej. consumos y total de la cuenta). */
+  details?: {
+    rows: Array<{ label: string; value: string; note?: string }>
+    total?: { label: string; value: string }
+  }
+  /** Pregunta obligatoria con opciones (p. ej. "¿Se sirvió la bebida?"). */
+  choice?: {
+    label: string
+    options: Array<{ value: string; label: string; hint?: string }>
+  }
 }
 
 /**
@@ -26,12 +36,14 @@ export const useConfirmStore = defineStore('confirm', () => {
   const current = ref<ConfirmRequest | null>(null)
   const visible = shallowRef(false)
   const reasonText = shallowRef('')
+  const choiceValue = shallowRef('')
 
   let resolver: ((value: string | null) => void) | null = null
 
   function open(request: ConfirmRequest): Promise<string | null> {
     current.value = request
     reasonText.value = ''
+    choiceValue.value = ''
     visible.value = true
     return new Promise((resolve) => {
       resolver = resolve
@@ -46,12 +58,24 @@ export const useConfirmStore = defineStore('confirm', () => {
     return open(request)
   }
 
+  /** Motivo y opción elegida, o null si se cancela. */
+  async function askChoice(
+    request: ConfirmRequest & {
+      reason: NonNullable<ConfirmRequest['reason']>
+      choice: NonNullable<ConfirmRequest['choice']>
+    },
+  ): Promise<{ reason: string; choice: string } | null> {
+    const reason = await open(request)
+    return reason === null ? null : { reason, choice: choiceValue.value }
+  }
+
   function settle(confirmed: boolean) {
     if (confirmed && current.value?.reason && !reasonText.value.trim()) return
+    if (confirmed && current.value?.choice && !choiceValue.value) return
     visible.value = false
     resolver?.(confirmed ? reasonText.value.trim() || 'ok' : null)
     resolver = null
   }
 
-  return { current, visible, reasonText, ask, askReason, settle }
+  return { current, visible, reasonText, choiceValue, ask, askReason, askChoice, settle }
 })
