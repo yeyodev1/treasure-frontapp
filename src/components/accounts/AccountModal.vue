@@ -551,7 +551,7 @@ async function openProforma(download: boolean) {
           </div>
           <label v-if="method === 'efectivo'" class="cash-check">
             <input v-model="cashConfirmed" type="checkbox" />
-            Confirmo que el efectivo fue recaudado en caja
+            Confirmo que el efectivo ingresó a caja
           </label>
           <button type="button" class="btn btn-gold" :disabled="!collectReady || busy" @click="collect">
             <i class="fa-solid fa-cash-register" aria-hidden="true" /> Cobrar {{ formatMoney(account.total) }}
