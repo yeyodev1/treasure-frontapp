@@ -138,7 +138,7 @@ async function submit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--powder-300) url('/brand/pattern.jpg') center / cover no-repeat;
+  background: var(--powder-300) url('/brand/algas.png') center / 520px auto repeat;
   padding: 1rem;
 }
 
