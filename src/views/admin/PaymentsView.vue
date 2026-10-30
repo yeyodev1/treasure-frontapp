@@ -36,8 +36,9 @@ const INVOICE_LABELS: Record<InvoiceStatus, string> = {
 
 function rangeParams() {
   return {
+    // Días completos en hora de Galápagos (el servidor interpreta 'YYYY-MM-DD').
     from: from.value || undefined,
-    to: to.value ? `${to.value}T23:59:59` : undefined,
+    to: to.value || undefined,
   }
 }
 
