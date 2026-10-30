@@ -62,7 +62,7 @@ const canTransfer = computed(() => userStore.isWarehouse || userStore.isDirector
 
 const MOVEMENT_LABELS: Record<StockMovement['type'], string> = {
   carga: 'Carga',
-  venta: 'Venta',
+  venta: 'Consumo',
   merma: 'Merma',
   ajuste: 'Ajuste',
   compra: 'Compra',
