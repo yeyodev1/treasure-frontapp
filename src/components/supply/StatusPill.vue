@@ -55,7 +55,7 @@ const icon = computed(
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.78rem;
+  font-size: 0.86rem;
   font-weight: 700;
   padding: 0.3rem 0.65rem;
   border-radius: 999px;
@@ -67,7 +67,7 @@ const icon = computed(
   &--pending {
     background: var(--cream-100);
     color: var(--ink-600);
-    border: 1px solid var(--cream-200);
+    border: 1px solid var(--rule);
   }
 
   &--approved {
