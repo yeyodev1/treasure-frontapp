@@ -195,7 +195,7 @@ async function toggleActive(product: Product) {
     </section>
 
     <p v-if="!userStore.isAdmin" class="note">
-      <i class="fa-solid fa-lock" aria-hidden="true" /> Solo Paula cambia precios. Puedes editar
+      <i class="fa-solid fa-lock" aria-hidden="true" /> Solo Gerencia cambia precios. Puedes editar
       nombres, recetas e inventario.
     </p>
 
