@@ -285,7 +285,7 @@ const COUNT_STATUS: Record<string, string> = {
     </div>
     <p v-if="negatives" class="needs-count">
       <i class="fa-solid fa-clipboard-question" aria-hidden="true" />
-      {{ negatives === 1 ? '1 producto tiene' : `${negatives} productos tienen` }} saldo bajo cero en el sistema: requiere conteo físico. No se corrige solo; la dueña autoriza el ajuste.
+      {{ negatives === 1 ? '1 producto tiene' : `${negatives} productos tienen` }} saldo bajo cero en el sistema: requiere conteo físico. No se corrige solo: el ajuste se aplica solo cuando se aprueba.
     </p>
 
     <!-- Stock por ubicación -->
@@ -432,7 +432,7 @@ const COUNT_STATUS: Record<string, string> = {
         </div>
 
         <p class="count-intro">
-          Solo la dueña registra ajustes. Para diferencias de un conteo, usa Conteo físico: el ajuste queda con su corte.
+          Solo Gerencia registra ajustes manuales. Para diferencias de un conteo, usa Conteo físico: el ajuste queda con su corte.
         </p>
 
         <div class="field">
@@ -479,13 +479,13 @@ const COUNT_STATUS: Record<string, string> = {
     <BaseModal v-if="showNewCount" title="Nuevo conteo físico" @close="showNewCount = false">
       <p class="count-intro">
         Se toma una foto del stock digital en este instante (el corte). Cuenta lo que hay, guarda
-        las veces que quieras y envíalo a la dueña. Guardar no cambia el stock: lo autoriza la dueña.
+        las veces que quieras y envíalo para revisión. Guardar o enviar no cambia el stock: el ajuste se aplica solo cuando se aprueba.
       </p>
       <div class="count-choice">
         <button type="button" class="choice" @click="createCount('abordo')">
           <i class="fa-solid fa-ship" aria-hidden="true" />
           <strong>A bordo</strong>
-          <span>Bar del barco, salida activa</span>
+          <span>Bar del barco, crucero en curso</span>
         </button>
         <button type="button" class="choice" @click="createCount('bodega')">
           <i class="fa-solid fa-warehouse" aria-hidden="true" />
