@@ -16,7 +16,7 @@ import type { AccountStatus, Cabin, CabinAccountRow, Cruise, Order } from '@/typ
 
 /**
  * Cuentas por cabina. Revisión y pagos se hacen durante el viaje o después:
- * la directora elige la salida (en curso o finalizada con saldo). El bar ve
+ * Dirección elige la salida (en curso o finalizada con saldo). El bar ve
  * consumos, sin cobros ni costos.
  */
 const cruiseStore = useCruiseStore()
@@ -41,7 +41,7 @@ const STATUS: Record<AccountStatus, { label: string; icon: string }> = {
   abierta: { label: 'Abierta', icon: 'fa-folder-open' },
   en_revision: { label: 'En revisión', icon: 'fa-hourglass-half' },
   aprobada: { label: 'Aprobada', icon: 'fa-shield-halved' },
-  cobrada: { label: 'Cobrada', icon: 'fa-circle-check' },
+  cobrada: { label: 'Pagada', icon: 'fa-circle-check' },
 }
 
 const cruiseOptions = computed(() =>
@@ -52,7 +52,7 @@ const cruiseOptions = computed(() =>
 )
 
 const totals = computed(() => ({
-  open: rows.value.reduce((s, r) => s + (r.status !== 'cobrada' ? r.total : 0), 0),
+  open: rows.value.reduce((s, r) => s + r.due, 0),
   review: rows.value.filter((r) => r.status === 'en_revision').length,
   approved: rows.value.filter((r) => r.status === 'aprobada').length,
 }))
@@ -171,7 +171,7 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
 
     <Transition name="fade">
       <section v-if="held.length" class="held">
-        <h2><i class="fa-solid fa-hourglass-half" aria-hidden="true" /> Consumos retenidos por envío tardío</h2>
+        <h2><i class="fa-solid fa-hourglass-half" aria-hidden="true" /> Consumos enviados tarde, pendientes de revisión</h2>
         <p class="muted">Llegaron con la salida ya finalizada. Revísalos: se cargan siempre en su salida original.</p>
         <div v-for="order in held" :key="order._id" class="held-row">
           <span>
@@ -209,10 +209,26 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
           </span>
         </header>
 
-        <template v-if="row.orders">
-          <p class="account-total">{{ formatMoney(row.total) }}</p>
+        <!-- Pagada: conserva importes (Consumos · Pagado · Por cobrar) -->
+        <template v-if="row.paidOrders && !isBar">
+          <p class="account-total">{{ formatMoney(row.consumed) }}</p>
+          <p class="account-sums">
+            <span>Consumos {{ formatMoney(row.consumed) }}</span>
+            <span>Pagado {{ formatMoney(row.paid) }}</span>
+            <span :class="{ 'account-pending': row.due > 0 }">Por cobrar {{ formatMoney(row.due) }}</span>
+          </p>
           <p class="account-meta">
-            <span><i class="fa-solid fa-receipt" aria-hidden="true" /> {{ row.orders }} consumo(s)</span>
+            <span><i class="fa-solid fa-magnifying-glass" aria-hidden="true" /> Ver detalle</span>
+            <span v-if="row.pendingDeliveries" class="account-pending">
+              <i class="fa-solid fa-hourglass-half" aria-hidden="true" />
+              {{ row.pendingDeliveries }} por entregar
+            </span>
+          </p>
+        </template>
+        <template v-else-if="row.orders || row.paidOrders">
+          <p class="account-total">{{ formatMoney(isBar ? row.consumed : row.total) }}</p>
+          <p class="account-meta">
+            <span><i class="fa-solid fa-receipt" aria-hidden="true" /> {{ row.orders + row.paidOrders }} consumo(s)</span>
             <span v-if="row.pendingDeliveries" class="account-pending">
               <i class="fa-solid fa-hourglass-half" aria-hidden="true" />
               {{ row.pendingDeliveries }} por entregar
@@ -459,6 +475,17 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
 .account-pending {
   color: var(--warning);
   font-weight: 600;
+}
+
+.account-sums {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-600);
+  font-variant-numeric: tabular-nums;
 }
 
 .account-idle-text {
