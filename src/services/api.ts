@@ -221,6 +221,19 @@ export async function apiAccountAction(
   return data.account
 }
 
+/**
+ * Prefactura en inglés (PDF) de la cuenta: solo la genera, sin correo ni
+ * Contífico. `download` la pide como archivo adjunto.
+ */
+export async function apiProforma(cruiseId: string, cabinNumber: number, download = false) {
+  const { data, headers } = await http.get<Blob>(`/accounts/${cruiseId}/${cabinNumber}/proforma`, {
+    params: download ? { download: 1 } : {},
+    responseType: 'blob',
+  })
+  const match = /filename="([^"]+)"/.exec(String(headers['content-disposition'] ?? ''))
+  return { blob: data, fileName: match?.[1] ?? `proforma-cabin-${cabinNumber}.pdf` }
+}
+
 // Cobros
 export async function apiCollectCabin(payload: {
   cruiseId: string
@@ -235,7 +248,15 @@ export async function apiCollectCabin(payload: {
 }
 
 export async function apiPayments(
-  params: { cruiseId?: string; from?: string; to?: string; before?: string; limit?: number } = {},
+  params: {
+    cruiseId?: string
+    from?: string
+    to?: string
+    before?: string
+    limit?: number
+    /** 'pendiente': facturas pendientes o con error de cobros vigentes. */
+    invoice?: 'pendiente'
+  } = {},
 ) {
   const { data } = await http.get<{ payments: Payment[]; hasMore: boolean }>('/payments', {
     params,
