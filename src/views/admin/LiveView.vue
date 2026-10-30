@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiLive } from '@/services/api'
+import { isNetworkError } from '@/services/httpBase'
 import { useSound } from '@/composables/useSound'
 import { formatLongDate, formatMoney, formatTime } from '@/utils/format'
 import StatCard from '@/components/ui/StatCard.vue'
@@ -18,6 +19,8 @@ const pulse = shallowRef<LivePulse | null>(null)
 const feed = ref<LiveFeedEvent[]>([])
 const loading = shallowRef(true)
 const connected = shallowRef(true)
+/** Solo se dice "Sin conexión" si no hubo respuesta del servidor. */
+const offline = shallowRef(false)
 const lastUpdate = shallowRef<string | null>(null)
 const lastAt = shallowRef<string | undefined>(undefined)
 const kindFilter = shallowRef<'todo' | LiveKind>('todo')
@@ -26,10 +29,10 @@ let timer: ReturnType<typeof setInterval> | null = null
 
 const KIND_META: Record<LiveKind, { icon: string; label: string }> = {
   consumo: { icon: 'fa-martini-glass-citrus', label: 'Consumo' },
-  requerimiento: { icon: 'fa-dolly', label: 'Abastecimiento' },
+  requerimiento: { icon: 'fa-dolly', label: 'Solicitud' },
   compra: { icon: 'fa-truck-ramp-box', label: 'Compra' },
   registro: { icon: 'fa-clipboard-list', label: 'Registro ISM' },
-  pedido: { icon: 'fa-martini-glass-citrus', label: 'Pedido' },
+  pedido: { icon: 'fa-martini-glass-citrus', label: 'Consumo' },
   entrega: { icon: 'fa-check-double', label: 'Entrega' },
   cancelacion: { icon: 'fa-ban', label: 'Cancelación' },
   anulacion: { icon: 'fa-rotate-left', label: 'Anulación' },
@@ -39,13 +42,13 @@ const KIND_META: Record<LiveKind, { icon: string; label: string }> = {
   conteo: { icon: 'fa-clipboard-check', label: 'Conteo' },
   catalogo: { icon: 'fa-wine-bottle', label: 'Catálogo' },
   equipo: { icon: 'fa-users', label: 'Equipo' },
-  salida: { icon: 'fa-ship', label: 'Salida' },
+  salida: { icon: 'fa-ship', label: 'Crucero' },
 }
 
 const FILTERS: Array<{ value: 'todo' | LiveKind; label: string }> = [
   { value: 'todo', label: 'Todo' },
   { value: 'consumo', label: 'Consumos' },
-  { value: 'requerimiento', label: 'Abastecimiento' },
+  { value: 'requerimiento', label: 'Solicitudes' },
   { value: 'compra', label: 'Compras' },
   { value: 'entrega', label: 'Entregas' },
   { value: 'cancelacion', label: 'Cancelaciones' },
@@ -85,12 +88,14 @@ async function tick() {
   try {
     const data = await apiLive(lastAt.value)
     connected.value = true
+    offline.value = false
     pulse.value = data
     mergeFeed(data.feed)
     lastAt.value = data.now
     lastUpdate.value = data.now
-  } catch {
+  } catch (err) {
     connected.value = false
+    offline.value = isNetworkError(err)
   } finally {
     loading.value = false
   }
@@ -113,14 +118,14 @@ onBeforeUnmount(() => {
         <h1 class="page-title">En vivo</h1>
         <p class="live-date">
           <i class="fa-regular fa-calendar" aria-hidden="true" />
-          Fecha comercial:
+          Día de operación:
           <strong>{{ pulse ? formatLongDate(pulse.commercialDate) : '…' }}</strong>
         </p>
       </div>
       <div class="live-status">
         <span class="conn" :class="{ 'conn--off': !connected }">
           <span class="conn-dot" aria-hidden="true" />
-          {{ connected ? 'Conectado' : 'Sin conexión, reintentando' }}
+          {{ connected ? 'Conectado' : offline ? 'Sin conexión, reintentando' : 'No se pudo actualizar, reintentando' }}
         </span>
         <span class="updated">
           <i class="fa-solid fa-rotate" aria-hidden="true" />
@@ -137,15 +142,15 @@ onBeforeUnmount(() => {
     <template v-else>
       <p v-if="pulse?.cruise" class="cruise">
         <i class="fa-solid fa-ship" aria-hidden="true" />
-        {{ pulse.cruise.code ? `Salida ${pulse.cruise.code}` : pulse.cruise.name }}
-        <span class="cruise-status">{{ pulse.cruise.status === 'abordo' ? 'A bordo' : 'Programada' }}</span>
+        {{ pulse.cruise.code ? `Crucero ${pulse.cruise.code}` : pulse.cruise.name }}
+        <span class="cruise-status">{{ pulse.cruise.status === 'abordo' ? 'En curso' : 'Programado' }}</span>
       </p>
 
       <div class="stats">
         <StatCard
-          label="Vendido hoy"
+          label="Consumos de hoy"
           :value="formatMoney(pulse?.today.total ?? 0)"
-          :hint="`${pulse?.today.orders ?? 0} pedidos`"
+          :hint="`${pulse?.today.orders ?? 0} registros`"
         />
         <StatCard
           label="Por cobrar a bordo"
