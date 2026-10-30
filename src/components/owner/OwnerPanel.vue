@@ -65,8 +65,9 @@ async function load() {
   try {
     data.value = await apiOwnerPanel({
       cruiseId: cruiseId.value || undefined,
-      from: from.value ? `${from.value}T00:00:00-05:00` : undefined,
-      to: to.value ? `${to.value}T23:59:59.999-05:00` : undefined,
+      // Días completos en hora de Galápagos (el servidor interpreta 'YYYY-MM-DD').
+      from: from.value || undefined,
+      to: to.value || undefined,
     })
   } catch (err) {
     toast.error(apiErrorMessage(err))

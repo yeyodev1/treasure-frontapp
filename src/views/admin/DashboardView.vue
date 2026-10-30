@@ -3,7 +3,7 @@ import { computed, onMounted, shallowRef } from 'vue'
 import { apiSalesByCruise, apiSalesSummary } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { useToastStore } from '@/stores/toast'
-import { formatMoney, formatDate } from '@/utils/format'
+import { formatMoney, formatDate, formatDayKey } from '@/utils/format'
 import StatCard from '@/components/ui/StatCard.vue'
 import OwnerPanel from '@/components/owner/OwnerPanel.vue'
 import { useUserStore } from '@/stores/user'
@@ -55,7 +55,7 @@ function setRange(key: RangeKey) {
 const dayRows = computed(
   () =>
     summary.value?.byDay.map((d) => ({
-      label: formatDate(d.date),
+      label: formatDayKey(d.date),
       value: d.total,
       detail: `${d.orders} pedidos`,
     })) ?? [],
