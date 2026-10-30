@@ -56,8 +56,8 @@ const icon = computed(
   align-items: center;
   gap: 0.35rem;
   font-size: 0.86rem;
-  font-weight: 700;
-  padding: 0.3rem 0.65rem;
+  font-weight: 600;
+  padding: 0.3rem 0.7rem;
   border-radius: 999px;
   white-space: nowrap;
   transition:
@@ -65,29 +65,28 @@ const icon = computed(
     color 0.2s ease;
 
   &--pending {
-    background: var(--cream-100);
-    color: var(--ink-600);
-    border: 1px solid var(--rule);
+    background: var(--pill-warn-bg);
+    color: var(--pill-warn-ink);
   }
 
   &--approved {
-    background: var(--powder-300);
-    color: var(--navy-800);
+    background: var(--pill-info-bg);
+    color: var(--pill-info-ink);
   }
 
   &--partial {
-    background: rgba(185, 128, 47, 0.15);
-    color: #8a5d1d;
+    background: var(--pill-warn-bg);
+    color: var(--pill-warn-ink);
   }
 
   &--ok {
-    background: rgba(63, 122, 87, 0.14);
-    color: var(--success);
+    background: var(--pill-ok-bg);
+    color: var(--pill-ok-ink);
   }
 
   &--bad {
-    background: rgba(180, 72, 59, 0.12);
-    color: var(--danger);
+    background: var(--pill-danger-bg);
+    color: var(--pill-danger-ink);
   }
 }
 </style>
