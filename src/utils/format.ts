@@ -2,7 +2,8 @@
  * Hora local de Galápagos (UTC−6): el barco opera allí. Cuenta, bitácora,
  * filtros y gráficos usan la misma fecha (checklist 29-oct, 04).
  */
-export const TIMEZONE = 'America/Galapagos'
+// Identificador IANA de Galápagos (no existe "America/Galapagos").
+export const TIMEZONE = 'Pacific/Galapagos'
 
 const money = new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD' })
 const number = new Intl.NumberFormat('es-EC', { maximumFractionDigits: 2 })
