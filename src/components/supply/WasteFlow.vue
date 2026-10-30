@@ -22,7 +22,7 @@ const catalog = useCatalogStore()
 const toast = useToastStore()
 const userStore = useUserStore()
 const { play } = useSound()
-const save = useSaveAttempt()
+const save = useSaveAttempt('la merma')
 
 const REASONS = ['Botella rota', 'Lata abierta y no usada', 'Producto vencido', 'Derrame', 'Sobrante de lata']
 
@@ -245,7 +245,7 @@ function done() {
       confirm-label="Registrar merma"
       danger
       :state="save.state.value"
-      :message="save.offline.value ? 'Sin conexión: no sabemos si llegó. Al reintentar se revisa primero la bitácora; no se duplica.' : save.message.value"
+      :message="save.offline.value ? 'No se pudo guardar la merma. Revisa la conexión e inténtalo de nuevo: al reintentar se revisa primero la bitácora y no se duplica.' : save.message.value"
       :offline="save.offline.value"
       saved-text="Guardado · la merma quedó en la bitácora"
       notice="La merma resta del stock y queda separada de los consumos."
