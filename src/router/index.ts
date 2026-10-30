@@ -74,7 +74,7 @@ const routes: Array<RouteRecordRaw> = [
     path: '/admin/salidas',
     name: 'Cruises',
     component: () => import('@/views/admin/CruisesView.vue'),
-    meta: { title: 'Salidas', roles: ['admin', 'direccion'] },
+    meta: { title: 'Cruceros', roles: ['admin', 'direccion'] },
   },
   { path: '/admin/cruceros', redirect: '/admin/salidas' },
   {
