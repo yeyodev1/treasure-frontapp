@@ -59,7 +59,7 @@ async function save() {
       </article>
 
       <div class="field">
-        <label for="cabin-count">Cabinas por salida</label>
+        <label for="cabin-count">Cabinas por crucero</label>
         <input id="cabin-count" v-model.number="cabinCount" type="number" min="1" max="30" />
       </div>
 
