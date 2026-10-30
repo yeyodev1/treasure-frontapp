@@ -23,9 +23,9 @@ const saving = shallowRef(false)
 const loading = shallowRef(true)
 
 const ROLE_LABELS: Record<UserRole, string> = {
-  duena: 'Dueña (toda la operación y finanzas)',
-  admin: 'Administradora (conteos, compras y recepciones)',
-  direccion: 'Directora de crucero (pasajeros, cuentas y cobros)',
+  duena: 'Gerencia (toda la operación y finanzas)',
+  admin: 'Administración (conteos, compras y recepciones)',
+  direccion: 'Dirección de crucero (pasajeros, cuentas y cobros)',
   bartender: 'Bartender',
   bodega: 'Bodega',
   capitan: 'Capitán (Registros ISM)',
@@ -46,7 +46,7 @@ const POSITION_LABELS: Record<string, string> = {
   AuxCOC: 'Auxiliar de Cocina',
   BAR: 'Bar',
   CABIN: 'Cabinas',
-  DIR: 'Director de Crucero',
+  DIR: 'Dirección de crucero',
 }
 const positionOptions = [
   { value: '', label: 'Sin cargo' },
