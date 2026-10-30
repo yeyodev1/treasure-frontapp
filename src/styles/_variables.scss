@@ -1,22 +1,27 @@
-// Paleta oficial tomada del menú impreso "Treasure of Galápagos" (Taller de Tinta):
-// pino #1B2B25 (Our Wines), caramelo #9F6B3C (Our Drinks), azul empolvado
-// #C8D7E7 (portada con algas) y blanco (Our Cocktails).
-// Los nombres de variables se conservan para no tocar cada componente.
+// Paleta tomada del menú del bar "Treasure of Galápagos" (oct-2026), que
+// Paula pidió como línea de diseño: azul empolvado #BFD4E1 (portada con
+// algas, color principal), tinta #1B2B25, crema #EEE9E9 (Our Wines),
+// caramelo #9E754D (Our Drinks) y oliva #58522C (Our Cocktails).
+// La escala "navy" es ahora el azul profundo del mismo tono que la portada;
+// los nombres de variables se conservan para no tocar cada componente.
 :root {
-  --navy-900: #121e19;
-  --navy-800: #1b2b25;
-  --navy-700: #26392f;
-  --navy-600: #33493d;
-  --gold-500: #9f6b3c;
-  --gold-400: #b8844f;
-  --teal-400: #c8d7e7;
-  --powder-100: #eef3f8;
-  --powder-300: #c8d7e7;
-  --cream-100: #f4f6f8;
-  --cream-200: #dfe6ed;
+  --navy-900: #1b3142;
+  --navy-800: #27445a;
+  --navy-700: #34556c;
+  --navy-600: #4a6a80;
+  --gold-500: #9e754d;
+  --gold-400: #b38a60;
+  --teal-400: #8fb0c6;
+  --powder-100: #e6eef4;
+  --powder-200: #d3e2ec;
+  --powder-300: #bfd4e1;
+  --olive-700: #58522c;
+  --menu-cream: #eee9e9;
+  --cream-100: #f3f7fa;
+  --cream-200: #d9e4ec;
   --ink-900: #1b2b25;
-  --ink-600: #4a5a52;
-  --ink-400: #7b8a83;
+  --ink-600: #4a5862;
+  --ink-400: #7d8b95;
   --danger: #b4483b;
   --success: #3f7a57;
   --warning: #b9802f;
@@ -25,8 +30,8 @@
   --surface: #ffffff;
   --radius: 14px;
   --radius-sm: 9px;
-  --shadow: 0 2px 12px rgba(27, 43, 37, 0.07);
-  --shadow-lg: 0 10px 34px rgba(27, 43, 37, 0.18);
+  --shadow: 0 2px 12px rgba(27, 49, 66, 0.07);
+  --shadow-lg: 0 10px 34px rgba(27, 49, 66, 0.18);
 
   --font-serif: 'Cardo', 'Times New Roman', serif;
   --font-sans: 'Geist', 'Segoe UI', system-ui, -apple-system, sans-serif;
