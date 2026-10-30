@@ -33,7 +33,7 @@ const canReview = computed(() => userStore.isDirector)
 const canReceive = computed(() => userStore.isWarehouse)
 
 const TAB_LABEL: Record<Tab, string> = {
-  mios: 'Mis requerimientos',
+  mios: 'Mis solicitudes',
   aprobar: 'Por aprobar',
   recibir: 'Por recibir',
   revisiones: 'Revisiones',
@@ -178,7 +178,7 @@ async function approve(r: Requisition) {
   const ok = await confirmStore.ask({
     title: `¿Aprobar ${r.code}?`,
     message:
-      'Aprobar no suma stock. El stock sube cuando bodega lo reciba y lo suba al barco.',
+      'Aprobar no suma stock. El stock sube cuando bodega la reciba y la suba al barco.',
     confirmLabel: 'Aprobar',
     icon: 'fa-thumbs-up',
   })
@@ -187,7 +187,7 @@ async function approve(r: Requisition) {
   try {
     const updated = await apiReviewRequisition(r._id, 'aprobar')
     play('success')
-    toast.success(`${updated.code} aprobado. Bodega ya lo ve por recibir.`)
+    toast.success(`Solicitud ${updated.code} aprobada. Bodega ya la ve por recibir.`)
     replaceRow(updated)
     void loadBadges()
   } catch (err) {
@@ -201,13 +201,13 @@ async function approve(r: Requisition) {
 async function reject(r: Requisition) {
   const note = await confirmStore.askReason({
     title: `¿Rechazar ${r.code}?`,
-    message: 'El bar verá el motivo en Mis requerimientos.',
+    message: 'El bar verá el motivo en Mis solicitudes.',
     confirmLabel: 'Rechazar',
     danger: true,
     icon: 'fa-ban',
     reason: {
       label: 'Motivo (obligatorio)',
-      suggestions: ['Hay stock a bordo', 'Se pide en la próxima salida', 'Cantidad excesiva'],
+      suggestions: ['Hay stock a bordo', 'Se pide para el próximo crucero', 'Cantidad excesiva'],
     },
   })
   if (!note) return
@@ -215,7 +215,7 @@ async function reject(r: Requisition) {
   try {
     const updated = await apiReviewRequisition(r._id, 'rechazar', note)
     play('success')
-    toast.success(`${updated.code} rechazado`)
+    toast.success(`Solicitud ${updated.code} rechazada`)
     replaceRow(updated)
     void loadBadges()
   } catch (err) {
@@ -266,22 +266,22 @@ async function resolve(r: Requisition) {
 
 const HISTORY_FILTERS: Array<{ value: RequisitionStatus | ''; label: string }> = [
   { value: '', label: 'Todos' },
-  { value: 'solicitado', label: 'Solicitado' },
-  { value: 'aprobado', label: 'Aprobado' },
-  { value: 'rechazado', label: 'Rechazado' },
-  { value: 'recibido_parcial', label: 'Recibido parcial' },
-  { value: 'recibido', label: 'Recibido' },
-  { value: 'atendido', label: 'Atendido' },
+  { value: 'solicitado', label: 'Solicitada' },
+  { value: 'aprobado', label: 'Aprobada' },
+  { value: 'rechazado', label: 'Rechazada' },
+  { value: 'recibido_parcial', label: 'Recibida parcial' },
+  { value: 'recibido', label: 'Recibida' },
+  { value: 'atendido', label: 'Atendida' },
 ]
 
 const emptyText = computed(
   () =>
     ({
-      mios: 'Aún no has pedido nada. Usa Solicitar abastecimiento cuando falte algo en el bar.',
-      aprobar: 'No hay requerimientos esperando aprobación.',
-      recibir: 'No hay requerimientos aprobados por recibir.',
-      revisiones: 'No hay solicitudes de revisión de inventario.',
-      historial: 'Sin requerimientos con ese estado.',
+      mios: 'Aún no has enviado solicitudes. Usa Solicitar producto cuando falte algo en el bar.',
+      aprobar: 'No hay solicitudes por aprobar.',
+      recibir: 'No hay solicitudes aprobadas por recibir.',
+      revisiones: 'No hay revisiones de inventario pendientes.',
+      historial: 'Sin solicitudes con ese estado.',
     })[tab.value],
 )
 </script>
@@ -304,14 +304,14 @@ const emptyText = computed(
         <header class="head">
           <h1 class="page-title">Abastecimiento</h1>
           <p class="hint">
-            El bar pide, la directora aprueba y bodega lo sube al barco. El stock solo cambia cuando se recibe.
+            El bar solicita, Dirección de crucero aprueba y bodega lo sube al barco. El stock solo cambia cuando se recibe.
           </p>
         </header>
 
         <button type="button" class="cta card" @click="openCreate">
           <span class="cta-icon"><i class="fa-solid fa-hand-holding-droplet" aria-hidden="true" /></span>
           <span class="cta-text">
-            <strong>Solicitar abastecimiento</strong>
+            <strong>Solicitar producto</strong>
             <small>Producto, cantidad y unidad (envase o ml). También revisión de inventario.</small>
           </span>
           <i class="fa-solid fa-chevron-right" aria-hidden="true" />
