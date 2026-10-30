@@ -81,6 +81,17 @@ const visible = computed(() => {
   return list
 })
 
+/**
+ * En "Todas" la carta va por grupos con su título (Cócteles, Licores…) para
+ * ubicar la bebida de un vistazo; buscando o en un filtro, una sola grilla.
+ */
+const groups = computed(() => {
+  if (filter.value !== 'todas' || query.value.trim()) return [{ key: 'all', label: '', items: visible.value }]
+  return categories.value
+    .map((cat) => ({ key: cat, label: CATEGORY_LABELS[cat], items: visible.value.filter((p) => p.category === cat) }))
+    .filter((g) => g.items.length)
+})
+
 function isOff(p: Product) {
   return props.availability[p._id]?.available === false
 }
@@ -195,34 +206,41 @@ function onTap(p: Product) {
       </button>
     </BaseModal>
 
-    <TransitionGroup name="tile" tag="div" class="grid">
-      <template v-for="product in visible" :key="product._id">
-        <div v-if="isOff(product) && !editingFavorites" class="product product--off">
-          <ProductIcon :icon="product.icon" :size="26" class="product-icon" />
-          <span class="product-name">{{ product.name }}</span>
-          <span class="product-off">No disponible · falta {{ availability[product._id]?.missing }}</span>
-          <button type="button" class="review-btn" @click="emit('requestReview', product)">Pedir revisión</button>
-        </div>
-        <button
-          v-else
-          type="button"
-          class="product"
-          :data-product="product._id"
-          :class="{
-            'product--pulse': pulse === product._id,
-            'product--confirmed': confirmed === product._id,
-            'product--disabled': disabled && !editingFavorites,
-            'product--fav': editingFavorites && pinned.includes(product._id),
-          }"
-          @click="onTap(product)"
-        >
-          <i v-if="editingFavorites" class="fa-star fav-mark" :class="pinned.includes(product._id) ? 'fa-solid' : 'fa-regular'" aria-hidden="true" />
-          <ProductIcon :icon="product.icon" :size="28" class="product-icon" />
-          <span class="product-name">{{ product.name }}</span>
-          <span class="product-price">{{ formatMoney(product.price) }}</span>
-        </button>
-      </template>
-    </TransitionGroup>
+    <section v-for="group in groups" :key="group.key" class="group" :aria-label="group.label || undefined">
+      <h3 v-if="group.label" class="group-title">
+        {{ group.label }} <span class="group-count">{{ group.items.length }}</span>
+      </h3>
+      <TransitionGroup name="tile" tag="div" class="grid">
+        <template v-for="product in group.items" :key="product._id">
+          <div v-if="isOff(product) && !editingFavorites" class="product product--off">
+            <span class="product-name">{{ product.name }}</span>
+            <span class="product-off">
+              <strong><i class="fa-solid fa-ban" aria-hidden="true" /> No disponible</strong>
+              Falta {{ availability[product._id]?.missing }}
+            </span>
+            <button type="button" class="review-btn" @click="emit('requestReview', product)">Pedir revisión</button>
+          </div>
+          <button
+            v-else
+            type="button"
+            class="product"
+            :data-product="product._id"
+            :class="{
+              'product--pulse': pulse === product._id,
+              'product--confirmed': confirmed === product._id,
+              'product--disabled': disabled && !editingFavorites,
+              'product--fav': editingFavorites && pinned.includes(product._id),
+            }"
+            @click="onTap(product)"
+          >
+            <i v-if="editingFavorites" class="fa-star fav-mark" :class="pinned.includes(product._id) ? 'fa-solid' : 'fa-regular'" aria-hidden="true" />
+            <ProductIcon :icon="product.icon" :size="26" class="product-icon" />
+            <span class="product-name">{{ product.name }}</span>
+            <span class="product-price">{{ formatMoney(product.price) }}</span>
+          </button>
+        </template>
+      </TransitionGroup>
+    </section>
   </div>
 </template>
 
@@ -322,8 +340,16 @@ function onTap(p: Product) {
   gap: 0.4rem;
   padding-bottom: 0.6rem;
 
+  // Tableta: una sola fila que se desliza, sin segunda línea de filtros.
   @include tablet {
-    flex-wrap: wrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin: 0 -2px;
+    padding: 0 2px 0.6rem;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
   }
 }
 
@@ -480,7 +506,7 @@ function onTap(p: Product) {
     justify-content: flex-start;
 
     .product-name {
-      color: var(--ink-400);
+      color: var(--ink-600);
     }
   }
 }
@@ -516,13 +542,20 @@ function onTap(p: Product) {
 
 .product-icon {
   color: var(--navy-700);
+  // Ícono arriba, nombre y precio abajo: así las tarjetas de una fila alinean.
+  margin-bottom: auto;
 }
 
 .product-name {
-  font-size: 0.9rem;
+  font-size: 0.92rem;
   font-weight: 700;
   line-height: 1.2;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  hyphens: auto;
+
+  @include tablet {
+    font-size: 0.95rem;
+  }
 }
 
 .product-price {
@@ -533,14 +566,44 @@ function onTap(p: Product) {
 }
 
 .product-off {
-  font-size: 0.74rem;
-  font-weight: 600;
-  color: var(--danger);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--ink-600);
   line-height: 1.25;
+
+  strong {
+    font-weight: 700;
+    color: var(--danger);
+  }
+}
+
+.group + .group {
+  margin-top: 1.1rem;
+}
+
+.group-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin: 0 0 0.5rem;
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  color: var(--ink-900);
+}
+
+.group-count {
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink-400);
+  font-variant-numeric: tabular-nums;
 }
 
 .review-btn {
-  min-height: 40px;
+  min-height: 44px;
   margin-top: auto;
   padding: 0 0.6rem;
   border-radius: 9px;

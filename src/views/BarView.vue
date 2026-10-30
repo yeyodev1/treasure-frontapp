@@ -28,8 +28,9 @@ import type { Availability, CabinSummary, Product } from '@/types'
  * Bar (guía auditada 27-oct-2026): elegir cabina y tocar la bebida registra
  * lo servido. Sin comanda, sin "Registrar" ni "Entregar" después. Sobre el
  * catálogo, una confirmación grande dice el resultado real (Enviando /
- * Producto agregado a la cuenta / sin conexión / no se agregó); la barra
- * inferior lo conserva junto al total de hoy y del viaje y Deshacer error.
+ * Producto agregado a la cuenta / sin conexión / no se agregó). Bajo las
+ * cabinas, "Cargando a" nombra la cabina elegida con sus pasajeros y lo de
+ * hoy y del viaje; la barra inferior conserva el último registro y Deshacer.
  */
 const catalogStore = useCatalogStore()
 const cruiseStore = useCruiseStore()
@@ -117,6 +118,7 @@ const contextKey = computed(() =>
 )
 let restoredKey: string | null = null
 const cabinsEl = useTemplateRef<HTMLElement>('cabinsEl')
+const chargeEl = useTemplateRef<HTMLElement>('chargeEl')
 
 function restoreContext() {
   const key = contextKey.value
@@ -257,7 +259,10 @@ function anchorFor(productId: string): { top?: number; bottom?: number } {
   const card = document.querySelector(`[data-product="${productId}"]`)?.getBoundingClientRect()
   const header = document.querySelector('.context')?.getBoundingClientRect().bottom ?? 0
   const footer = document.querySelector('.result')?.getBoundingClientRect().top ?? window.innerHeight
-  const cabinsBottom = cabinsEl.value?.getBoundingClientRect().bottom ?? 0
+  const cabinsBottom = Math.max(
+    cabinsEl.value?.getBoundingClientRect().bottom ?? 0,
+    chargeEl.value?.getBoundingClientRect().bottom ?? 0,
+  )
   if (!card) return {}
   const top = Math.max(header, cabinsBottom) + 10
   if (top + CONFIRM_SPACE <= card.top) return { top }
@@ -491,7 +496,7 @@ const statusText = computed(() => {
         <i class="fa-solid fa-ship" aria-hidden="true" />
         <span class="context-text">
           <template v-if="cruise">
-            {{ cruiseLabel }}<template v-if="cruise.routeFrom"> · {{ cruise.routeFrom }} → {{ cruise.routeTo }}</template>
+            {{ cruiseLabel }}<span v-if="cruise.routeFrom" class="context-route"> · {{ cruise.routeFrom }} → {{ cruise.routeTo }}</span>
           </template>
           <template v-else>Sin crucero</template>
         </span>
@@ -502,13 +507,10 @@ const statusText = computed(() => {
         <span class="today">{{ todayLabel }}</span>
         <span v-if="tripDay && cruise?.status === 'abordo'" class="trip-day">Día {{ tripDay }} del viaje</span>
       </div>
-      <nav class="context-tabs" aria-label="Bar">
-        <span class="tab tab--on" aria-current="page"><i class="fa-solid fa-martini-glass-citrus" aria-hidden="true" /> Consumos</span>
-        <RouterLink to="/cuentas" class="tab"><i class="fa-solid fa-file-invoice-dollar" aria-hidden="true" /> Cuentas</RouterLink>
-        <button type="button" class="tab tab--menu" :aria-expanded="showMenu" @click="showMenu = true">
-          <i class="fa-solid fa-bars" aria-hidden="true" /> Menú
-        </button>
-      </nav>
+      <!-- Bar, Cuentas y Abastecimiento ya están en la navegación de la app; aquí solo los atajos del bar -->
+      <button type="button" class="tab tab--menu" :aria-expanded="showMenu" @click="showMenu = true">
+        <i class="fa-solid fa-ellipsis" aria-hidden="true" /> Más
+      </button>
     </header>
 
     <div class="page bar-page">
@@ -542,9 +544,28 @@ const statusText = computed(() => {
             <span class="cabin-guests">{{ c.passengers.length ? passengerNames(c) : 'Sin pasajeros' }}</span>
           </button>
         </div>
-        <Transition name="fade">
-          <p v-if="!loading && blockedReason" class="blocked">
-            <i class="fa-solid fa-circle-info" aria-hidden="true" /> {{ blockedReason }}
+
+        <!-- A quién se carga: la cabina elegida con sus pasajeros y lo consumido -->
+        <Transition name="fade" mode="out-in">
+          <div v-if="!loading && cabin && !blockedReason" :key="cabin.number" ref="chargeEl" class="charge">
+            <div class="charge-who">
+              <span class="charge-label">Cargando a</span>
+              <strong class="charge-cabin">Cabina {{ cabin.number }}</strong>
+              <span class="charge-names">{{ cabin.passengers.map((p) => p.name).join(', ') }}</span>
+            </div>
+            <dl class="charge-totals">
+              <div>
+                <dt>Hoy</dt>
+                <dd :class="{ 'charge-missing': !summary }">{{ summary ? formatMoney(summary.todayTotal) : '—' }}</dd>
+              </div>
+              <div>
+                <dt>Viaje</dt>
+                <dd :class="{ 'charge-missing': !summary }">{{ summary ? formatMoney(summary.tripTotal) : '—' }}</dd>
+              </div>
+            </dl>
+          </div>
+          <p v-else-if="!loading && blockedReason" key="blocked" ref="chargeEl" class="blocked">
+            <i class="fa-solid" :class="cabin ? 'fa-circle-info' : 'fa-hand-pointer'" aria-hidden="true" /> {{ blockedReason }}
           </p>
         </Transition>
       </section>
@@ -607,14 +628,8 @@ const statusText = computed(() => {
         </template>
         <template v-else>
           <i class="fa-solid fa-hand-pointer" aria-hidden="true" />
-          <span>Elige cabina y toca la bebida</span>
+          <span>{{ cabin && !blockedReason ? `Cabina ${cabin.number}: toca la bebida para agregarla` : 'Elige cabina y toca la bebida' }}</span>
         </template>
-      </div>
-
-      <div v-if="summary" class="result-totals">
-        <span>Hoy <strong>{{ formatMoney(summary.todayTotal) }}</strong></span>
-        <span class="sep" aria-hidden="true">/</span>
-        <span>Viaje <strong>{{ formatMoney(summary.tripTotal) }}</strong></span>
       </div>
 
       <div class="result-actions">
@@ -645,7 +660,9 @@ const statusText = computed(() => {
           :title="summary?.last && !summary.last.canUndo ? 'Solo lo que registraste tú y con la cuenta abierta; si no, lo revisa Dirección de crucero' : undefined"
           @click="undoLast"
         >
-          <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Deshacer registro por error
+          <i class="fa-solid fa-rotate-left" aria-hidden="true" />
+          <span class="undo-long">Deshacer registro por error</span>
+          <span class="undo-short">Deshacer</span>
         </button>
       </div>
     </footer>
@@ -679,7 +696,7 @@ const statusText = computed(() => {
     </BaseModal>
 
     <!-- Menú del bar: abastecimiento -->
-    <BaseModal v-if="showMenu" title="Menú del bar" @close="showMenu = false">
+    <BaseModal v-if="showMenu" title="Atajos del bar" @close="showMenu = false">
       <div class="menu-grid">
         <RouterLink to="/abastecimiento?nuevo=1" class="menu-tile" @click="showMenu = false">
           <i class="fa-solid fa-dolly" aria-hidden="true" />
@@ -713,22 +730,18 @@ const statusText = computed(() => {
 
 .bar {
   min-width: 0;
-  padding-bottom: calc(150px + env(safe-area-inset-bottom));
-
-  @include tablet {
-    padding-bottom: calc(96px + env(safe-area-inset-bottom));
-  }
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
 }
 
+// Bajo la cabecera de la app (barra + secciones; solo la barra en escritorio).
 .context {
   position: sticky;
-  top: calc(64px + env(safe-area-inset-top));
+  top: calc(var(--header-h, 64px) + env(safe-area-inset-top));
   z-index: 15;
   display: flex;
   align-items: center;
   gap: 0.5rem 1rem;
-  flex-wrap: wrap;
-  padding: 0.55rem max(16px, env(safe-area-inset-left, 0px));
+  padding: 0.4rem max(16px, env(safe-area-inset-left, 0px));
   background: var(--navy-700);
   color: #fff;
 
@@ -742,10 +755,18 @@ const statusText = computed(() => {
   align-items: center;
   gap: 0.6rem;
   min-width: 0;
-  flex: 1 1 260px;
+  flex: 1 1 auto;
 
   > i {
     color: var(--powder-300);
+  }
+}
+
+.context-route {
+  display: none;
+
+  @include tablet {
+    display: inline;
   }
 }
 
@@ -806,27 +827,8 @@ const statusText = computed(() => {
   }
 }
 
-.context-tabs {
-  display: flex;
-  gap: 0.35rem;
-  flex: 1 1 100%;
-
-  .tab {
-    flex: 1 1 0;
-    justify-content: center;
-  }
-
-  @include tablet {
-    flex: 0 0 auto;
-    margin-left: auto;
-
-    .tab {
-      flex: 0 0 auto;
-    }
-  }
-}
-
 .tab {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -852,6 +854,10 @@ const statusText = computed(() => {
   &--on {
     background: #fff;
     color: var(--navy-800);
+  }
+
+  &--menu {
+    padding: 0 0.8rem;
   }
 }
 
@@ -888,7 +894,7 @@ const statusText = computed(() => {
 
   .cabin {
     flex: 0 0 auto;
-    width: 84px;
+    width: 92px;
     scroll-snap-align: start;
   }
 
@@ -909,11 +915,17 @@ const statusText = computed(() => {
 .cabin {
   @include touch-target;
   min-width: 0;
+  min-height: 62px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.15rem;
-  padding: 0.55rem 0.7rem;
+  justify-content: center;
+  gap: 0.2rem;
+  padding: 0.5rem 0.6rem;
+
+  @include tablet {
+    padding: 0.5rem 0.5rem;
+  }
   background: var(--surface);
   border: 2px solid var(--cream-200);
   border-radius: var(--radius-sm);
@@ -963,6 +975,10 @@ const statusText = computed(() => {
 }
 
 .cabin-number {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
   font-family: var(--font-serif);
   font-size: 1.2rem;
   white-space: nowrap;
@@ -972,20 +988,98 @@ const statusText = computed(() => {
 
 .cabin-guests {
   width: 100%;
-  font-size: 0.76rem;
+  font-size: 0.78rem;
   color: var(--ink-400);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+// "Cargando a": la cabina elegida, a la vista antes de tocar una bebida.
+.charge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem 1.25rem;
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--radius-sm);
+  background: var(--powder-100);
+  border: 1px solid var(--powder-200);
+}
+
+.charge-who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.6rem;
+  min-width: 0;
+}
+
+.charge-label {
+  font-size: 0.82rem;
+  color: var(--ink-600);
+}
+
+.charge-cabin {
+  font-family: var(--font-serif);
+  font-size: 1.3rem;
+  color: var(--navy-800);
+}
+
+.charge-names {
+  min-width: 0;
+  font-weight: 600;
+  color: var(--ink-900);
+  overflow-wrap: anywhere;
+}
+
+.charge-totals {
+  display: flex;
+  gap: 1.25rem;
+  margin: 0;
+
+  div {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+  }
+
+  dt {
+    font-size: 0.82rem;
+    color: var(--ink-600);
+  }
+
+  dd {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--ink-900);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .charge-missing {
+    color: var(--ink-400);
+  }
+}
+
 .blocked {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+  min-height: 48px;
   margin-top: 0.6rem;
-  font-size: 0.88rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-sm);
+  border: 1.5px dashed var(--powder-300);
+  font-size: 0.92rem;
+  font-weight: 600;
   color: var(--ink-600);
+
+  i {
+    color: var(--navy-600);
+  }
 }
 
 .result {
@@ -1014,7 +1108,7 @@ const statusText = computed(() => {
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  flex: 1 1 260px;
+  flex: 1 1 160px;
   min-width: 0;
   font-weight: 600;
   color: var(--ink-600);
@@ -1037,24 +1131,6 @@ const statusText = computed(() => {
 
   &--rechazado {
     color: var(--danger);
-  }
-}
-
-.result-totals {
-  display: flex;
-  gap: 0.45rem;
-  align-items: baseline;
-  font-size: 0.92rem;
-  color: var(--ink-600);
-
-  strong {
-    font-size: 1.05rem;
-    color: var(--ink-900);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .sep {
-    color: var(--cream-200);
   }
 }
 
@@ -1089,6 +1165,20 @@ const statusText = computed(() => {
 
   &:disabled {
     opacity: 0.4;
+  }
+}
+
+.undo-short {
+  @include tablet {
+    display: none;
+  }
+}
+
+.undo-long {
+  display: none;
+
+  @include tablet {
+    display: inline;
   }
 }
 
