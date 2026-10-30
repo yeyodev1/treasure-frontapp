@@ -73,7 +73,7 @@ onMounted(async () => {
 
 .public {
   min-height: 100dvh;
-  background: var(--powder-300) url('/brand/pattern.jpg') center / cover no-repeat fixed;
+  background: var(--powder-300) url('/brand/algas.png') center / 520px auto repeat fixed;
   display: flex;
   justify-content: center;
   padding: 1.25rem 1rem 2rem;
