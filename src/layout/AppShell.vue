@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, shallowRef, watch } from 'vue'
+import { computed, nextTick, shallowRef, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useConfirmStore } from '@/stores/confirm'
@@ -79,6 +79,18 @@ const sections = computed(() =>
   })).filter((section) => section.items.length),
 )
 
+// Tableta y celular: las secciones van siempre arriba, a la vista (la
+// tripulación no encontraba el menú escondido tras el botón de tres rayas).
+const topItems = computed(() => sections.value.flatMap((section) => section.items))
+const topnav = useTemplateRef<HTMLElement>('topnav')
+
+function revealActiveTab() {
+  nextTick(() => {
+    const active = topnav.value?.querySelector<HTMLElement>('.topnav-item.router-link-exact-active')
+    active?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+  })
+}
+
 const pageTitle = computed(() => (route.meta.title as string) ?? '')
 
 /** En el bar el menú lateral se recoge a íconos: la tableta necesita el ancho. */
@@ -120,7 +132,9 @@ watch(
   () => route.fullPath,
   () => {
     drawerOpen.value = false
+    revealActiveTab()
   },
+  { immediate: true },
 )
 
 function onToggleMute() {
@@ -143,6 +157,7 @@ async function logout() {
 
 <template>
   <div class="shell">
+    <div class="masthead">
     <header class="topbar">
       <div class="topbar-left">
         <button
@@ -178,6 +193,19 @@ async function logout() {
         </button>
       </div>
     </header>
+
+    <nav v-if="topItems.length" ref="topnav" class="topnav" aria-label="Secciones">
+      <RouterLink
+        v-for="item in topItems"
+        :key="item.to"
+        :to="item.to"
+        class="topnav-item"
+      >
+        <i class="fa-solid" :class="item.icon" aria-hidden="true" />
+        <span>{{ item.label }}</span>
+      </RouterLink>
+    </nav>
+    </div>
 
     <div class="body">
       <Transition name="fade">
@@ -271,11 +299,9 @@ async function logout() {
   border-bottom: 1px solid rgba(27, 43, 37, 0.22);
   color: var(--ink-900);
   box-sizing: border-box;
-  height: calc(var(--header-h) + env(safe-area-inset-top));
+  height: calc(var(--bar-h) + env(safe-area-inset-top));
   padding: env(safe-area-inset-top) 0.75rem 0;
-  position: sticky;
-  top: 0;
-  z-index: 30;
+  position: relative;
   isolation: isolate;
 
   &::before {
@@ -292,7 +318,85 @@ async function logout() {
 }
 
 .shell {
-  --header-h: 64px;
+  --bar-h: 64px;
+  --nav-h: 66px;
+  // Alto total de lo fijo arriba: barra + secciones (solo la barra en escritorio).
+  --header-h: calc(var(--bar-h) + var(--nav-h));
+
+  @include desktop {
+    --header-h: var(--bar-h);
+  }
+}
+
+.masthead {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+// Secciones siempre visibles en tableta y celular; en escritorio está el sidebar.
+.topnav {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  height: var(--nav-h);
+  padding: 0.35rem 0.5rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--cream-200);
+  box-shadow: 0 2px 8px rgba(27, 49, 66, 0.06);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  @include desktop {
+    display: none;
+  }
+}
+
+// Pestañas con ícono arriba y nombre abajo: en tableta entran todas a la vista.
+.topnav-item {
+  flex: 1 0 auto;
+  min-width: 76px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.22rem;
+  padding: 0 0.55rem;
+  border-radius: 12px;
+  color: var(--ink-600);
+  font-weight: 600;
+  font-size: 0.8rem;
+  line-height: 1.1;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+
+  i {
+    font-size: 1.12rem;
+    color: var(--navy-600);
+    transition: color 0.15s ease;
+  }
+
+  &:active {
+    transform: scale(0.96);
+  }
+
+  &:hover:not(.router-link-exact-active) {
+    background: var(--powder-100);
+  }
+
+  &.router-link-exact-active {
+    background: var(--navy-800);
+    color: #fff;
+
+    i {
+      color: var(--powder-300);
+    }
+  }
 }
 
 .topbar-left {
