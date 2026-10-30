@@ -33,7 +33,7 @@ const ACCOUNT_LABELS: Record<string, string> = {
   abierta: 'Abierta',
   en_revision: 'En revisión',
   aprobada: 'Aprobada',
-  cobrada: 'Cobrada',
+  cobrada: 'Pagada',
   sin_consumos: 'Sin consumos',
 }
 
@@ -77,7 +77,7 @@ async function finish() {
     <div v-else class="finish">
       <div class="totals">
         <div><span>Consumos</span><strong>{{ formatMoney(check.totals.consumed) }}</strong></div>
-        <div><span>Cobrado</span><strong>{{ formatMoney(check.totals.paid) }}</strong></div>
+        <div><span>Pagado</span><strong>{{ formatMoney(check.totals.paid) }}</strong></div>
         <div><span>Por cobrar</span><strong>{{ formatMoney(check.totals.due) }}</strong></div>
         <div><span>Finanzas</span><strong class="finance" :class="`finance--${check.finance}`">{{ FINANCE_LABELS[check.finance] }}</strong></div>
       </div>
@@ -85,7 +85,7 @@ async function finish() {
       <ul class="cabins">
         <li v-for="c in check.cabins.filter((x) => x.passengers)" :key="c.number" class="cabin">
           <span class="cabin-name"><strong>Cabina {{ c.number }}</strong> {{ c.guestName }}</span>
-          <span class="cabin-money">{{ formatMoney(c.consumed) }} · cobrado {{ formatMoney(c.paid) }}</span>
+          <span class="cabin-money">{{ formatMoney(c.consumed) }} · pagado {{ formatMoney(c.paid) }}</span>
           <span class="cabin-status" :class="{ 'cabin-status--due': c.due > 0 }">
             {{ c.due > 0 ? `Debe ${formatMoney(c.due)}` : ACCOUNT_LABELS[c.accountStatus] }}
           </span>

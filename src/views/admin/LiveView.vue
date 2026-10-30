@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { apiLive } from '@/services/api'
 import { isNetworkError } from '@/services/httpBase'
 import { useSound } from '@/composables/useSound'
-import { formatLongDate, formatMoney, formatTime } from '@/utils/format'
+import { dayKeyOf, formatDayHeading, formatHour, formatLongDate, formatMoney, formatTime, todayKey } from '@/utils/format'
 import StatCard from '@/components/ui/StatCard.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import type { LiveFeedEvent, LiveKind, LivePulse } from '@/types'
@@ -65,6 +65,27 @@ const openTotal = computed(() =>
 const visibleFeed = computed(() =>
   kindFilter.value === 'todo' ? feed.value : feed.value.filter((e) => e.kind === kindFilter.value),
 )
+
+/**
+ * Actividad agrupada por día de Galápagos: un consumo de anoche 23:30 queda
+ * bajo su día, no bajo el de hoy (checklist 29-oct, 04 / P03).
+ */
+const feedRows = computed(() => {
+  const today = todayKey()
+  const rows: Array<
+    { type: 'day'; id: string; label: string } | { type: 'event'; id: string; event: LiveFeedEvent }
+  > = []
+  let current = ''
+  for (const event of visibleFeed.value) {
+    const key = dayKeyOf(event.at)
+    if (key !== current) {
+      current = key
+      rows.push({ type: 'day', id: `day-${key}`, label: key === today ? `Hoy · ${formatDayHeading(key)}` : formatDayHeading(key) })
+    }
+    rows.push({ type: 'event', id: event.id, event })
+  }
+  return rows
+})
 
 const pendingChips = computed(() => {
   const p = pulse.value?.pending
@@ -210,23 +231,26 @@ onBeforeUnmount(() => {
         </p>
 
         <TransitionGroup v-else name="list" tag="ul" class="feed">
-          <li v-for="event in visibleFeed" :key="event.id" class="event" :class="`event--${event.kind}`">
-            <span class="event-icon">
-              <i class="fa-solid" :class="KIND_META[event.kind]?.icon ?? 'fa-circle'" aria-hidden="true" />
-            </span>
-            <div class="event-body">
-              <div class="event-top">
-                <span class="event-title">{{ event.title }}</span>
-                <span v-if="event.amount !== null" class="event-amount">{{ formatMoney(event.amount) }}</span>
+          <template v-for="row in feedRows" :key="row.id">
+            <li v-if="row.type === 'day'" class="feed-day">{{ row.label }}</li>
+            <li v-else class="event" :class="`event--${row.event.kind}`">
+              <span class="event-icon">
+                <i class="fa-solid" :class="KIND_META[row.event.kind]?.icon ?? 'fa-circle'" aria-hidden="true" />
+              </span>
+              <div class="event-body">
+                <div class="event-top">
+                  <span class="event-title">{{ row.event.title }}</span>
+                  <span v-if="row.event.amount !== null" class="event-amount">{{ formatMoney(row.event.amount) }}</span>
+                </div>
+                <p v-if="row.event.detail" class="event-detail">{{ row.event.detail }}</p>
+                <p class="event-meta">
+                  <i class="fa-regular fa-clock" aria-hidden="true" /> {{ formatHour(row.event.at) }}
+                  <template v-if="row.event.by"> · <i class="fa-regular fa-user" aria-hidden="true" /> {{ row.event.by }}</template>
+                  · {{ KIND_META[row.event.kind]?.label }}
+                </p>
               </div>
-              <p v-if="event.detail" class="event-detail">{{ event.detail }}</p>
-              <p class="event-meta">
-                <i class="fa-regular fa-clock" aria-hidden="true" /> {{ formatTime(event.at) }}
-                <template v-if="event.by"> · <i class="fa-regular fa-user" aria-hidden="true" /> {{ event.by }}</template>
-                · {{ KIND_META[event.kind]?.label }}
-              </p>
-            </div>
-          </li>
+            </li>
+          </template>
         </TransitionGroup>
       </section>
     </template>
@@ -484,6 +508,16 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+}
+
+.feed-day {
+  padding: 0.5rem 0 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--navy-700);
+  border-bottom: 1px solid var(--cream-200);
 }
 
 .event {

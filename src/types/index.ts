@@ -609,6 +609,9 @@ export interface CountLine {
   digitalAtCut: number
   physical: number | null
   reason: string
+  /** Envase del producto (botella de 750 ml…): el conteo se muestra en envases. */
+  containerSize?: number
+  containerLabel?: string
 }
 
 export interface StockCount {

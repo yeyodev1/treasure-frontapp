@@ -46,6 +46,30 @@ function diff(line: CountLine): number | null {
   return Math.round((line.physical - line.digitalAtCut) * 100) / 100
 }
 
+/** Se cuenta en envases cuando el producto tiene envase (botella de 750 ml…). */
+function inContainers(line: CountLine): boolean {
+  return (line.containerSize ?? 1) > 1
+}
+
+function containerName(line: CountLine, n: number): string {
+  const label = line.containerLabel || 'envase'
+  return Math.abs(n) === 1 ? label : `${label}s`
+}
+
+/** Cantidad en envases ("2 botellas", "1,5 botellas") o en unidad base ("3 u"). */
+function amountText(line: CountLine, qty: number): string {
+  if (!inContainers(line)) return `${formatNumber(qty)} ${unitShort(line.stockUnit)}`
+  const n = Math.round((qty / line.containerSize!) * 100) / 100
+  return `${formatNumber(n)} ${containerName(line, n)}`
+}
+
+/** Valor del campo: envases cuando aplica. */
+function physicalInput(line: CountLine): string {
+  if (line.physical === null || line.physical === undefined) return ''
+  if (!inContainers(line)) return String(line.physical)
+  return String(Math.round((line.physical / line.containerSize!) * 100) / 100).replace('.', ',')
+}
+
 function normalize(text: string): string {
   return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 }
@@ -85,7 +109,9 @@ function setPhysical(line: CountLine, value: string) {
     return
   }
   const n = Number(clean)
-  if (!Number.isNaN(n)) line.physical = n
+  if (Number.isNaN(n)) return
+  // En envases: se guarda en unidad base (ml, u…) como siempre.
+  line.physical = inContainers(line) ? Math.round(n * line.containerSize! * 100) / 100 : n
 }
 
 async function save(silent = false) {
@@ -214,25 +240,28 @@ async function reject() {
             <strong>{{ line.name }}</strong>
             <small>
               Según el sistema al iniciar:
-              <span :class="{ neg: line.digitalAtCut < 0 }">{{ formatNumber(line.digitalAtCut) }} {{ unitShort(line.stockUnit) }}</span>
+              <span
+                :class="{ neg: line.digitalAtCut < 0 }"
+                :title="inContainers(line) ? `${formatNumber(line.digitalAtCut)} ${unitShort(line.stockUnit)}` : undefined"
+              >{{ amountText(line, line.digitalAtCut) }}</span>
             </small>
           </div>
           <div class="ct-count">
             <label class="ct-physical">
-              <span>Cantidad contada</span>
+              <span>Cantidad contada{{ inContainers(line) ? ` (${containerName(line, 2)})` : '' }}</span>
               <input
                 v-if="editable"
                 class="physical"
                 type="text"
                 inputmode="decimal"
-                :value="line.physical ?? ''"
+                :value="physicalInput(line)"
                 :aria-label="`Cantidad contada de ${line.name}`"
                 @input="setPhysical(line, ($event.target as HTMLInputElement).value)"
               />
-              <strong v-else>{{ line.physical === null ? '—' : formatNumber(line.physical) }}</strong>
+              <strong v-else>{{ line.physical === null ? '—' : amountText(line, line.physical) }}</strong>
             </label>
             <span v-if="diff(line) !== null" class="ct-diff" :class="{ neg: diff(line)! < 0, pos: diff(line)! > 0 }">
-              Diferencia: {{ diff(line)! > 0 ? 'sobra' : 'falta' }} {{ formatNumber(Math.abs(diff(line)!)) }} {{ unitShort(line.stockUnit) }}
+              Diferencia: {{ diff(line)! > 0 ? 'sobra' : 'falta' }} {{ amountText(line, Math.abs(diff(line)!)) }}
             </span>
           </div>
           <div v-if="diff(line)" class="ct-reason">
@@ -420,8 +449,9 @@ async function reject() {
 
 .ct-count {
   display: flex;
-  align-items: center;
-  gap: 0.6rem;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3rem;
 }
 
 .ct-physical {
