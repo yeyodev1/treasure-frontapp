@@ -148,11 +148,11 @@ const reviewVerb = computed(() => {
   list-style: none;
   margin: 0;
   padding: 0.6rem 0 0;
-  border-top: 1px solid var(--cream-200);
+  border-top: 1px solid var(--rule);
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  font-size: 0.86rem;
+  font-size: 0.92rem;
   color: var(--ink-600);
 
   li {
@@ -171,7 +171,7 @@ const reviewVerb = computed(() => {
 
 .rq-meta {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.92rem;
   color: var(--ink-400);
 }
 
