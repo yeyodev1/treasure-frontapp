@@ -24,7 +24,7 @@ const userStore = useUserStore()
 const confirmStore = useConfirmStore()
 const toast = useToastStore()
 const { play } = useSound()
-const save = useSaveAttempt()
+const save = useSaveAttempt('la recepción')
 
 const purchases = shallowRef<Purchase[]>([])
 const loading = shallowRef(true)
@@ -106,6 +106,11 @@ function setAll(full: boolean) {
 }
 
 function review() {
+  if (arrived.value.some((n) => !Number.isFinite(n) || n < 0)) {
+    play('error')
+    toast.error('Revisa las cantidades marcadas en rojo: deben ser cero o más.')
+    return
+  }
   if (!picks.value.length) {
     play('error')
     toast.error('Marca al menos un producto que haya llegado')
@@ -151,7 +156,7 @@ async function cancelPurchase(p: Purchase) {
     icon: 'fa-ban',
     reason: {
       label: 'Motivo (obligatorio)',
-      suggestions: ['Factura duplicada', 'Error al registrar', 'El proveedor no entregará'],
+      suggestions: ['Factura duplicada', 'Registrada por error', 'El proveedor no entregará'],
     },
   })
   if (!reason) return
@@ -278,12 +283,13 @@ function receiptLines(p: Purchase, r: Purchase['receipts'][number]): string {
                 <QtyStepper
                   :model-value="arrived[i] ?? 0"
                   :min="0"
+                  allow-zero
                   :max="pendingOf(line)"
                   :label="`${plural(line.containerLabel, 2)} de ${line.name} que llegaron`"
                   :unit="plural(line.containerLabel, arrived[i] ?? 0)"
                   @update:model-value="(v: number) => (arrived[i] = v)"
                 />
-                <span class="conv">{{ conversionText(arrived[i] ?? 0, line) }}</span>
+                <span v-if="Number.isFinite(arrived[i] ?? 0) && (arrived[i] ?? 0) >= 0" class="conv">{{ conversionText(arrived[i] ?? 0, line) }}</span>
               </div>
             </div>
             <p v-else-if="pendingOf(line) <= 0" class="done-line">
