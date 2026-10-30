@@ -25,27 +25,23 @@ withDefaults(
 .skeleton {
   display: block;
   border-radius: 7px;
-  background: linear-gradient(
-    100deg,
-    var(--cream-200) 40%,
-    rgba(255, 255, 255, 0.75) 50%,
-    var(--cream-200) 60%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.4s ease-in-out infinite;
+  /* Bloque plano que respira: sin brillo en degradé. */
+  background: var(--cream-200);
+  animation: breathe 1.6s ease-in-out infinite;
 }
 
 .skeleton--circle {
   border-radius: 50%;
 }
 
-@keyframes shimmer {
-  0% {
-    background-position: 120% 0;
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
   }
 
-  100% {
-    background-position: -80% 0;
+  50% {
+    opacity: 0.55;
   }
 }
 
