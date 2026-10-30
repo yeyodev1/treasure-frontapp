@@ -185,24 +185,30 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
   align-items: center;
   gap: 0.6rem;
   padding: 0.6rem 0.85rem;
-  border: 1.5px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   background: #fff;
   text-align: left;
-  font-size: 0.95rem;
+  font-size: 1rem;
+  color: var(--ink-900);
   user-select: none;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 
+  &:hover {
+    border-color: var(--navy-600);
+  }
+
+  &[aria-expanded='true'],
   &:focus-visible {
     outline: none;
-    border-color: var(--gold-500);
-    box-shadow: 0 0 0 3px rgba(195, 161, 105, 0.22);
+    border-color: var(--navy-600);
+    box-shadow: var(--focus-ring);
   }
 }
 
 .picker-icon {
-  color: var(--ink-400);
-  font-size: 0.9rem;
+  color: var(--navy-600);
+  font-size: 1rem;
 }
 
 .picker-value {
@@ -218,8 +224,13 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 }
 
 .picker-clear {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin: -0.4rem -0.45rem -0.4rem 0;
+  border-radius: 7px;
   color: var(--ink-400);
-  padding: 0.25rem;
 
   &:hover {
     color: var(--danger);
@@ -232,10 +243,11 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 .picker-panel {
   z-index: 90;
   background: var(--surface);
-  border: 1px solid var(--cream-200);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-lg);
   padding: 0.75rem;
+  min-width: 300px;
   overflow-y: auto;
   user-select: none;
   -webkit-user-select: none;
@@ -250,19 +262,19 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 
 .picker-month {
   font-family: var(--font-serif);
-  font-size: 1rem;
+  font-size: 1.15rem;
 }
 
 .picker-nav {
-  min-width: 36px;
-  min-height: 36px;
+  min-width: 44px;
+  min-height: 44px;
   display: grid;
   place-items: center;
   border-radius: 7px;
   color: var(--ink-600);
 
   &:hover {
-    background: var(--cream-200);
+    background: var(--powder-100);
   }
 }
 
@@ -278,28 +290,29 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 
 .picker-weekday {
   text-align: center;
-  font-size: 0.68rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--ink-400);
-  text-transform: uppercase;
   padding: 0.2rem 0;
 }
 
 .picker-day {
   aspect-ratio: 1;
+  min-height: 40px;
   display: grid;
   place-items: center;
-  border-radius: 7px;
-  font-size: 0.85rem;
+  border-radius: 8px;
+  font-size: 0.97rem;
   font-variant-numeric: tabular-nums;
   transition: background 0.14s ease, color 0.14s ease;
 
   &:hover {
-    background: var(--cream-200);
+    background: var(--powder-100);
   }
 
   &--today {
     box-shadow: inset 0 0 0 1.5px var(--gold-500);
+    font-weight: 600;
   }
 
   &--selected {
