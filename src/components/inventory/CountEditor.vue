@@ -204,7 +204,12 @@ async function reject() {
 </script>
 
 <template>
-  <BaseModal :title="count ? `Conteo ${count.code}` : 'Conteo'" @close="emit('close')">
+  <BaseModal
+    :title="count ? `Conteo ${count.code}` : 'Conteo'"
+    :subtitle="editable ? 'Anota lo que cuentas. El stock no cambia hasta que se apruebe el ajuste.' : undefined"
+    size="xl"
+    @close="emit('close')"
+  >
     <SkeletonList v-if="loading" variant="row" :rows="8" />
 
     <div v-else-if="count" class="ct">
@@ -261,7 +266,10 @@ async function reject() {
               <strong v-else>{{ line.physical === null ? '—' : amountText(line, line.physical) }}</strong>
             </label>
             <span v-if="diff(line) !== null" class="ct-diff" :class="{ neg: diff(line)! < 0, pos: diff(line)! > 0 }">
-              Diferencia: {{ diff(line)! > 0 ? 'sobra' : 'falta' }} {{ amountText(line, Math.abs(diff(line)!)) }}
+              <template v-if="diff(line) === 0">Sin diferencia</template>
+              <template v-else>
+                Diferencia: {{ diff(line)! > 0 ? 'sobra' : 'falta' }} {{ amountText(line, Math.abs(diff(line)!)) }}
+              </template>
             </span>
           </div>
           <div v-if="diff(line)" class="ct-reason">
@@ -276,32 +284,42 @@ async function reject() {
         </li>
       </TransitionGroup>
 
-      <p class="ct-summary">
-        {{ summary.counted }} contados · {{ summary.withDiff }} con diferencia
-      </p>
-
-      <div class="ct-actions">
-        <button type="button" class="btn btn-primary" :disabled="!editable || busy" @click="save()">
-          <i class="fa-solid fa-clipboard-check" aria-hidden="true" /> Guardar conteo
-        </button>
-        <button type="button" class="btn btn-primary" :disabled="!editable || busy" @click="submit">
-          <i class="fa-solid fa-shield-halved" aria-hidden="true" /> Enviar para revisión
-        </button>
-        <button v-if="userStore.isOwner" type="button" class="btn btn-primary" :disabled="!canApprove || busy" @click="approve">
-          <i class="fa-solid fa-check" aria-hidden="true" /> Aprobar ajuste
-        </button>
-      </div>
-      <button v-if="canApprove" type="button" class="btn btn-ghost" :disabled="busy" @click="reject">
-        <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Devolver para recontar
-      </button>
-      <p v-if="!userStore.isOwner && count.status === 'enviado'" class="only-owner">
-        <i class="fa-solid fa-lock" aria-hidden="true" /> Pendiente de aprobación.
-      </p>
-      <p v-if="count.status === 'aprobado'" class="done">
-        <i class="fa-solid fa-circle-check" aria-hidden="true" />
-        Aprobado por {{ count.reviewedBy?.name }} · {{ count.reviewedAt ? formatDateTime(count.reviewedAt) : '' }}
-      </p>
     </div>
+
+    <template v-if="count && !loading" #footer>
+      <p class="ct-summary num">
+        <strong>{{ summary.counted }}</strong> contados ·
+        <strong :class="{ warnText: summary.withDiff }">{{ summary.withDiff }}</strong> con diferencia
+      </p>
+      <div class="ct-actions">
+        <template v-if="editable">
+          <button type="button" class="btn btn-secondary" :disabled="busy" @click="save()">
+            <i class="fa-solid fa-floppy-disk" aria-hidden="true" /> Guardar conteo
+          </button>
+          <button type="button" class="btn btn-primary" :disabled="busy" @click="submit">
+            <i class="fa-solid fa-shield-halved" aria-hidden="true" /> Enviar para revisión
+          </button>
+        </template>
+        <template v-else-if="canApprove">
+          <button type="button" class="btn btn-secondary" :disabled="busy" @click="reject">
+            <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Devolver para recontar
+          </button>
+          <button type="button" class="btn btn-primary" :disabled="busy" @click="approve">
+            <i class="fa-solid fa-check" aria-hidden="true" /> Aprobar ajuste
+          </button>
+        </template>
+        <p v-else-if="count.status === 'enviado'" class="only-owner">
+          <i class="fa-solid fa-lock" aria-hidden="true" /> Pendiente de aprobación de Gerencia.
+        </p>
+        <p v-else-if="count.status === 'aprobado'" class="done">
+          <i class="fa-solid fa-circle-check" aria-hidden="true" />
+          Aprobado por {{ count.reviewedBy?.name }} · {{ count.reviewedAt ? formatDateTime(count.reviewedAt) : '' }}
+        </p>
+      </div>
+      <p v-if="editable && userStore.isOwner" class="ct-hint">
+        Para aprobar el ajuste, primero envía el conteo para revisión.
+      </p>
+    </template>
   </BaseModal>
 </template>
 
@@ -318,7 +336,7 @@ async function reject() {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem 1rem;
-  font-size: 0.82rem;
+  font-size: 0.9rem;
   color: var(--ink-600);
 
   i {
@@ -328,26 +346,25 @@ async function reject() {
 
 .ct-status {
   margin-left: auto;
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  padding: 0.2rem 0.55rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
   border-radius: 999px;
   background: var(--powder-100);
 
   &--enviado {
-    background: rgba(185, 128, 47, 0.16);
-    color: #8a5d1d;
+    background: var(--pill-warn-bg);
+    color: var(--pill-warn-ink);
   }
 
   &--aprobado {
-    background: rgba(63, 122, 87, 0.15);
-    color: var(--success);
+    background: var(--pill-ok-bg);
+    color: var(--pill-ok-ink);
   }
 
   &--rechazado {
-    background: rgba(180, 72, 59, 0.12);
-    color: var(--danger);
+    background: var(--pill-danger-bg);
+    color: var(--pill-danger-ink);
   }
 }
 
@@ -356,7 +373,7 @@ async function reject() {
   padding: 0.6rem 0.75rem;
   border-radius: var(--radius-sm);
   background: rgba(180, 72, 59, 0.08);
-  font-size: 0.86rem;
+  font-size: 0.92rem;
 }
 
 .ct-tools {
@@ -371,7 +388,7 @@ async function reject() {
   gap: 0.5rem;
   min-height: 48px;
   padding: 0 0.8rem;
-  border: 1.5px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   border-radius: 999px;
   color: var(--ink-400);
 
@@ -388,8 +405,8 @@ async function reject() {
   min-height: 48px;
   padding: 0 0.9rem;
   border-radius: 999px;
-  border: 1.5px solid var(--cream-200);
-  font-size: 0.82rem;
+  border: 1px solid var(--line-strong);
+  font-size: 0.9rem;
   font-weight: 600;
   color: var(--ink-600);
 
@@ -404,9 +421,10 @@ async function reject() {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 50dvh;
+  max-height: 54dvh;
   overflow-y: auto;
-  border: 1px solid var(--cream-200);
+  overscroll-behavior: contain;
+  border: 1px solid var(--rule);
   border-radius: var(--radius-sm);
 }
 
@@ -416,7 +434,7 @@ async function reject() {
   gap: 0.5rem 0.75rem;
   align-items: center;
   padding: 0.65rem 0.75rem;
-  border-bottom: 1px solid var(--cream-200);
+  border-bottom: 1px solid var(--rule);
   transition: background 0.2s ease;
 
   &:last-child {
@@ -425,10 +443,12 @@ async function reject() {
 
   &.counted {
     background: var(--powder-100);
+    box-shadow: inset 3px 0 0 var(--navy-600);
   }
 
   &.diff {
-    background: rgba(185, 128, 47, 0.07);
+    background: #fbf5ec;
+    box-shadow: inset 3px 0 0 var(--warning);
   }
 }
 
@@ -438,12 +458,13 @@ async function reject() {
   min-width: 0;
 
   strong {
-    font-size: 0.95rem;
+    font-size: 1.05rem;
+    font-weight: 600;
   }
 
   small {
-    color: var(--ink-400);
-    font-size: 0.8rem;
+    color: var(--ink-600);
+    font-size: 0.92rem;
   }
 }
 
@@ -460,17 +481,19 @@ async function reject() {
   gap: 0.4rem;
 
   span {
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: var(--ink-400);
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--ink-600);
+    text-align: right;
   }
 }
 
 .ct-diff {
   min-width: 70px;
+  color: var(--ink-600);
   text-align: right;
   font-variant-numeric: tabular-nums;
-  font-size: 0.88rem;
+  font-size: 1rem;
 }
 
 .ct-reason {
@@ -481,16 +504,21 @@ async function reject() {
   width: 96px;
   min-height: 48px;
   padding: 0.35rem 0.6rem;
-  border: 1.5px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
   text-align: right;
-  font-size: 1.05rem;
+  font-size: 1.1rem;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   background: #fff;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 
   &:focus {
     outline: none;
-    border-color: var(--gold-500);
+    border-color: var(--navy-600);
+    box-shadow: var(--focus-ring);
   }
 }
 
@@ -505,41 +533,65 @@ async function reject() {
 }
 
 .neg {
-  color: var(--danger);
+  color: var(--danger-ink);
   font-weight: 700;
 }
 
 .pos {
-  color: var(--success);
+  color: var(--success-ink);
   font-weight: 700;
 }
 
 .ct-summary {
-  margin: 0;
-  font-size: 0.82rem;
-  color: var(--ink-400);
+  margin: 0 auto 0 0;
+  align-self: center;
+  font-size: 1rem;
+  color: var(--ink-600);
+
+  strong {
+    color: var(--ink-900);
+  }
+
+  .warnText {
+    color: var(--warning-ink);
+  }
 }
 
 .ct-actions {
-  display: grid;
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
 
-  @include tablet {
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  .btn {
+    flex: 1 1 auto;
   }
+
+  @include tablet {
+    .btn {
+      flex: 0 0 auto;
+    }
+  }
+}
+
+.ct-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--ink-400);
 }
 
 .only-owner {
   margin: 0;
+  align-self: center;
   color: var(--ink-600);
-  font-weight: 700;
-  font-size: 0.85rem;
+  font-weight: 600;
+  font-size: 0.97rem;
 }
 
 .done {
   margin: 0;
-  color: var(--success);
+  align-self: center;
+  color: var(--success-ink);
   font-weight: 600;
 }
 </style>
