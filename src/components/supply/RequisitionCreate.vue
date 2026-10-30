@@ -330,7 +330,7 @@ function finish() {
   gap: 0.55rem;
   min-height: 52px;
   padding: 0 0.85rem;
-  border: 1.5px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   background: #fff;
   color: var(--ink-400);
@@ -381,7 +381,7 @@ function finish() {
   align-items: center;
   gap: 0.7rem;
   padding: 0.45rem 0.85rem;
-  border: 1.5px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   background: #fff;
   text-align: left;
@@ -422,11 +422,9 @@ function finish() {
 
 .resume-title {
   margin: 0;
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-400);
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--ink-600);
 }
 
 .resume-lines {
@@ -439,7 +437,7 @@ function finish() {
     justify-content: space-between;
     gap: 0.75rem;
     padding: 0.4rem 0;
-    border-bottom: 1px solid var(--cream-200);
+    border-bottom: 1px solid var(--rule);
   }
 
   .bad {
@@ -450,7 +448,7 @@ function finish() {
 .resume-note,
 .resume-hint {
   margin: 0;
-  font-size: 0.88rem;
+  font-size: 0.95rem;
   color: var(--ink-600);
 }
 
