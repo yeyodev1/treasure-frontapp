@@ -335,19 +335,99 @@ export interface Purchase {
   createdAt: string
 }
 
+/** Resumen del negocio: un filtro (crucero o periodo) para todas las cifras. */
 export interface OwnerPanel {
+  scope: {
+    mode: 'crucero' | 'periodo' | 'todo'
+    cruise: {
+      id: string
+      code: string
+      name: string
+      route: string
+      status: CruiseStatus
+      startDate: string
+      endDate: string | null
+    } | null
+    from: string | null
+    cut: string
+    generatedAt: string
+    purchasesFrom: string | null
+    purchasesTo: string
+  }
   netConsumption: number
-  courtesy: number
   collected: number
   byMethod: Record<string, number>
   pendingCollection: number
-  purchases: number
-  consumedCost: number
+  pendingFromPeriod: number
+  pendingFromBefore: number
+  /** null = No disponible: faltan costos (un costo desconocido no vale cero). */
+  consumedCost: number | null
   costsComplete: boolean
   missingCost: string[]
   missingCostCount: number
   margin: number | null
+  courtesy: number
+  purchases: number
   heldConsumptions: number
+  alerts: OwnerAlert[]
+  byDay: Array<{ date: string; total: number; orders: number }>
+  byBartender: Array<{ name: string; total: number; orders: number }>
+  topProducts: Array<{ name: string; qty: number; total: number; courtesyQty: number }>
+  byCruise: Array<{ id: string; name: string; startDate: string | null; collected: number; payments: number }>
+  details: {
+    consumption: OwnerConsumptionLine[]
+    courtesy: OwnerConsumptionLine[]
+    truncated: boolean
+    payments: Array<{
+      at: string
+      cruise: string
+      cabin: number
+      method: PaymentMethod
+      total: number
+      invoiceStatus: InvoiceStatus
+    }>
+    pending: Array<{
+      cruiseId: string
+      cruise: string
+      cabin: number
+      amount: number
+      orders: number
+      oldest: string
+      previous: boolean
+    }>
+    cost: Array<{ name: string; qty: number; cost: number | null }>
+    purchases: Array<{
+      code: string
+      supplier: string
+      document: string
+      at: string
+      status: PurchaseStatus
+      partial: boolean
+      invoiceTotal: number
+      amount: number
+      lines: Array<{ name: string; containers: number; label: string; amount: number }>
+    }>
+  }
+}
+
+export interface OwnerAlert {
+  kind: 'cuentas' | 'costos' | 'conteos' | 'facturas' | 'retenidos'
+  count: number
+  amount?: number
+  text: string
+  action: string
+}
+
+export interface OwnerConsumptionLine {
+  at: string
+  cruise: string
+  cabin: number
+  item: string
+  qty: number
+  unitPrice: number
+  amount: number
+  courtesy: boolean
+  by: string
 }
 
 export type AccountStatus = 'abierta' | 'en_revision' | 'aprobada' | 'cobrada'
