@@ -52,10 +52,16 @@ export function isNetworkError(error: unknown): boolean {
   return !error.response || error.response.status >= 502
 }
 
+/**
+ * Mensaje para la persona: qué no se completó y qué hacer (checklist
+ * 29-oct, 24). Si el servidor da una causa, se muestra esa.
+ */
 export function apiErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    if (!error.response) return 'Sin conexión con el servidor'
-    return (error.response?.data as { message?: string })?.message ?? 'Error de conexión'
+    if (!error.response) return 'No se pudo completar. Revisa la conexión e inténtalo de nuevo.'
+    const message = (error.response?.data as { message?: string })?.message
+    if (message) return message
+    return 'No se pudo completar por un fallo del servidor. Inténtalo de nuevo.'
   }
-  return 'Error inesperado'
+  return 'No se pudo completar. Inténtalo de nuevo; si se repite, recarga la página.'
 }
