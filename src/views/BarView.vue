@@ -16,7 +16,7 @@ import {
   apiUndoConsumption,
 } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
-import { formatMoney, formatTime } from '@/utils/format'
+import { TIMEZONE, formatMoney, formatTime } from '@/utils/format'
 import ProductCatalog, { type CatalogFilter } from '@/components/pos/ProductCatalog.vue'
 import CocktailBuilder from '@/components/pos/CocktailBuilder.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
@@ -82,14 +82,14 @@ const statusLabel = computed(() =>
   cruise.value?.status === 'abordo' ? 'En curso' : cruise.value?.status === 'planificado' ? 'Programado' : 'Finalizado',
 )
 
-/** Día de operación y día del viaje (hora de Ecuador). */
+/** Día de operación y día del viaje (hora de Galápagos). */
 const todayLabel = computed(() =>
-  new Intl.DateTimeFormat('es-EC', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'America/Guayaquil' }).format(new Date()),
+  new Intl.DateTimeFormat('es-EC', { weekday: 'long', day: 'numeric', month: 'short', timeZone: TIMEZONE }).format(new Date()),
 )
 const tripDay = computed(() => {
   if (!cruise.value) return null
   const start = new Date(cruise.value.startedAt ?? cruise.value.startDate)
-  const key = (d: Date) => new Date(d.toLocaleString('en-US', { timeZone: 'America/Guayaquil' })).setHours(0, 0, 0, 0)
+  const key = (d: Date) => new Date(d.toLocaleString('en-US', { timeZone: TIMEZONE })).setHours(0, 0, 0, 0)
   const days = Math.floor((key(new Date()) - key(start)) / 86_400_000) + 1
   return days >= 1 ? days : null
 })
