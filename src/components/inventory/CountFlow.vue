@@ -27,7 +27,7 @@ const creating = shallowRef(false)
 
 const STATUS: Record<string, string> = {
   borrador: 'Borrador',
-  enviado: 'Por aprobar',
+  enviado: 'Pendiente de aprobación',
   aprobado: 'Aprobado',
   rechazado: 'Devuelto',
 }
@@ -51,7 +51,7 @@ async function create(location: StockLocation) {
   const ok = await confirmStore.ask({
     title: `¿Abrir conteo de ${location === 'bodega' ? 'bodega' : 'a bordo'}?`,
     message:
-      'Se guarda una foto del stock del sistema en este momento (el corte). Guardar el conteo no cambia el stock: lo autoriza la dueña.',
+      'Se guarda una foto del stock del sistema en este momento (el corte). Guardar o enviar el conteo no cambia el stock: el ajuste se aplica solo cuando se aprueba.',
     confirmLabel: 'Abrir conteo',
     icon: 'fa-clipboard-list',
   })
@@ -78,7 +78,7 @@ async function create(location: StockLocation) {
 
     <div class="pane">
       <p class="lead">
-        Cuenta lo que hay en el lugar y anótalo. Si hay diferencia, la dueña la revisa y autoriza el ajuste.
+        Cuenta lo que hay en el lugar y anótalo. Si hay diferencia, se revisa antes de ajustar.
       </p>
 
       <div class="dest">
