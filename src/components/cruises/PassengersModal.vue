@@ -53,6 +53,29 @@ async function remove(index: number) {
   if (wasPayer && passengers.value[0]) passengers.value[0].isPayer = true
 }
 
+/**
+ * Correo del pasajero: vacío o válido (checklist 29-oct, 17). El servidor
+ * aplica la misma regla; aquí se avisa junto al campo sin borrar nada.
+ */
+const EMAIL_RE = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/
+const EMAIL_ERROR = 'Revisa el correo. Ejemplo: nombre@dominio.com.'
+/** Índices de correos que ya se revisaron (al salir del campo o al guardar). */
+const touchedEmail = ref<Set<number>>(new Set())
+const triedSave = shallowRef(false)
+
+function emailInvalid(p: Passenger): boolean {
+  const email = (p.email ?? '').trim()
+  return email !== '' && !EMAIL_RE.test(email)
+}
+
+function showEmailError(p: Passenger, index: number): boolean {
+  return (triedSave.value || touchedEmail.value.has(index)) && emailInvalid(p)
+}
+
+function touchEmail(index: number) {
+  touchedEmail.value = new Set(touchedEmail.value).add(index)
+}
+
 function setPayer(index: number) {
   passengers.value.forEach((p, i) => (p.isPayer = i === index))
 }
@@ -63,9 +86,20 @@ async function save() {
     toast.error('Cada pasajero necesita su nombre')
     return
   }
+  triedSave.value = true
+  if (passengers.value.some(emailInvalid)) {
+    play('error')
+    toast.error('No se guardaron los pasajeros: revisa el correo marcado.')
+    return
+  }
   saving.value = true
   try {
-    await apiUpdatePassengers(props.cruiseId, props.cabin.number, clean, capacity.value)
+    await apiUpdatePassengers(
+      props.cruiseId,
+      props.cabin.number,
+      clean.map((p) => ({ ...p, email: (p.email ?? '').trim() })),
+      capacity.value,
+    )
     play('success')
     toast.success(`Cabina ${props.cabin.number}: ${clean.length} pasajero(s) guardados`)
     emit('saved')
@@ -146,7 +180,24 @@ async function save() {
             </div>
             <div class="field span-2">
               <label :for="`pax-email-${index}`">Correo (opcional)</label>
-              <input :id="`pax-email-${index}`" v-model="p.email" type="email" :disabled="readonly" />
+              <input
+                :id="`pax-email-${index}`"
+                v-model="p.email"
+                type="email"
+                inputmode="email"
+                autocomplete="off"
+                placeholder="nombre@dominio.com"
+                :class="{ invalid: showEmailError(p, index) }"
+                :aria-invalid="showEmailError(p, index)"
+                :aria-describedby="showEmailError(p, index) ? `pax-email-err-${index}` : undefined"
+                :disabled="readonly"
+                @blur="touchEmail(index)"
+              />
+              <Transition name="fade">
+                <small v-if="showEmailError(p, index)" :id="`pax-email-err-${index}`" class="field-error" role="alert">
+                  <i class="fa-solid fa-circle-exclamation" aria-hidden="true" /> {{ EMAIL_ERROR }}
+                </small>
+              </Transition>
             </div>
           </div>
         </article>
@@ -161,7 +212,7 @@ async function save() {
           {{ saving ? 'Guardando…' : 'Guardar pasajeros' }}
         </button>
       </template>
-      <p v-else class="intro">La salida está cerrada: los pasajeros se conservan solo para consulta.</p>
+      <p v-else class="intro">El crucero está finalizado: los pasajeros se conservan solo para consulta.</p>
     </div>
   </BaseModal>
 </template>
@@ -289,6 +340,29 @@ async function save() {
   @include tablet {
     grid-template-columns: 1fr 1fr;
   }
+}
+
+.field-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--danger);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+input.invalid {
+  border-color: var(--danger);
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.18s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 
 .span-2 {
