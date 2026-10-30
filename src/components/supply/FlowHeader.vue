@@ -62,13 +62,27 @@ const emit = defineEmits<{ back: []; go: [index: number] }>()
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0 1rem;
+  padding: 0 1.1rem 0 0.95rem;
   border-radius: 999px;
-  border: 1.5px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   background: var(--surface);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--navy-800);
-  transition: background 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+
+  i {
+    transition: transform 0.16s var(--ease-out);
+  }
+
+  &:hover {
+    border-color: var(--navy-600);
+
+    i {
+      transform: translateX(-3px);
+    }
+  }
 
   &:active {
     background: var(--powder-100);
@@ -76,7 +90,7 @@ const emit = defineEmits<{ back: []; go: [index: number] }>()
 }
 
 .flow-title {
-  font-size: 1.4rem;
+  font-size: 1.6rem;
   display: flex;
   align-items: center;
   gap: 0.55rem;
@@ -108,10 +122,10 @@ const emit = defineEmits<{ back: []; go: [index: number] }>()
     padding: 0.4rem 0.6rem;
     border-radius: var(--radius-sm);
     background: var(--surface);
-    border: 1.5px solid var(--cream-200);
+    border: 1px solid var(--line);
     color: var(--ink-400);
     font-weight: 600;
-    font-size: 0.88rem;
+    font-size: 0.95rem;
     text-align: left;
     transition:
       background 0.2s ease,
@@ -125,12 +139,18 @@ const emit = defineEmits<{ back: []; go: [index: number] }>()
 
   &--on button {
     border-color: var(--navy-800);
+    box-shadow: inset 0 0 0 1px var(--navy-800);
     color: var(--navy-800);
   }
 
   &--done button {
-    color: var(--success);
+    color: var(--success-ink);
     border-color: rgba(63, 122, 87, 0.35);
+    cursor: pointer;
+
+    &:hover {
+      background: var(--pill-ok-bg);
+    }
   }
 }
 
@@ -142,7 +162,7 @@ const emit = defineEmits<{ back: []; go: [index: number] }>()
   place-items: center;
   border-radius: 50%;
   background: var(--cream-100);
-  font-size: 0.85rem;
+  font-size: 0.92rem;
   transition: background 0.2s ease;
 
   .step--on & {
