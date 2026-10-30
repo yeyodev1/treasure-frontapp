@@ -21,16 +21,47 @@
   --cream-200: #d9e4ec;
   --ink-900: #1b2b25;
   --ink-600: #4a5862;
-  --ink-400: #7d8b95;
+  // Gris de apoyo oscurecido (antes #7d8b95, 3,4:1): ahora pasa 4,5:1 sobre
+  // el fondo y sobre blanco, para que la tripulación lo lea en cubierta.
+  --ink-400: #5f6d77;
+  --ink-300: #8c99a2; // solo bordes, íconos decorativos y marcas, nunca texto
   --danger: #b4483b;
   --success: #3f7a57;
   --warning: #b9802f;
+  // Versiones para texto (4,5:1 sobre blanco y crema).
+  --gold-600: #84603c;
+  --warning-ink: #84581a;
+  --success-ink: #2f6445;
+  --danger-ink: #9a3a2e;
+
+  // Líneas en tres pasos: borde de tarjeta, regla entre filas, borde de control.
+  --line: #d9e3ea;
+  --rule: #e9eff3;
+  --line-strong: #b9c9d4;
+
+  // Pares de estado: fondo pálido + texto del mismo tono.
+  --pill-ok-bg: #e2efe7;
+  --pill-ok-ink: #24563a;
+  --pill-warn-bg: #f6ead6;
+  --pill-warn-ink: #75501a;
+  --pill-danger-bg: #f6e1dd;
+  --pill-danger-ink: #8a2f24;
+  --pill-info-bg: #e6eef4;
+  --pill-info-ink: #1b3142;
+  --pill-neutral-bg: #edf1f4;
+  --pill-neutral-ink: #3d4a53;
+
+  --focus-ring: 0 0 0 3px rgba(74, 106, 128, 0.35);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0.25, 1);
 
   --bg: var(--cream-100);
   --surface: #ffffff;
   --radius: 14px;
   --radius-sm: 9px;
-  --shadow: 0 2px 12px rgba(27, 49, 66, 0.07);
+  // Superficies planas: las tarjetas se separan con borde, no con sombra.
+  // La sombra queda solo para lo que flota (menús, modales, avisos).
+  --shadow: 0 1px 2px rgba(27, 49, 66, 0.04);
   --shadow-lg: 0 10px 34px rgba(27, 49, 66, 0.18);
 
   --font-serif: 'Cardo', 'Times New Roman', serif;
