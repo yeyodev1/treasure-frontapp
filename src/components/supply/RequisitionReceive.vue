@@ -30,7 +30,7 @@ const props = defineProps<{ requisition: Requisition; backLabel?: string }>()
 const emit = defineEmits<{ back: []; saved: [requisition: Requisition] }>()
 
 const { play } = useSound()
-const save = useSaveAttempt()
+const save = useSaveAttempt('la recepción')
 
 interface Pick {
   qty: number
@@ -84,8 +84,10 @@ const chosen = computed(() =>
     .map((line, index) => ({ line, index, qty: baseOf(index) }))
     .filter((x) => x.qty > 0),
 )
+/** Una cantidad escrita inválida (negativa o texto) bloquea el envío: no se ignora en silencio. */
+const allValid = computed(() => current.value.lines.every((_, i) => !(baseOf(i) < 0) && Number.isFinite(baseOf(i))))
 const ready = computed(
-  () => chosen.value.length > 0 && chosen.value.every((x) => !shortOfStock(x.index)),
+  () => allValid.value && chosen.value.length > 0 && chosen.value.every((x) => !shortOfStock(x.index)),
 )
 const completes = computed(() => current.value.lines.every((_, i) => baseOf(i) + 1e-9 >= pendingBase(i)))
 
@@ -171,7 +173,7 @@ function lineId(index: number): string {
             <strong>{{ line.name }}</strong>
           </header>
           <span class="line-sub">
-            Pedido {{ stockText(line.qty, requisitionUnit(line)) }} · {{ line.receivedQty ? `recibido ${stockText(line.receivedQty, requisitionUnit(line))}` : 'nada recibido aún' }}
+            Solicitado {{ stockText(line.qty, requisitionUnit(line)) }} · {{ line.receivedQty ? `recibido ${stockText(line.receivedQty, requisitionUnit(line))}` : 'nada recibido aún' }}
             <template v-if="warehouseOf(i) !== undefined"> · en bodega {{ stockText(warehouseOf(i)!, requisitionUnit(line)) }}</template>
           </span>
           <template v-if="pendingBase(i) > 0 && ['aprobado', 'recibido_parcial'].includes(current.status)">
@@ -183,6 +185,7 @@ function lineId(index: number): string {
               :label="`Cantidad recibida de ${line.name}`"
               :max-base="pendingBase(i)"
               allow-base
+              allow-zero
             />
             <small v-if="shortOfStock(i)" class="err">
               Bodega no alcanza: solo hay {{ stockText(warehouseOf(i)!, requisitionUnit(line)) }}.
@@ -212,7 +215,7 @@ function lineId(index: number): string {
       :message="save.message.value"
       :offline="save.offline.value"
       :saved-text="`Guardado · ${current.code} ${current.status === 'recibido' ? 'recibido completo' : 'recibido parcial'}`"
-      :notice="`Bodega baja y a bordo sube lo mismo. ${completes ? 'El requerimiento queda completo.' : 'Lo que falta queda pendiente.'}`"
+      :notice="`Bodega baja y a bordo sube lo mismo. ${completes ? 'La solicitud queda completa.' : 'Lo que falta queda pendiente.'}`"
       @confirm="confirm"
       @close="reviewing = false"
       @done="done"
