@@ -5,6 +5,7 @@ import { useUserStore } from '@/stores/user'
 import AppShell from '@/layout/AppShell.vue'
 import ToastList from '@/components/ui/ToastList.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import UpdatePrompt from '@/components/ui/UpdatePrompt.vue'
 
 const route = useRoute()
 const userStore = useUserStore()
@@ -24,4 +25,5 @@ const showShell = computed(() => !route.meta.public && userStore.isLogged)
   <RouterView v-else />
   <ToastList />
   <ConfirmDialog />
+  <UpdatePrompt />
 </template>
