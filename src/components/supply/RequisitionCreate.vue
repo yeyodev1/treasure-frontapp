@@ -422,9 +422,8 @@ function finish() {
 
 .resume-title {
   margin: 0;
-  font-size: 0.86rem;
-  font-weight: 600;
-  color: var(--ink-600);
+  font-size: 1.2rem;
+  color: var(--ink-900);
 }
 
 .resume-lines {
