@@ -44,7 +44,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Administrar',
     items: [
-      { to: '/admin/salidas', label: 'Salidas', icon: 'fa-ship', roles: ['duena', 'admin', 'direccion'] },
+      { to: '/admin/salidas', label: 'Cruceros', icon: 'fa-ship', roles: ['duena', 'admin', 'direccion'] },
       { to: '/admin/productos', label: 'Catálogo', icon: 'fa-wine-bottle', roles: ['duena', 'admin', 'bodega'] },
       { to: '/admin/equipo', label: 'Equipo', icon: 'fa-users', roles: ['duena'] },
     ],
@@ -52,9 +52,9 @@ const NAV_SECTIONS: NavSection[] = [
 ]
 
 const ROLE_LABELS: Record<UserRole, string> = {
-  duena: 'Dueña',
-  admin: 'Administradora',
-  direccion: 'Directora de crucero',
+  duena: 'Gerencia',
+  admin: 'Administración',
+  direccion: 'Dirección de crucero',
   bartender: 'Bartender',
   bodega: 'Bodega',
   capitan: 'Capitán',
@@ -85,9 +85,9 @@ const pageTitle = computed(() => (route.meta.title as string) ?? '')
 const railMode = computed(() => route.name === 'Bar')
 
 const VIEW_AS_OPTIONS = [
-  { value: 'duena', label: 'Mi vista (Dueña)' },
-  { value: 'admin', label: 'Ver como Administradora' },
-  { value: 'direccion', label: 'Ver como Directora' },
+  { value: 'duena', label: 'Mi vista (Gerencia)' },
+  { value: 'admin', label: 'Ver como Administración' },
+  { value: 'direccion', label: 'Ver como Dirección de crucero' },
   { value: 'bartender', label: 'Ver como Bartender' },
   { value: 'bodega', label: 'Ver como Bodega' },
 ]
@@ -131,7 +131,7 @@ function onToggleMute() {
 async function logout() {
   const ok = await confirmStore.ask({
     title: '¿Cerrar sesión?',
-    message: 'Tu sesión en esta tablet o dispositivo se cerrará y volverás a la pantalla de ingreso.',
+    message: 'Tu sesión en esta tableta o dispositivo se cerrará y volverás a la pantalla de ingreso.',
     confirmLabel: 'Salir',
     icon: 'fa-arrow-right-from-bracket',
   })
