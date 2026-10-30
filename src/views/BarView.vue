@@ -158,8 +158,12 @@ const queue = useConsumptionQueue({
   onOutcome,
 })
 
-function passengerNames(c: { passengers: Array<{ name: string }> }) {
-  return c.passengers.map((p) => p.name.split(' ')[0]).join(' / ')
+/** Nombre abreviado bajo "Cab N": el pagador (o el primero) y cuántos más. */
+function passengerNames(c: { passengers: Array<{ name: string; isPayer?: boolean }> }) {
+  const main = c.passengers.find((p) => p.isPayer) ?? c.passengers[0]
+  if (!main) return ''
+  const first = main.name.trim().split(/\s+/)[0] ?? main.name
+  return c.passengers.length > 1 ? `${first} +${c.passengers.length - 1}` : first
 }
 
 async function loadAvailability() {
@@ -511,7 +515,14 @@ const statusText = computed(() => {
       <!-- Cabinas con sus pasajeros -->
       <section class="block">
         <SkeletonList v-if="loading" variant="tile" :rows="9" />
-        <div v-else ref="cabinsEl" class="cabins" role="radiogroup" aria-label="Cabina">
+        <div
+          v-else
+          ref="cabinsEl"
+          class="cabins"
+          role="radiogroup"
+          aria-label="Cabina"
+          :style="{ '--cabin-cols': cabins.length }"
+        >
           <button
             v-for="c in cabins"
             :key="c.number"
@@ -527,7 +538,7 @@ const statusText = computed(() => {
             :data-cabin="c.number"
             @click="c.passengers.length ? (selectedCabin = c.number) : onEmptyCabin(c.number)"
           >
-            <span class="cabin-number">{{ c.number }}</span>
+            <span class="cabin-number">Cab {{ c.number }}</span>
             <span class="cabin-guests">{{ c.passengers.length ? passengerNames(c) : 'Sin pasajeros' }}</span>
           </button>
         </div>
@@ -877,14 +888,15 @@ const statusText = computed(() => {
 
   .cabin {
     flex: 0 0 auto;
-    width: 76px;
+    width: 84px;
     scroll-snap-align: start;
   }
 
+  // Tableta: todas las cabinas en una sola fila, sin huérfanas.
   @include tablet {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-    gap: 0.5rem;
+    grid-template-columns: repeat(var(--cabin-cols, 9), minmax(0, 1fr));
+    gap: 0.45rem;
     overflow: visible;
     padding: 0;
 
@@ -952,7 +964,8 @@ const statusText = computed(() => {
 
 .cabin-number {
   font-family: var(--font-serif);
-  font-size: 1.35rem;
+  font-size: 1.2rem;
+  white-space: nowrap;
   font-weight: 700;
   line-height: 1;
 }

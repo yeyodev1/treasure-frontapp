@@ -96,13 +96,20 @@ function onTap(p: Product) {
 
 <template>
   <div class="catalog">
-    <label class="search">
-      <i class="fa-solid fa-magnifying-glass" aria-hidden="true" />
-      <input v-model="query" type="search" placeholder="Buscar bebida…" aria-label="Buscar bebida" />
-      <button v-if="query" type="button" class="search-clear" aria-label="Limpiar búsqueda" @click="query = ''">
-        <i class="fa-solid fa-xmark" aria-hidden="true" />
+    <div class="toolbar">
+      <label class="search">
+        <i class="fa-solid fa-magnifying-glass" aria-hidden="true" />
+        <input v-model="query" type="search" placeholder="Buscar bebida…" aria-label="Buscar bebida" />
+        <button v-if="query" type="button" class="search-clear" aria-label="Limpiar búsqueda" @click="query = ''">
+          <i class="fa-solid fa-xmark" aria-hidden="true" />
+        </button>
+      </label>
+      <!-- Crear cóctel a la vista (antes solo estaba en Menú y no se encontraba) -->
+      <button type="button" class="create-cocktail" @click="emit('createCocktail')">
+        <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true" />
+        <span>Crear cóctel</span>
       </button>
-    </label>
+    </div>
 
     <div class="chips" role="tablist">
       <button
@@ -224,6 +231,45 @@ function onTap(p: Product) {
 
 .catalog {
   min-width: 0;
+}
+
+.toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+  margin-bottom: 0.7rem;
+
+  .search {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin-bottom: 0;
+  }
+}
+
+.create-cocktail {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 48px;
+  padding: 0 1rem;
+  border-radius: 999px;
+  background: var(--gold-500);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.92rem;
+  white-space: nowrap;
+  transition:
+    background 0.15s ease,
+    transform 0.12s ease;
+
+  &:hover {
+    background: var(--gold-400);
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
 }
 
 .search {
