@@ -26,7 +26,7 @@ const finishing = shallowRef(false)
 const refreshing = shallowRef(false)
 const reason = shallowRef('')
 
-const label = computed(() => (props.cruise.code ? `Salida ${props.cruise.code}` : props.cruise.name))
+const label = computed(() => (props.cruise.code ? `Crucero ${props.cruise.code}` : props.cruise.name))
 const exceptional = computed(() => Boolean(check.value?.issues.length))
 const FINANCE_LABELS = { por_revisar: 'Por revisar', por_cobrar: 'Por cobrar', liquidada: 'Liquidada' } as const
 const ACCOUNT_LABELS: Record<string, string> = {
@@ -60,7 +60,7 @@ async function finish() {
   try {
     const { cruise } = await apiFinishCruise(props.cruise._id, reason.value.trim() || undefined)
     play('success')
-    toast.success(`${label.value} finalizada. Las cuentas pendientes conservan su saldo.`)
+    toast.success(`Operación de ${label.value} finalizada. Las cuentas pendientes siguen por cobrar.`)
     emit('finished', cruise)
   } catch (err) {
     play('error')
@@ -72,7 +72,7 @@ async function finish() {
 </script>
 
 <template>
-  <BaseModal :title="`Finalizar crucero · ${label}`" @close="emit('close')">
+  <BaseModal :title="`Finalizar operación del crucero · ${label}`" @close="emit('close')">
     <SkeletonList v-if="!check" variant="row" :rows="6" />
     <div v-else class="finish">
       <div class="totals">
@@ -99,7 +99,7 @@ async function finish() {
             <i class="fa-solid fa-rotate" :class="{ 'fa-spin': refreshing }" aria-hidden="true" /> Volver a revisar
           </button>
         </p>
-        <p v-if="!check.devices.length" class="muted">Ninguna tableta reportó en esta salida.</p>
+        <p v-if="!check.devices.length" class="muted">Ninguna tableta reportó en este crucero.</p>
         <ul v-else>
           <li v-for="d in check.devices" :key="d.deviceId" :class="{ warn: d.pending > 0 || d.silent }">
             <strong>{{ d.label }}</strong> · {{ d.userName }}
@@ -121,17 +121,19 @@ async function finish() {
       <Transition name="fade">
         <div v-if="exceptional" class="field">
           <label for="finish-reason">Motivo del cierre excepcional (obligatorio)</label>
-          <textarea id="finish-reason" v-model="reason" rows="2" placeholder="Ej.: tablet sin señal en Baltra" />
+          <textarea id="finish-reason" v-model="reason" rows="2" placeholder="Ej.: tableta sin señal en Baltra" />
         </div>
       </Transition>
 
       <p class="note">
-        Después de finalizar no se aceptan consumos nuevos; un envío tardío queda retenido en esta salida para tu revisión. Las cuentas sin cobrar conservan saldo, pagador y salida.
+        Se finaliza la operación de <strong>{{ label }}</strong>. El bar ya no podrá registrar consumos nuevos.
+        Las cuentas pendientes seguirán por cobrar<template v-if="check.totals.due > 0"> ({{ formatMoney(check.totals.due) }})</template>,
+        con su pagador y su crucero. Finalizar no significa pagar. Un envío tardío queda retenido en este crucero para revisión.
       </p>
 
       <button type="button" class="btn btn-primary" :disabled="finishing" @click="finish">
         <i class="fa-solid" :class="finishing ? 'fa-spinner fa-spin' : 'fa-anchor'" aria-hidden="true" />
-        {{ finishing ? 'Finalizando…' : exceptional ? 'Finalizar con cierre excepcional' : 'Finalizar crucero' }}
+        {{ finishing ? 'Finalizando…' : exceptional ? 'Finalizar operación con cierre excepcional' : 'Finalizar operación del crucero' }}
       </button>
     </div>
   </BaseModal>
