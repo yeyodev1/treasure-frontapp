@@ -133,7 +133,7 @@ function pick(p: Product) {
   gap: 0.6rem;
   min-height: 56px;
   padding: 0 0.5rem 0 1rem;
-  border: 2px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   color: var(--ink-400);
   font-size: 1.05rem;
@@ -171,9 +171,9 @@ function pick(p: Product) {
   min-height: 48px;
   padding: 0 1rem;
   border-radius: 999px;
-  border: 1.5px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   font-weight: 600;
-  font-size: 0.88rem;
+  font-size: 0.95rem;
   color: var(--ink-600);
   transition:
     background 0.15s ease,
@@ -203,7 +203,7 @@ function pick(p: Product) {
   align-items: center;
   gap: 0.75rem;
   padding: 0.55rem 0.9rem;
-  border: 1.5px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   text-align: left;
   background: #fff;
@@ -249,7 +249,7 @@ function pick(p: Product) {
 
   small {
     color: var(--ink-400);
-    font-size: 0.8rem;
+    font-size: 0.88rem;
   }
 }
 
