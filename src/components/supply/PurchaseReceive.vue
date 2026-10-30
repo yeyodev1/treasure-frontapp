@@ -435,7 +435,7 @@ function receiptLines(p: Purchase, r: Purchase['receipts'][number]): string {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem 1rem;
-  font-size: 0.85rem;
+  font-size: 0.92rem;
   color: var(--ink-600);
 
   i {
@@ -445,7 +445,7 @@ function receiptLines(p: Purchase, r: Purchase['receipts'][number]): string {
 }
 
 .purchase-items {
-  font-size: 0.85rem;
+  font-size: 0.92rem;
   color: var(--ink-400);
 }
 
@@ -453,7 +453,7 @@ function receiptLines(p: Purchase, r: Purchase['receipts'][number]): string {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.88rem;
+  font-size: 0.95rem;
   font-weight: 700;
   color: var(--navy-700);
 
@@ -492,7 +492,7 @@ function receiptLines(p: Purchase, r: Purchase['receipts'][number]): string {
     display: flex;
     flex-direction: column;
     gap: 0.1rem;
-    font-size: 0.88rem;
+    font-size: 0.95rem;
   }
 
   small {
