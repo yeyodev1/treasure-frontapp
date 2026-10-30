@@ -41,14 +41,16 @@ function pick(suggestion: string) {
         @keydown.escape="confirmStore.settle(false)"
       >
         <section class="dialog" role="alertdialog" :aria-label="confirmStore.current.title">
-          <span class="dialog-icon" :class="{ 'dialog-icon--danger': confirmStore.current.danger }">
-            <i
-              class="fa-solid"
-              :class="confirmStore.current.icon ?? 'fa-circle-question'"
-              aria-hidden="true"
-            />
-          </span>
-          <h3 class="dialog-title">{{ confirmStore.current.title }}</h3>
+          <header class="dialog-head">
+            <span class="dialog-icon" :class="{ 'dialog-icon--danger': confirmStore.current.danger }">
+              <i
+                class="fa-solid"
+                :class="confirmStore.current.icon ?? 'fa-circle-question'"
+                aria-hidden="true"
+              />
+            </span>
+            <h3 class="dialog-title">{{ confirmStore.current.title }}</h3>
+          </header>
           <p class="dialog-message">{{ confirmStore.current.message }}</p>
 
           <div v-if="confirmStore.current.details" class="dialog-details">
@@ -107,8 +109,7 @@ function pick(suggestion: string) {
           </div>
 
           <div class="dialog-actions">
-            <button type="button" class="btn btn-ghost" @click="confirmStore.settle(false)">
-              <i class="fa-regular fa-clock" aria-hidden="true" />
+            <button type="button" class="btn btn-secondary" @click="confirmStore.settle(false)">
               {{ confirmStore.current.cancelLabel ?? 'Volver' }}
             </button>
             <button
@@ -138,8 +139,7 @@ function pick(suggestion: string) {
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(18, 30, 25, 0.55);
-  backdrop-filter: blur(2px);
+  background: rgba(14, 28, 38, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -149,42 +149,56 @@ function pick(suggestion: string) {
 
 .dialog {
   width: 100%;
-  max-width: 420px;
+  max-width: 460px;
+  max-height: calc(100dvh - 2.5rem);
+  overflow-y: auto;
   background: var(--surface);
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
-  padding: 1.75rem 1.5rem 1.4rem;
-  text-align: center;
+  padding: 1.4rem 1.4rem 1.25rem;
+  text-align: left;
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  gap: 0.7rem;
+
+  @include tablet {
+    padding: 1.6rem 1.6rem 1.4rem;
+  }
+}
+
+.dialog-head {
+  display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.8rem;
 }
 
 .dialog-icon {
-  width: 54px;
-  height: 54px;
+  flex: none;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: rgba(159, 107, 60, 0.14);
-  color: var(--gold-500);
-  font-size: 1.3rem;
+  background: var(--pill-info-bg);
+  color: var(--navy-800);
+  font-size: 1.1rem;
 
   &--danger {
-    background: rgba(180, 72, 59, 0.13);
-    color: var(--danger);
+    background: var(--pill-danger-bg);
+    color: var(--danger-ink);
   }
 }
 
 .dialog-title {
-  font-size: 1.22rem;
+  font-size: 1.35rem;
+  line-height: 1.2;
 }
 
 .dialog-message {
   margin: 0;
   color: var(--ink-600);
-  font-size: 0.92rem;
+  font-size: 1rem;
   line-height: 1.5;
 }
 
@@ -197,23 +211,24 @@ function pick(suggestion: string) {
   margin-top: 0.3rem;
 
   label {
-    font-size: 0.8rem;
+    font-size: 0.92rem;
     font-weight: 600;
     color: var(--ink-600);
   }
 
   textarea {
     width: 100%;
+    min-height: 72px;
     resize: vertical;
-    padding: 0.6rem 0.75rem;
-    border: 1.5px solid var(--cream-200);
+    padding: 0.65rem 0.8rem;
+    border: 1px solid var(--line-strong);
     border-radius: var(--radius-sm);
-    font-size: 0.92rem;
+    font-size: 1rem;
 
     &:focus {
       outline: none;
-      border-color: var(--gold-500);
-      box-shadow: 0 0 0 3px rgba(159, 107, 60, 0.18);
+      border-color: var(--navy-600);
+      box-shadow: var(--focus-ring);
     }
   }
 }
@@ -221,7 +236,7 @@ function pick(suggestion: string) {
 .dialog-details {
   width: 100%;
   text-align: left;
-  border: 1px solid var(--cream-200);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--cream-100);
 
@@ -237,17 +252,17 @@ function pick(suggestion: string) {
     display: flex;
     justify-content: space-between;
     gap: 0.75rem;
-    padding: 0.4rem 0;
-    font-size: 0.88rem;
+    padding: 0.45rem 0;
+    font-size: 0.95rem;
 
     & + li {
-      border-top: 1px dashed var(--cream-200);
+      border-top: 1px solid var(--rule);
     }
 
     small {
       display: block;
       color: var(--ink-400);
-      font-size: 0.74rem;
+      font-size: 0.82rem;
     }
 
     strong {
@@ -262,8 +277,8 @@ function pick(suggestion: string) {
   justify-content: space-between;
   margin: 0;
   padding: 0.6rem 0.8rem;
-  border-top: 1.5px solid var(--navy-700);
-  font-size: 1rem;
+  border-top: 1px solid var(--line-strong);
+  font-size: 1.05rem;
   color: var(--navy-900);
 
   strong {
@@ -284,7 +299,7 @@ function pick(suggestion: string) {
   legend {
     padding: 0;
     margin-bottom: 0.45rem;
-    font-size: 0.8rem;
+    font-size: 0.92rem;
     font-weight: 600;
     color: var(--ink-600);
   }
@@ -294,27 +309,28 @@ function pick(suggestion: string) {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
-  min-height: 44px;
-  padding: 0.55rem 0.7rem;
+  min-height: 52px;
+  padding: 0.6rem 0.75rem;
   border-radius: var(--radius-sm);
-  border: 1.5px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   text-align: left;
   transition:
     border-color 0.15s ease,
     background-color 0.15s ease;
 
   strong {
-    font-size: 0.88rem;
+    font-size: 0.97rem;
   }
 
   small {
-    font-size: 0.74rem;
+    font-size: 0.82rem;
     color: var(--ink-400);
   }
 
   &--on {
     border-color: var(--navy-800);
     background: var(--powder-100);
+    box-shadow: inset 0 0 0 1px var(--navy-800);
   }
 }
 
@@ -325,10 +341,11 @@ function pick(suggestion: string) {
 }
 
 .dialog-chip {
-  padding: 0.35rem 0.7rem;
+  min-height: 40px;
+  padding: 0.4rem 0.85rem;
   border-radius: 999px;
-  border: 1.5px solid var(--cream-200);
-  font-size: 0.8rem;
+  border: 1px solid var(--line-strong);
+  font-size: 0.92rem;
   font-weight: 600;
   color: var(--ink-600);
   transition: all 0.14s ease;
@@ -345,14 +362,14 @@ function pick(suggestion: string) {
   grid-template-columns: 1fr 1fr;
   gap: 0.6rem;
   width: 100%;
-  margin-top: 0.8rem;
+  margin-top: 0.5rem;
 }
 
 .dialog-enter-active {
   transition: opacity 0.2s ease;
 
   .dialog {
-    transition: transform 0.22s cubic-bezier(0.34, 1.4, 0.64, 1);
+    transition: transform 0.24s var(--ease-out);
   }
 }
 
@@ -369,7 +386,7 @@ function pick(suggestion: string) {
   opacity: 0;
 
   .dialog {
-    transform: scale(0.92) translateY(10px);
+    transform: scale(0.96) translateY(10px);
   }
 }
 </style>
