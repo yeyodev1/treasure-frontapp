@@ -278,7 +278,7 @@ function done() {
   align-items: center;
   gap: 0.75rem;
   padding: 0.6rem 1rem;
-  border: 2px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   background: #fff;
   text-align: left;
