@@ -61,11 +61,25 @@ const ACTION_LABEL: Record<string, string> = {
 }
 
 const METHOD_OPTIONS = [
-  { value: 'efectivo', label: 'Efectivo' },
-  { value: 'tarjeta', label: 'Tarjeta' },
-  { value: 'transferencia', label: 'Transferencia' },
-  { value: 'online', label: 'Pago en línea' },
+  { value: 'efectivo', label: 'Efectivo', icon: 'fa-money-bill-wave' },
+  { value: 'tarjeta', label: 'Tarjeta', icon: 'fa-credit-card' },
+  { value: 'transferencia', label: 'Transferencia', icon: 'fa-building-columns' },
+  { value: 'online', label: 'Pago en línea', icon: 'fa-globe' },
 ]
+
+/**
+ * Recorrido de la cuenta en tres pasos: Consumos (abierta o en revisión) →
+ * Aprobada → Pagada. Solo informa; las reglas viven en el servidor.
+ */
+const steps = computed(() => {
+  const status = account.value?.status ?? 'abierta'
+  const at = status === 'cobrada' ? 2 : status === 'aprobada' ? 1 : 0
+  return [
+    { key: 'consumos', label: status === 'en_revision' ? 'En revisión' : 'Consumos', state: at > 0 ? 'done' : 'now' },
+    { key: 'aprobada', label: 'Aprobada', state: at > 1 ? 'done' : at === 1 ? 'now' : 'next' },
+    { key: 'pagada', label: 'Pagada', state: at === 2 ? 'done' : 'next' },
+  ] as const
+})
 
 const payer = computed(
   () => props.cabin.passengers.find((p) => p.isPayer) ?? props.cabin.passengers[0] ?? null,
@@ -509,44 +523,80 @@ async function openProforma(download: boolean) {
 </script>
 
 <template>
-  <BaseModal
-    :title="`Cabina ${cabin.number}${account ? ` · Cuenta v${account.version}` : ''}`"
-    @close="emit('close')"
-  >
+  <BaseModal :title="`Cabina ${cabin.number}`" @close="emit('close')">
     <SkeletonList v-if="loading" variant="row" :rows="5" />
 
-    <div v-else-if="account" class="acc">
-      <header class="acc-state" :class="`acc-state--${account.status}`">
-        <span class="acc-status">
-          {{ STATUS_LABEL[account.status] }}{{ account.status !== 'cobrada' && account.partialPaid > 0 ? ' · pago parcial' : '' }}
-        </span>
-        <strong class="acc-total">{{ formatMoney(account.status === 'cobrada' ? account.consumed : account.due) }}</strong>
+    <div v-else-if="account" class="acc-sheet">
+      <!-- Dónde está la cuenta y cuánto falta -->
+      <header class="sheet-head">
+        <ol class="steps" aria-label="Estado de la cuenta">
+          <li
+            v-for="step in steps"
+            :key="step.key"
+            class="step"
+            :class="`step--${step.state}`"
+            :aria-current="step.state === 'now' ? 'step' : undefined"
+          >
+            <span class="step-label">
+              <i v-if="step.state === 'done'" class="fa-solid fa-check" aria-hidden="true" />{{ step.label }}
+            </span>
+          </li>
+        </ol>
+
+        <div class="figure">
+          <span class="figure-label">
+            {{ account.status === 'cobrada' ? 'Cuenta pagada' : isBar ? 'Consumos abiertos' : 'Por cobrar' }}
+            <template v-if="account.status !== 'cobrada' && account.partialPaid > 0"> · pago parcial</template>
+          </span>
+          <strong class="figure-value" :class="{ 'figure-value--settled': account.status === 'cobrada' }">
+            {{ formatMoney(account.status === 'cobrada' ? account.consumed : account.due) }}
+          </strong>
+        </div>
+
+        <!-- Cuenta completa: lo pagado no desaparece (checklist 29-oct, 01) -->
+        <dl v-if="!isBar && !neverCharged" class="sums">
+          <div>
+            <dt>Consumos</dt>
+            <dd>{{ formatMoney(account.consumed) }}</dd>
+          </div>
+          <div>
+            <dt>Cobrado</dt>
+            <dd>{{ formatMoney(account.paid) }}</dd>
+          </div>
+          <div :class="{ 'sums-due': account.due > 0 }">
+            <dt>Por cobrar</dt>
+            <dd>{{ formatMoney(account.due) }}</dd>
+          </div>
+        </dl>
+
+        <p class="payer">
+          <template v-if="payer">
+            <i class="fa-solid fa-user" aria-hidden="true" />
+            <span>
+              Paga <strong>{{ payer.name }}</strong>
+              <small>
+                {{ payer.country ? payer.country : 'Sin país' }} ·
+                {{ payer.email ? payer.email : 'sin correo' }} ·
+                {{ payer.idNumber ? 'identificación registrada' : 'falta identificación' }}
+              </small>
+            </span>
+          </template>
+          <template v-else>
+            <i class="fa-solid fa-user-slash" aria-hidden="true" />
+            <span class="warn-text">Sin pasajeros registrados en esta cabina.</span>
+          </template>
+        </p>
       </header>
 
-      <!-- Cuenta completa: lo pagado no desaparece (checklist 29-oct, 01) -->
-      <dl v-if="!isBar && !neverCharged" class="acc-sums">
-        <div>
-          <dt>Consumos</dt>
-          <dd>{{ formatMoney(account.consumed) }}</dd>
-        </div>
-        <div>
-          <dt>Pagado</dt>
-          <dd>{{ formatMoney(account.paid) }}</dd>
-        </div>
-        <div :class="{ 'acc-sums--due': account.due > 0 }">
-          <dt>Por cobrar</dt>
-          <dd>{{ formatMoney(account.due) }}</dd>
-        </div>
-      </dl>
-
-      <p v-if="account.pendingDeliveries" class="warn">
+      <p v-if="account.pendingDeliveries" class="notice">
         <i class="fa-solid fa-hourglass-half" aria-hidden="true" />
-        Hay {{ account.pendingDeliveries }} bebida(s) sin entregar. Entrégalas o cancélalas en el Bar
-        antes de enviar a revisión.
+        Hay {{ account.pendingDeliveries }} bebida(s) sin entregar. Entrégalas o cancélalas en el Bar antes de enviar a
+        revisión.
       </p>
 
       <!-- Consumos por día (Galápagos): subtotal del día y acumulado de la cabina -->
-      <section class="lines">
+      <section class="block" aria-labelledby="acc-lines-title">
+        <h4 id="acc-lines-title" class="block-title">Consumos</h4>
         <Transition name="fade">
           <p v-if="editing" class="edit-banner">
             <i class="fa-solid fa-pen" aria-hidden="true" />
@@ -555,28 +605,30 @@ async function openProforma(download: boolean) {
         </Transition>
         <p v-if="neverCharged" class="muted">Sin consumos en esta cuenta.</p>
         <div v-for="day in days" :key="day.key" class="day">
-          <h4 class="day-head">
+          <h5 class="day-head">
             <span>{{ day.label }}</span>
             <span class="day-sub">{{ formatMoney(day.subtotal) }}</span>
-          </h4>
+          </h5>
           <div
             v-for="line in day.lines"
             :key="`${line.paid ? 'p' : 'o'}-${line.orderId}-${line.index}`"
             class="line"
-            :class="{ 'line--paid': line.paid }"
+            :class="{ 'line--paid': line.paid, 'line--editing': canCorrect && !line.paid && line.single }"
           >
             <div class="line-main">
               <span class="line-name">
-                {{ line.chargeableQty }} × {{ line.name }}
-                <em v-if="line.courtesy" class="tag-courtesy">cortesía</em>
-                <em v-if="line.paid" class="tag-paid">pagado</em>
-                <em v-if="line.pendingQty" class="tag-pending">{{ line.pendingQty }} por entregar</em>
+                <span class="line-qty">{{ line.chargeableQty }} ×</span> {{ line.name }}
               </span>
               <span class="line-meta">
-                {{ formatHour(line.at) }} · <i class="fa-regular fa-user" aria-hidden="true" /> {{ line.by }}
+                {{ formatHour(line.at) }} · {{ line.by }}
+                <em v-if="line.courtesy" class="tag tag--courtesy">Cortesía</em>
+                <em v-if="line.paid" class="tag tag--paid">Cobrado</em>
+                <em v-if="line.pendingQty" class="tag tag--pending">{{ line.pendingQty }} por entregar</em>
               </span>
             </div>
-            <span class="line-amount">{{ formatMoney(lineAmount(line)) }}</span>
+            <span class="line-amount" :class="{ 'line-amount--zero': lineAmount(line) === 0 }">
+              {{ formatMoney(lineAmount(line)) }}
+            </span>
             <Transition name="fade">
               <div v-if="canCorrect && !line.paid && line.single" class="line-actions">
                 <button v-if="!line.courtesy" type="button" class="line-btn" :disabled="busy" @click="bonify(line)">
@@ -594,32 +646,37 @@ async function openProforma(download: boolean) {
           </p>
         </div>
         <p v-if="!neverCharged && !deliveredLines.length" class="muted">Nada por cobrar.</p>
-        <p v-if="account.courtesyAll" class="muted small">
-          Cortesías registradas: {{ formatMoney(account.courtesyAll) }}
-        </p>
+        <p v-if="account.courtesyAll" class="muted">Cortesías registradas: {{ formatMoney(account.courtesyAll) }}</p>
       </section>
 
-      <!-- Pagos recibidos: solo lectura -->
-      <section v-if="account.payments.length && !isBar" class="paid">
-        <h4><i class="fa-solid fa-circle-check" aria-hidden="true" /> Pagos recibidos</h4>
+      <!-- Pagos recibidos: pago y factura son estados separados -->
+      <section v-if="account.payments.length && !isBar" class="block" aria-labelledby="acc-paid-title">
+        <h4 id="acc-paid-title" class="block-title">Pagos recibidos</h4>
         <ul class="payments">
-          <li v-for="p in account.payments" :key="p.id">
-            <span>
-              <strong>{{ p.invoiceStatus === 'parcial' ? 'Pago parcial' : 'Pago registrado' }}</strong> ·
-              {{ METHOD_OPTIONS.find((m) => m.value === p.method)?.label ?? p.method }} ·
-              {{ formatDateTime(p.createdAt) }}
-              <small :class="`invoice invoice--${p.invoiceStatus}`">
-                {{ invoiceLabel(p) }}{{ p.invoiceNumber ? ` ${p.invoiceNumber}` : '' }}{{
-                  p.invoiceStatus !== 'emitida' && p.invoiceError ? `. ${p.invoiceError}` : ''
-                }}
-              </small>
-            </span>
-            <strong>{{ formatMoney(p.total) }}</strong>
+          <li v-for="p in account.payments" :key="p.id" class="payment">
+            <div class="payment-main">
+              <span class="payment-name">
+                {{ METHOD_OPTIONS.find((m) => m.value === p.method)?.label ?? p.method }}
+                <span class="payment-when">{{ formatDateTime(p.createdAt) }}</span>
+              </span>
+              <span class="payment-states">
+                <span class="state state--paid">
+                  <i class="fa-solid fa-check" aria-hidden="true" />
+                  {{ p.invoiceStatus === 'parcial' ? 'Pago parcial' : 'Pago registrado' }}
+                </span>
+                <span class="state" :class="`state--invoice-${p.invoiceStatus}`">
+                  <i class="fa-regular fa-file-lines" aria-hidden="true" />
+                  {{ invoiceLabel(p) }}{{ p.invoiceNumber ? ` ${p.invoiceNumber}` : '' }}
+                </span>
+              </span>
+              <small v-if="p.invoiceStatus !== 'emitida' && p.invoiceError" class="payment-error">{{ p.invoiceError }}</small>
+            </div>
+            <strong class="payment-amount">{{ formatMoney(p.total) }}</strong>
           </li>
         </ul>
         <!-- Resumen por correo al pagador (al quedar Pagada) -->
-        <div v-if="!isBar && settlingPayment && account.status === 'cobrada'" class="mail">
-          <p class="small" :class="`mail--${settlingPayment.summaryEmail.status}`">
+        <div v-if="settlingPayment && account.status === 'cobrada'" class="mail">
+          <p :class="`mail--${settlingPayment.summaryEmail.status}`">
             <i class="fa-regular fa-envelope" aria-hidden="true" />
             <template v-if="settlingPayment.summaryEmail.status === 'enviado'">
               Resumen enviado a {{ settlingPayment.summaryEmail.to }}
@@ -631,38 +688,22 @@ async function openProforma(download: boolean) {
             <template v-else-if="settlingPayment.summaryEmail.status === 'enviando'">Enviando resumen…</template>
             <template v-else>Resumen por correo sin enviar</template>
           </p>
-          <button v-if="userStore.canCollect" type="button" class="line-btn" :disabled="busy" @click="resendSummary">
+          <button v-if="userStore.canCollect" type="button" class="tool" :disabled="busy" @click="resendSummary">
             <i class="fa-solid fa-paper-plane" aria-hidden="true" /> Reenviar resumen por correo
           </button>
         </div>
       </section>
 
-      <!-- Prefactura en inglés: antes y después de pagar, sin correo ni Contífico -->
-      <div v-if="userStore.isDirector && !neverCharged" class="proforma">
-        <button type="button" class="btn btn-ghost" :disabled="Boolean(proformaBusy)" @click="openProforma(false)">
-          <i class="fa-regular fa-file-lines" aria-hidden="true" />
-          {{ proformaBusy === 'ver' ? 'Abriendo…' : 'Ver prefactura' }}
-        </button>
-        <button type="button" class="btn btn-ghost" :disabled="Boolean(proformaBusy)" @click="openProforma(true)">
-          <i class="fa-solid fa-file-arrow-down" aria-hidden="true" />
-          {{ proformaBusy === 'descargar' ? 'Descargando…' : 'Descargar prefactura en inglés' }}
-        </button>
-      </div>
-
       <!-- Anulaciones pendientes de revisión -->
-      <section v-if="annulmentOrders.length && userStore.isLead" class="annulments">
-        <h4><i class="fa-solid fa-rotate-left" aria-hidden="true" /> Anulaciones por revisar</h4>
+      <section v-if="annulmentOrders.length && userStore.isLead" class="annulments" aria-labelledby="acc-ann-title">
+        <h4 id="acc-ann-title" class="block-title">
+          <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Anulaciones por revisar
+        </h4>
         <template v-for="order in annulmentOrders" :key="order._id">
-          <div
-            v-for="a in order.annulments.filter((x) => x.status === 'pendiente')"
-            :key="a._id"
-            class="annulment"
-          >
+          <div v-for="a in order.annulments.filter((x) => x.status === 'pendiente')" :key="a._id" class="annulment">
             <div>
               <strong>{{ a.qty }} × {{ order.items[a.index]?.name }}</strong>
-              <p class="muted small">
-                {{ a.reason }} · pidió {{ typeof a.requestedBy === 'object' ? a.requestedBy.name : '' }}
-              </p>
+              <p class="muted">{{ a.reason }} · pidió {{ typeof a.requestedBy === 'object' ? a.requestedBy.name : '' }}</p>
             </div>
             <div class="annulment-actions">
               <button type="button" class="btn btn-ghost" :disabled="busy" @click="reviewAnnulment(order, a._id, 'rechazar', false)">
@@ -685,28 +726,17 @@ async function openProforma(download: boolean) {
         </template>
       </section>
 
-      <!-- Pagador: datos recuperados del pasajero -->
-      <section class="payer">
-        <p v-if="payer">
-          <i class="fa-solid fa-user-tie" aria-hidden="true" />
-          Pagador: <strong>{{ payer.name }}</strong>
-        </p>
-        <p v-else class="warn-text">
-          <i class="fa-solid fa-user-slash" aria-hidden="true" /> Sin pasajeros registrados en esta cabina.
-        </p>
-        <p v-if="payer" class="muted small">
-          {{ payer.email ? 'Correo recuperado' : 'Sin correo' }} ·
-          {{ payer.country ? `País: ${payer.country}` : 'Sin país' }} ·
-          {{ payer.idNumber ? 'Identificación recuperada' : 'Completar identificación pendiente' }}
-        </p>
-      </section>
-
-      <!-- Acciones según rol: el bar envía; quien aprueba ve Modificar y Aprobar -->
-      <div v-if="canSubmit || canApprove || canModify || account.status === 'en_revision'" class="flow">
+      <!-- Siguiente paso según rol: el bar envía; quien aprueba ve Modificar y Aprobar -->
+      <section
+        v-if="canSubmit || canApprove || canModify || account.status === 'en_revision'"
+        class="flow"
+        :class="{ 'flow--sticky': canSubmit || canApprove }"
+        aria-label="Siguiente paso"
+      >
         <button
           v-if="canSubmit"
           type="button"
-          class="btn btn-primary"
+          class="btn btn-primary btn-wide"
           :disabled="busy || account.pendingDeliveries > 0"
           @click="submitReview"
         >
@@ -732,16 +762,12 @@ async function openProforma(download: boolean) {
             :disabled="busy || account.pendingDeliveries > 0 || account.pendingAnnulments > 0"
             @click="approve"
           >
-            <i class="fa-solid fa-shield-halved" aria-hidden="true" /> Aprobar
+            <i class="fa-solid fa-shield-halved" aria-hidden="true" /> Aprobar {{ formatMoney(account.due) }}
           </button>
         </div>
-        <p v-if="canApprove && account.pendingAnnulments > 0" class="muted small">
-          Resuelve las anulaciones pendientes para aprobar.
-        </p>
-        <p v-if="account.status === 'en_revision' && !isApprover" class="muted small">
-          Cuenta en revisión.
-        </p>
-      </div>
+        <p v-if="canApprove && account.pendingAnnulments > 0" class="muted">Resuelve las anulaciones pendientes para aprobar.</p>
+        <p v-if="account.status === 'en_revision' && !isApprover" class="muted">Cuenta en revisión.</p>
+      </section>
 
       <!-- Cobro: bloqueado hasta aprobar -->
       <section
@@ -749,9 +775,10 @@ async function openProforma(download: boolean) {
         ref="collectSection"
         class="collect"
         :class="{ 'collect--locked': !account.readyToCollect }"
+        aria-labelledby="acc-collect-title"
       >
-        <h4>
-          <i class="fa-solid fa-receipt" aria-hidden="true" />
+        <h4 id="acc-collect-title" class="block-title">
+          <i class="fa-solid" :class="account.readyToCollect ? 'fa-cash-register' : 'fa-lock'" aria-hidden="true" />
           {{ account.readyToCollect ? 'Cobrar' : 'Cobrar · disponible al aprobar' }}
         </h4>
 
@@ -781,82 +808,123 @@ async function openProforma(download: boolean) {
             <label>País (opcional)</label>
             <BaseSelect v-model="billing.country" :options="COUNTRY_OPTIONS" searchable placeholder="Buscar país…" />
           </div>
-          <p v-if="account.partialPaid > 0" class="muted small">
-            Pagos parciales: {{ formatMoney(account.partialPaid) }} · Saldo {{ formatMoney(account.due) }}
-          </p>
+
           <div class="field">
             <label for="pay-amount">Monto a cobrar</label>
             <div class="amount-row">
-              <span class="amount-prefix" aria-hidden="true">$</span>
-              <input
-                id="pay-amount"
-                v-model="amount"
-                type="text"
-                inputmode="decimal"
-                autocomplete="off"
-                :aria-invalid="Boolean(amountError)"
-                aria-describedby="pay-amount-help"
-              />
-              <button
-                v-if="Math.round(amountValue * 100) !== Math.round(account.due * 100)"
-                type="button"
-                class="line-btn"
-                @click="amount = account.due.toFixed(2)"
-              >
-                Saldo completo
-              </button>
+              <div class="amount-input">
+                <span class="amount-prefix" aria-hidden="true">$</span>
+                <input
+                  id="pay-amount"
+                  v-model="amount"
+                  type="text"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  :aria-invalid="Boolean(amountError)"
+                  aria-describedby="pay-amount-help"
+                />
+              </div>
+              <Transition name="fade">
+                <button
+                  v-if="Math.round(amountValue * 100) !== Math.round(account.due * 100)"
+                  type="button"
+                  class="tool"
+                  @click="amount = account.due.toFixed(2)"
+                >
+                  Saldo completo
+                </button>
+              </Transition>
             </div>
             <Transition name="fade" mode="out-in">
               <small v-if="amountError" id="pay-amount-help" key="err" class="field-error">{{ amountError }}</small>
-              <small v-else-if="isPartial" id="pay-amount-help" key="partial" class="muted small">
+              <small v-else-if="isPartial" id="pay-amount-help" key="partial" class="field-help">
                 Pago parcial: quedará un saldo de {{ formatMoney(account.due - amountValue) }}.
               </small>
-              <small v-else id="pay-amount-help" key="full" class="muted small">Saldo completo: la cuenta queda Pagada.</small>
+              <small v-else id="pay-amount-help" key="full" class="field-help">
+                Saldo completo: la cuenta queda Pagada.<template v-if="account.partialPaid > 0">
+                  Ya se cobró {{ formatMoney(account.partialPaid) }} antes.</template
+                >
+              </small>
             </Transition>
           </div>
-          <div class="field">
-            <label>Método de pago</label>
-            <BaseSelect v-model="method" :options="METHOD_OPTIONS" />
-          </div>
-          <div v-if="method !== 'efectivo'" class="field">
-            <label for="pay-ref">Referencia {{ method === 'transferencia' ? '(obligatoria)' : '(voucher, opcional)' }}</label>
-            <input id="pay-ref" v-model="reference" type="text" maxlength="40" placeholder="Número de transferencia o voucher" />
-          </div>
-          <label v-if="method === 'efectivo'" class="cash-check">
-            <input v-model="cashConfirmed" type="checkbox" />
-            Confirmo que el efectivo ingresó a caja
-          </label>
-          <button type="button" class="btn btn-gold" :disabled="!collectReady || busy" @click="collect">
+
+          <fieldset class="methods">
+            <legend>Método de pago</legend>
+            <div class="method-grid" role="radiogroup" aria-label="Método de pago">
+              <button
+                v-for="m in METHOD_OPTIONS"
+                :key="m.value"
+                type="button"
+                role="radio"
+                class="method"
+                :class="{ 'method--on': method === m.value }"
+                :aria-checked="method === m.value"
+                @click="method = m.value"
+              >
+                <i class="fa-solid" :class="m.icon" aria-hidden="true" />
+                {{ m.label }}
+              </button>
+            </div>
+          </fieldset>
+
+          <Transition name="fade" mode="out-in">
+            <div v-if="method !== 'efectivo'" key="ref" class="field">
+              <label for="pay-ref">Referencia {{ method === 'transferencia' ? '(obligatoria)' : '(voucher, opcional)' }}</label>
+              <input id="pay-ref" v-model="reference" type="text" maxlength="40" placeholder="Número de transferencia o voucher" />
+            </div>
+            <label v-else key="cash" class="cash-check" :class="{ 'cash-check--on': cashConfirmed }">
+              <input v-model="cashConfirmed" type="checkbox" />
+              Confirmo que el efectivo ingresó a caja
+            </label>
+          </Transition>
+
+          <button type="button" class="btn btn-gold btn-wide btn-collect" :disabled="!collectReady || busy" @click="collect">
             <i class="fa-solid fa-cash-register" aria-hidden="true" />
             Cobrar {{ amountError ? '' : formatMoney(amountValue) }}
           </button>
         </template>
-        <p v-else-if="account.readyToCollect" class="muted small">
-          Aprobada. Lista para cobrar.
-        </p>
+        <p v-else-if="account.readyToCollect" class="muted">Aprobada. Lista para cobrar.</p>
+        <p v-else class="muted">Revisa los consumos con el pasajero y aprueba la cuenta para registrar el pago.</p>
       </section>
 
-      <button type="button" class="btn btn-ghost qr-toggle" @click="showQr = !showQr">
-        <i class="fa-solid fa-qrcode" aria-hidden="true" />
-        {{ showQr ? 'Ocultar QR' : 'Mostrar QR para el pasajero' }}
-      </button>
-      <Transition name="fade">
-        <div v-if="showQr" class="qr-box">
-          <QrCanvas :text="publicUrl" :size="220" />
-          <p>El pasajero escanea y ve su cuenta en inglés: total, pagos y saldo.</p>
+      <!-- Para el pasajero: prefactura en inglés (sin correo ni Contífico) y QR -->
+      <section class="block" aria-labelledby="acc-tools-title">
+        <h4 id="acc-tools-title" class="block-title">Para el pasajero</h4>
+        <div class="tools">
+          <template v-if="userStore.isDirector && !neverCharged">
+            <button type="button" class="tool" :disabled="Boolean(proformaBusy)" @click="openProforma(false)">
+              <i class="fa-regular fa-file-lines" aria-hidden="true" />
+              {{ proformaBusy === 'ver' ? 'Abriendo…' : 'Ver prefactura' }}
+            </button>
+            <button type="button" class="tool" :disabled="Boolean(proformaBusy)" @click="openProforma(true)">
+              <i class="fa-solid fa-file-arrow-down" aria-hidden="true" />
+              {{ proformaBusy === 'descargar' ? 'Descargando…' : 'Descargar prefactura en inglés' }}
+            </button>
+          </template>
+          <button type="button" class="tool" :aria-expanded="showQr" @click="showQr = !showQr">
+            <i class="fa-solid fa-qrcode" aria-hidden="true" />
+            {{ showQr ? 'Ocultar QR' : 'Mostrar QR para el pasajero' }}
+          </button>
         </div>
-      </Transition>
+        <Transition name="fade">
+          <div v-if="showQr" class="qr-box">
+            <QrCanvas :text="publicUrl" :size="220" />
+            <p>El pasajero escanea y ve su cuenta en inglés: total, pagos y saldo.</p>
+          </div>
+        </Transition>
+      </section>
 
       <!-- Historial de la cuenta -->
       <details class="history">
-        <summary><i class="fa-solid fa-clock-rotate-left" aria-hidden="true" /> Historial de la cuenta</summary>
+        <summary>
+          <i class="fa-solid fa-chevron-right" aria-hidden="true" />
+          Historial de la cuenta <span class="muted">· versión {{ account.version }}</span>
+        </summary>
         <ol>
           <li v-for="(h, i) in [...account.history].reverse()" :key="i">
             <strong>{{ ACTION_LABEL[h.action] ?? h.action }}</strong>
-            <span class="muted small">
-              v{{ h.version }} · {{ h.by || 'Sistema' }} · {{ formatDateTime(h.at) }}
-            </span>
-            <span v-if="h.reason" class="small">{{ h.reason }}</span>
+            <span class="muted">v{{ h.version }} · {{ h.by || 'Sistema' }} · {{ formatDateTime(h.at) }}</span>
+            <span v-if="h.reason" class="history-reason">{{ h.reason }}</span>
           </li>
         </ol>
       </details>
@@ -864,386 +932,238 @@ async function openProforma(download: boolean) {
   </BaseModal>
 </template>
 
+<style lang="scss">
+// La cuenta necesita más ancho que un diálogo corriente en tableta: se amplía
+// solo el modal que la contiene (BaseModal no se toca).
+@media (min-width: 640px) {
+  .overlay .modal:has(> .modal-body > .acc-sheet) {
+    max-width: 680px;
+  }
+}
+</style>
+
 <style scoped lang="scss">
-.line-actions {
+@use '@/styles/mixins' as *;
+
+.acc-sheet {
+  --line: #dbe4eb;
+  --line-strong: #c3d1dc;
+  --muted: #55636d;
   display: flex;
-  gap: 0.4rem;
-  width: 100%;
-  justify-content: flex-start;
-  margin-top: 0.35rem;
+  flex-direction: column;
+  gap: 1.5rem;
+  font-size: 1rem;
 }
 
-.line-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  min-height: 44px;
-  padding: 0 0.75rem;
-  border-radius: 10px;
-  border: 1.5px solid var(--cream-200);
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: var(--gold-500);
-  transition:
-    border-color 0.15s ease,
-    opacity 0.15s ease;
-
-  &:hover:not(:disabled) {
-    border-color: currentColor;
-  }
-
-  &:disabled {
-    opacity: 0.4;
-  }
-
-  &--danger {
-    color: var(--danger);
-  }
-}
-
-.acc {
+// Encabezado: pasos, cifra y pagador
+.sheet-head {
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
 
-.acc-state {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.85rem 1rem;
-  border-radius: var(--radius-sm);
-  background: var(--powder-100);
-
-  &--en_revision {
-    background: rgba(185, 128, 47, 0.14);
-  }
-
-  &--aprobada {
-    background: rgba(63, 122, 87, 0.13);
-  }
-
-  &--cobrada {
-    background: var(--navy-800);
-    color: #fff;
-  }
-}
-
-.acc-sums {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.5rem;
-  margin: 0;
-
-  div {
-    padding: 0.55rem 0.7rem;
-    border-radius: var(--radius-sm);
-    background: var(--cream-100);
-    min-width: 0;
-  }
-
-  dt {
-    font-size: 0.7rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ink-400);
-  }
-
-  dd {
-    margin: 0.1rem 0 0;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-  }
-
-  &--due dd {
-    color: var(--warning);
-  }
-}
-
-.paid {
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-
-  h4 {
-    margin: 0;
-    font-size: 0.9rem;
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-    color: var(--ink-600);
-
-    i {
-      color: var(--success);
-    }
-  }
-}
-
-.line--paid {
-  opacity: 0.8;
-}
-
-.payments {
+.steps {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.step {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
-  font-size: 0.86rem;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+  color: var(--muted);
 
-  li {
+  &::before {
+    content: '';
+    display: block;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--powder-100);
+    transition: background 0.3s ease;
+  }
+
+  &--done::before {
+    background: var(--navy-700);
+  }
+
+  &--now::before {
+    background: var(--navy-800);
+  }
+
+  &--now {
+    color: var(--ink-900);
+    font-weight: 500;
+  }
+}
+
+.step-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.step-label i {
+  font-size: 0.75rem;
+  color: var(--navy-700);
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.figure-label {
+  font-size: 0.9375rem;
+  color: var(--muted);
+}
+
+.figure-value {
+  font-size: 2.25rem;
+  line-height: 1.1;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--navy-800);
+  font-variant-numeric: tabular-nums;
+
+  &--settled {
+    color: var(--ink-900);
+  }
+}
+
+.sums {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+
+  div {
     display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 0.75rem;
+    flex-direction: column;
+    gap: 0.1rem;
+    padding: 0.6rem 0.85rem;
+    min-width: 0;
+  }
+
+  div + div {
+    border-left: 1px solid var(--line);
+  }
+
+  dt {
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+
+  dd {
+    margin: 0;
+    font-size: 1.0625rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.sums-due dd {
+  color: var(--navy-800);
+  font-weight: 600;
+}
+
+.payer {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 0;
+  font-size: 1rem;
+
+  > i {
+    margin-top: 0.2rem;
+    color: var(--navy-600);
+  }
+
+  strong {
+    font-weight: 500;
   }
 
   small {
     display: block;
+    font-size: 0.875rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
   }
-}
-
-.invoice {
-  font-weight: 600;
-  color: var(--warning);
-
-  &--emitida {
-    color: var(--success);
-  }
-
-  &--error {
-    color: var(--danger);
-  }
-}
-
-.mail {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-
-  p {
-    margin: 0;
-    flex: 1 1 220px;
-    color: var(--ink-600);
-  }
-
-  i {
-    margin-right: 0.3rem;
-  }
-}
-
-.mail--enviado {
-  color: var(--success) !important;
-}
-
-.mail--error {
-  color: var(--danger) !important;
-  font-weight: 600;
-}
-
-.amount-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-
-  input {
-    flex: 1;
-    min-width: 0;
-    font-variant-numeric: tabular-nums;
-  }
-}
-
-.amount-prefix {
-  font-weight: 700;
-  color: var(--ink-600);
-}
-
-.proforma {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 0.5rem;
-}
-
-.field-error {
-  color: var(--danger);
-  font-weight: 600;
-  font-size: 0.8rem;
-}
-
-.acc-status {
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.acc-total {
-  font-size: 1.5rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.warn {
-  margin: 0;
-  padding: 0.65rem 0.8rem;
-  border-radius: var(--radius-sm);
-  background: rgba(185, 128, 47, 0.12);
-  color: #7a5219;
-  font-size: 0.86rem;
-  font-weight: 600;
 }
 
 .warn-text {
-  color: var(--warning);
+  color: #8a5d1d;
 }
 
-.lines {
+.notice {
+  display: flex;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--radius-sm);
+  background: #fbf5ec;
+  border: 1px solid #ead7b8;
+  color: #6f4a16;
+  font-size: 0.9375rem;
+
+  i {
+    margin-top: 0.2rem;
+  }
+}
+
+// Bloques con título
+.block {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
+  gap: 0.6rem;
 }
 
-.line {
+.block-title {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding-bottom: 0.55rem;
-  border-bottom: 1px dashed var(--cream-200);
-}
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 1.1875rem;
+  font-weight: 400;
+  color: var(--ink-900);
 
-.line-main {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.line-name {
-  font-weight: 600;
-}
-
-.line-meta {
-  font-size: 0.76rem;
-  color: var(--ink-400);
-}
-
-.line-amount {
-  font-weight: 700;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.tag-courtesy,
-.tag-pending {
-  font-style: normal;
-  font-size: 0.7rem;
-  font-weight: 700;
-  margin-left: 0.35rem;
-}
-
-.tag-courtesy {
-  color: var(--success);
-}
-
-.tag-pending {
-  color: var(--warning);
+  i {
+    font-size: 0.95rem;
+    color: var(--navy-600);
+  }
 }
 
 .muted {
   margin: 0;
-  color: var(--ink-400);
-}
-
-.small {
-  font-size: 0.8rem;
-}
-
-.annulments {
-  border: 1px solid rgba(185, 128, 47, 0.4);
-  border-radius: var(--radius-sm);
-  padding: 0.8rem;
-
-  h4 {
-    margin: 0 0 0.6rem;
-    font-size: 0.9rem;
-  }
-}
-
-.annulment {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.5rem 0;
-
-  & + & {
-    border-top: 1px solid var(--cream-200);
-  }
-}
-
-.annulment-actions {
-  display: flex;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-
-  .btn {
-    min-height: 40px;
-    padding: 0.4rem 0.8rem;
-    font-size: 0.82rem;
-  }
-}
-
-.payer p {
-  margin: 0;
-}
-
-.payer i {
-  color: var(--gold-500);
-  margin-right: 0.3rem;
-}
-
-.flow {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-
-  > .btn {
-    width: 100%;
-  }
-}
-
-.flow-pair {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 0.5rem;
-}
-
-.btn-editing {
-  border-color: var(--navy-800);
-  background: var(--powder-100);
-  color: var(--navy-900);
+  font-size: 0.9375rem;
+  color: var(--muted);
 }
 
 .edit-banner {
   margin: 0;
-  padding: 0.6rem 0.8rem;
+  padding: 0.7rem 0.9rem;
   border-radius: var(--radius-sm);
   background: var(--powder-100);
-  border-left: 3px solid var(--navy-700);
   color: var(--navy-900);
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: 0.9375rem;
 
   i {
-    margin-right: 0.35rem;
+    margin-right: 0.4rem;
   }
 }
 
+// Consumos por día
 .day {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
 }
 
 .day-head {
@@ -1252,87 +1172,562 @@ async function openProforma(download: boolean) {
   align-items: baseline;
   gap: 0.75rem;
   margin: 0;
-  padding: 0.45rem 0.7rem;
+  padding: 0.5rem 0.75rem;
   border-radius: var(--radius-sm);
-  background: var(--navy-800);
-  color: #fff;
-  font-size: 0.86rem;
-  font-weight: 700;
+  background: var(--powder-100);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--navy-900);
+
+  &::first-letter {
+    text-transform: uppercase;
+  }
 }
 
 .day-sub {
   font-variant-numeric: tabular-nums;
 }
 
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.25rem 1rem;
+  padding: 0.7rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  transition: background 0.2s ease;
+
+  &--editing {
+    background: #f8fafc;
+  }
+}
+
+.line-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  flex: 1 1 200px;
+}
+
+.line-name {
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.line-qty {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.line-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.line-amount {
+  font-size: 1rem;
+  font-weight: 500;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+
+  &--zero {
+    color: var(--muted);
+  }
+}
+
+.line--paid .line-name,
+.line--paid .line-amount {
+  color: var(--muted);
+}
+
+.tag {
+  flex: none;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  font-style: normal;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+
+  &--courtesy {
+    background: #e2efe6;
+    color: #255a3b;
+  }
+
+  &--paid {
+    background: var(--powder-100);
+    color: var(--navy-900);
+  }
+
+  &--pending {
+    background: #f7ecdc;
+    color: #6f4a16;
+  }
+}
+
+.line-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  width: 100%;
+  margin-top: 0.4rem;
+}
+
+.line-btn {
+  @include touch-target;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--navy-800);
+  transition:
+    border-color 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.12s ease;
+
+  &:hover:not(:disabled) {
+    border-color: currentColor;
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+  }
+
+  &--danger {
+    color: var(--danger);
+  }
+}
+
 .day-total {
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;
-  margin: 0 0 0.35rem;
-  font-size: 0.8rem;
-  color: var(--ink-600);
+  margin: 0;
+  padding: 0.55rem 0.75rem 0.9rem;
+  font-size: 0.9375rem;
+  color: var(--muted);
 
   strong {
+    font-weight: 600;
+    color: var(--ink-900);
     font-variant-numeric: tabular-nums;
-    color: var(--navy-900);
   }
 }
 
-.tag-paid {
-  font-style: normal;
-  font-size: 0.7rem;
-  font-weight: 700;
-  margin-left: 0.35rem;
-  color: var(--navy-600);
+// Pagos recibidos
+.payments {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
 }
 
+.payment {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--line);
+
+  &:first-child {
+    border-top: 1px solid var(--line);
+  }
+}
+
+.payment-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.payment-name {
+  font-weight: 500;
+}
+
+.payment-when {
+  margin-left: 0.4rem;
+  font-weight: 400;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.payment-states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  background: #eef2f5;
+  color: #3c4a54;
+
+  i {
+    font-size: 0.75rem;
+  }
+
+  &--paid,
+  &--invoice-emitida {
+    background: #e2efe6;
+    color: #255a3b;
+  }
+
+  &--invoice-pendiente,
+  &--invoice-emitiendo {
+    background: #f7ecdc;
+    color: #6f4a16;
+  }
+
+  &--invoice-error {
+    background: #f8e4e1;
+    color: #8a2f25;
+  }
+}
+
+.payment-error {
+  font-size: 0.875rem;
+  color: var(--danger);
+}
+
+.payment-amount {
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.mail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+
+  p {
+    flex: 1 1 240px;
+    margin: 0;
+    font-size: 0.9375rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+
+  i {
+    margin-right: 0.35rem;
+  }
+}
+
+.mail--enviado {
+  color: #255a3b !important;
+}
+
+.mail--error {
+  color: var(--danger) !important;
+}
+
+// Anulaciones
+.annulments {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-sm);
+  background: #fbf5ec;
+  border: 1px solid #ead7b8;
+}
+
+.annulment {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem 0;
+
+  & + & {
+    border-top: 1px solid #ead7b8;
+  }
+}
+
+.annulment-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+// Siguiente paso
+.flow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+
+  // Antes de aprobar, Modificar / Aprobar quedan a la vista mientras se
+  // recorren los consumos con el pasajero.
+  &--sticky {
+    position: sticky;
+    bottom: -1.25rem;
+    z-index: 2;
+    margin: 0 -1.25rem;
+    padding: 0.75rem 1.25rem 1.25rem;
+    background: var(--surface);
+    box-shadow: 0 -6px 16px rgba(27, 49, 66, 0.08);
+  }
+}
+
+.btn-wide {
+  width: 100%;
+}
+
+.flow-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 0.6rem;
+
+  &--single {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .btn {
+    min-height: 52px;
+    font-size: 1rem;
+  }
+}
+
+.btn-editing {
+  border-color: var(--navy-800);
+  background: var(--powder-100);
+  color: var(--navy-900);
+}
+
+// Cobro
 .collect {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  padding: 0.9rem;
-  border-radius: var(--radius-sm);
-  border: 1.5px solid var(--cream-200);
-
-  h4 {
-    margin: 0;
-    font-size: 0.92rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
+  gap: 1rem;
+  padding: 1.1rem 1.1rem 1.2rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  transition:
+    background 0.25s ease,
+    border-color 0.25s ease;
 
   &--locked {
-    background: var(--cream-100);
-    color: var(--ink-400);
+    background: #f5f8fa;
+    border-style: dashed;
+
+    .block-title {
+      color: var(--muted);
+    }
+  }
+
+  .field label,
+  .methods legend {
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--ink-900);
+  }
+
+  .field input {
+    font-size: 1rem;
+  }
+}
+
+.field-error {
+  color: var(--danger);
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.field-help {
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.amount-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.amount-input {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+
+  input {
+    padding-left: 2rem !important;
+    font-size: 1.25rem !important;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.amount-prefix {
+  position: absolute;
+  left: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.25rem;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.methods {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+
+  legend {
+    padding: 0;
+    margin-bottom: 0.4rem;
+  }
+}
+
+.method-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.method {
+  @include touch-target;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.6rem;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--ink-900);
+  text-align: center;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.12s ease;
+
+  i {
+    color: var(--navy-600);
+    transition: color 0.18s ease;
+  }
+
+  &:hover:not(.method--on) {
+    border-color: var(--navy-600);
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
+
+  &--on {
+    background: var(--navy-800);
+    border-color: var(--navy-800);
+    color: #fff;
+
+    i {
+      color: #fff;
+    }
   }
 }
 
 .cash-check {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  font-size: 0.88rem;
-  font-weight: 600;
-  padding: 0.6rem;
-  background: rgba(185, 128, 47, 0.1);
+  gap: 0.75rem;
+  min-height: 52px;
+  padding: 0.5rem 0.9rem;
   border-radius: var(--radius-sm);
+  border: 1px solid #ead7b8;
+  background: #fbf5ec;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease;
 
   input {
-    width: 1.2rem;
-    height: 1.2rem;
+    flex: none;
+    width: 1.4rem;
+    height: 1.4rem;
     accent-color: var(--navy-800);
+  }
+
+  &--on {
+    background: #e2efe6;
+    border-color: #b9d6c3;
   }
 }
 
-.qr-toggle {
-  width: 100%;
+.btn-collect {
+  min-height: 56px;
+  font-size: 1.0625rem;
+}
+
+// Para el pasajero
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.tool {
+  @include touch-target;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--navy-800);
+  transition:
+    border-color 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.12s ease;
+
+  &:hover:not(:disabled) {
+    border-color: var(--navy-700);
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+  }
 }
 
 .qr-box {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   padding: 1rem;
   background: var(--powder-100);
@@ -1340,38 +1735,70 @@ async function openProforma(download: boolean) {
 
   p {
     margin: 0;
-    font-size: 0.82rem;
+    font-size: 0.9375rem;
     color: var(--ink-600);
-    text-align: center;
   }
 }
 
+// Historial
 .history {
-  border-top: 1px solid var(--cream-200);
-  padding-top: 0.6rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.25rem;
 
   summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 48px;
     cursor: pointer;
-    font-weight: 600;
-    font-size: 0.88rem;
-    color: var(--ink-600);
+    list-style: none;
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--ink-900);
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+
+    i {
+      font-size: 0.75rem;
+      color: var(--muted);
+      transition: transform 0.2s ease;
+    }
+  }
+
+  &[open] summary i {
+    transform: rotate(90deg);
+  }
+
+  .muted {
+    font-size: 0.875rem;
   }
 
   ol {
     list-style: none;
-    margin: 0.6rem 0 0;
+    margin: 0.25rem 0 0;
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.6rem;
   }
 
   li {
     display: flex;
     flex-direction: column;
-    padding-left: 0.8rem;
-    border-left: 2px solid var(--cream-200);
+    gap: 0.1rem;
+    padding-left: 0.85rem;
+    border-left: 2px solid var(--line);
+
+    strong {
+      font-weight: 500;
+    }
   }
+}
+
+.history-reason {
+  font-size: 0.9375rem;
 }
 
 .fade-enter-active,
