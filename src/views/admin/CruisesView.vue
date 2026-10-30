@@ -1,12 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, shallowRef } from 'vue'
+import { computed, onMounted, shallowRef, watch } from 'vue'
+import axios from 'axios'
 import { useCruiseStore } from '@/stores/cruise'
 import { useToastStore } from '@/stores/toast'
 import { useConfirmStore } from '@/stores/confirm'
 import { useSound } from '@/composables/useSound'
-import { apiCruises, apiCycleSettings, apiGenerateCycle } from '@/services/api'
+import {
+  apiCreatePlannedCruise,
+  apiCruises,
+  apiCycleSettings,
+  apiGenerateCycle,
+  apiPlanCruise,
+} from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
-import { formatDate } from '@/utils/format'
+import { formatDate, formatDayKey, formatLongDate } from '@/utils/format'
 import BaseDatePicker from '@/components/ui/BaseDatePicker.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import PassengersModal from '@/components/cruises/PassengersModal.vue'
@@ -14,7 +21,7 @@ import CycleSettingsModal from '@/components/cruises/CycleSettingsModal.vue'
 import CruiseStartModal from '@/components/cruises/CruiseStartModal.vue'
 import CruiseFinishModal from '@/components/cruises/CruiseFinishModal.vue'
 import { useUserStore } from '@/stores/user'
-import type { Cabin, Cruise, CruiseStatus, CycleSettings } from '@/types'
+import type { Cabin, Cruise, CruiseStatus, CycleSettings, NewCruisePlan } from '@/types'
 
 const toast = useToastStore()
 const cruiseStore = useCruiseStore()
@@ -34,6 +41,88 @@ const userStore = useUserStore()
 
 const startDate = shallowRef('')
 const untilDate = shallowRef('')
+/** "Programar varios" (generador del ciclo) va plegado: lo habitual es un crucero. */
+const showGenerator = shallowRef(false)
+
+// ---- Nuevo crucero: tipo + fecha de inicio; el resto lo completa el ciclo ----
+const newLeg = shallowRef('')
+const newStart = shallowRef('')
+const plan = shallowRef<NewCruisePlan | null>(null)
+const planning = shallowRef(false)
+const planError = shallowRef('')
+const creating = shallowRef(false)
+let planSeq = 0
+
+async function loadPlan() {
+  const seq = ++planSeq
+  planError.value = ''
+  if (!newLeg.value || !newStart.value) {
+    plan.value = null
+    return
+  }
+  planning.value = true
+  try {
+    const result = await apiPlanCruise(newLeg.value, newStart.value)
+    if (seq === planSeq) plan.value = result
+  } catch (err) {
+    if (seq === planSeq) {
+      plan.value = null
+      planError.value = apiErrorMessage(err)
+    }
+  } finally {
+    if (seq === planSeq) planning.value = false
+  }
+}
+
+watch([newLeg, newStart], loadPlan)
+
+const canCreate = computed(() => Boolean(plan.value && !plan.value.overlap && !planning.value && !creating.value))
+
+async function createCruise(acceptWeekday = false) {
+  const p = plan.value
+  if (!p || p.overlap || creating.value) return
+  if (!acceptWeekday) {
+    const dayWarning = p.weekday.ok
+      ? ''
+      : ` Atención: el crucero ${p.leg} zarpa en ${p.weekday.expected} y la fecha elegida es ${p.weekday.actual}.`
+    const ok = await confirmStore.ask({
+      title: `¿Crear el crucero ${p.code}?`,
+      message: `${p.routeFrom} → ${p.routeTo}. Del ${formatLongDate(newStart.value).toLowerCase()} al ${formatLongDate(p.endKey).toLowerCase()} (${p.durationDays} días), zarpe ${p.departureTime}, ${p.cabinCount} cabinas sin pasajeros.${dayWarning}`,
+      confirmLabel: p.weekday.ok ? 'Crear crucero' : 'Crear igual',
+      icon: p.weekday.ok ? 'fa-ship' : 'fa-calendar-day',
+    })
+    if (!ok) return
+  }
+  creating.value = true
+  try {
+    const cruise = await apiCreatePlannedCruise(p.leg, newStart.value, acceptWeekday || !p.weekday.ok)
+    play('success')
+    toast.success(`Crucero ${cruise.code} creado: ${formatDate(cruise.startDate)} → ${formatDate(cruise.endDate ?? cruise.startDate)}`)
+    newLeg.value = ''
+    newStart.value = ''
+    tab.value = 'proximas'
+    await refresh()
+  } catch (err) {
+    const code = axios.isAxiosError(err) ? (err.response?.data as { code?: string } | undefined)?.code : undefined
+    play('error')
+    if (code === 'dia_distinto') {
+      // El servidor avisa del día de zarpe: se confirma y se reintenta.
+      const ok = await confirmStore.ask({
+        title: 'El día no es el de zarpe',
+        message: `${apiErrorMessage(err)} ¿Crear de todas formas?`,
+        confirmLabel: 'Crear igual',
+        icon: 'fa-calendar-day',
+      })
+      creating.value = false
+      if (ok) await createCruise(true)
+      return
+    }
+    toast.error(apiErrorMessage(err))
+    if (code === 'solapa') await loadPlan()
+  } finally {
+    creating.value = false
+  }
+}
 
 const STATUS_LABELS: Record<CruiseStatus, string> = {
   planificado: 'Programado',
@@ -43,7 +132,7 @@ const STATUS_LABELS: Record<CruiseStatus, string> = {
 
 const LEG_ICONS = ['fa-sun', 'fa-water', 'fa-compass']
 
-// La salida a bordo siempre primero; luego las programadas por fecha.
+// El crucero en curso siempre primero; luego los programados por fecha.
 const visible = computed(() =>
   tab.value === 'cerradas'
     ? [...cruises.value].filter((c) => c.status === 'cerrado').reverse()
@@ -73,15 +162,15 @@ onMounted(refresh)
 
 async function generate() {
   if (!startDate.value || !untilDate.value) {
-    toast.error('Elige la fecha de inicio del tramo A y hasta cuándo generar')
+    toast.error('Elige la fecha de inicio del crucero A y hasta cuándo programar')
     return
   }
   const weekday = new Date(`${startDate.value}T12:00:00-05:00`).getDay()
   if (weekday !== 6) {
     const ok = await confirmStore.ask({
-      title: 'El tramo A suele zarpar en sábado',
-      message: 'La fecha elegida no es sábado. ¿Generar de todas formas desde ese día?',
-      confirmLabel: 'Generar igual',
+      title: 'El crucero A zarpa en sábado',
+      message: 'La fecha elegida no es sábado. ¿Programar de todas formas desde ese día?',
+      confirmLabel: 'Programar igual',
       icon: 'fa-calendar-day',
     })
     if (!ok) return
@@ -92,7 +181,7 @@ async function generate() {
     play('success')
     toast.success(
       created.length
-        ? `Se generaron ${created.length} crucero(s): ${created.join(', ')}${skipped ? ` · ${skipped} ya existían` : ''}`
+        ? `Se programaron ${created.length} crucero(s): ${created.join(', ')}${skipped ? ` · ${skipped} ya existían` : ''}`
         : `No hay cruceros nuevos: los ${skipped} ya existían`,
     )
     await refresh()
@@ -127,38 +216,127 @@ async function onPassengersSaved() {
       </button>
     </header>
 
-    <!-- Programar ciclo A → B → C -->
-    <section class="cycle">
-      <h2 class="section-title">Programar ciclo</h2>
-      <div class="cycle-grid">
-        <article v-for="(leg, i) in settings?.legs ?? []" :key="leg.code" class="leg">
-          <span class="leg-icon"><i class="fa-solid" :class="LEG_ICONS[i]" aria-hidden="true" /></span>
-          <div class="leg-body">
-            <h3><strong>{{ leg.code }}</strong> · {{ leg.label }}</h3>
-            <p>{{ leg.routeFrom }} → {{ leg.routeTo }}</p>
-            <p class="leg-meta">{{ leg.durationDays }} días · zarpe {{ leg.departureTime }}</p>
-          </div>
-        </article>
+    <!-- Nuevo crucero: tipo + fecha de inicio (pedido de Gerencia, 30-oct-2026) -->
+    <section class="new-cruise" aria-labelledby="new-cruise-title">
+      <h2 id="new-cruise-title" class="new-title">
+        <i class="fa-solid fa-ship" aria-hidden="true" /> Nuevo crucero
+      </h2>
 
-        <article class="generate">
-          <div class="field">
-            <label>Inicio del tramo A</label>
-            <BaseDatePicker v-model="startDate" placeholder="Sábado de inicio" />
-          </div>
-          <div class="field">
-            <label>Generar hasta</label>
-            <BaseDatePicker v-model="untilDate" placeholder="Fecha final" />
-          </div>
-          <button type="button" class="btn btn-primary" :disabled="generating" @click="generate">
-            <i class="fa-regular fa-clock" aria-hidden="true" />
-            {{ generating ? 'Generando…' : 'Generar próximos cruceros' }}
-          </button>
-        </article>
+      <p class="step">1. Tipo de crucero</p>
+      <div class="leg-options" role="radiogroup" aria-label="Tipo de crucero">
+        <button
+          v-for="(leg, i) in settings?.legs ?? []"
+          :key="leg.code"
+          type="button"
+          role="radio"
+          class="leg-option"
+          :class="{ 'leg-option--on': newLeg === leg.code }"
+          :aria-checked="newLeg === leg.code"
+          @click="newLeg = leg.code"
+        >
+          <span class="leg-option-head">
+            <span class="leg-icon"><i class="fa-solid" :class="LEG_ICONS[i]" aria-hidden="true" /></span>
+            <strong class="leg-letter">Crucero {{ leg.code }}</strong>
+            <i v-if="newLeg === leg.code" class="fa-solid fa-circle-check leg-check" aria-hidden="true" />
+          </span>
+          <span class="leg-route">{{ leg.routeFrom }} → {{ leg.routeTo }}</span>
+          <span class="leg-meta">{{ leg.label }} · {{ leg.durationDays }} días · zarpe {{ leg.departureTime }}</span>
+        </button>
       </div>
-      <p class="rule">
-        Se repite A → B → C con su código y {{ settings?.cabinCount ?? 9 }} cabinas limpias. Volver a
-        generar no duplica cruceros y nunca toca los finalizados.
-      </p>
+
+      <p class="step">2. Fecha de inicio</p>
+      <div class="start-field">
+        <BaseDatePicker v-model="newStart" placeholder="Elige la fecha de inicio" />
+      </div>
+
+      <Transition name="fade" mode="out-in">
+        <div v-if="plan" :key="`${plan.leg}-${newStart}`" class="plan" :class="{ 'plan--busy': planning }" aria-live="polite">
+          <div class="plan-code">
+            <span>Código</span>
+            <strong>{{ plan.code }}</strong>
+          </div>
+          <dl class="plan-grid">
+            <div>
+              <dt>Ruta</dt>
+              <dd>{{ plan.routeFrom }} → {{ plan.routeTo }}</dd>
+            </div>
+            <div>
+              <dt>Inicio</dt>
+              <dd>{{ formatLongDate(newStart) }} · {{ plan.departureTime }}</dd>
+            </div>
+            <div>
+              <dt>Fin</dt>
+              <dd>{{ formatLongDate(plan.endKey) }} · {{ plan.departureTime }}</dd>
+            </div>
+            <div>
+              <dt>Duración y cabinas</dt>
+              <dd>{{ plan.durationDays }} días · {{ plan.cabinCount }} cabinas</dd>
+            </div>
+          </dl>
+          <p v-if="plan.overlap" class="plan-alert plan-alert--danger">
+            <i class="fa-solid fa-circle-exclamation" aria-hidden="true" />
+            Se cruza con el crucero {{ plan.overlap.code || plan.overlap.name }}
+            ({{ plan.overlap.status === 'abordo' ? 'en curso' : 'programado' }},
+            {{ formatDate(plan.overlap.startDate) }}<template v-if="plan.overlap.endDate"> → {{ formatDate(plan.overlap.endDate) }}</template>).
+            Elige otra fecha de inicio.
+          </p>
+          <p v-else-if="!plan.weekday.ok" class="plan-alert plan-alert--warning">
+            <i class="fa-solid fa-calendar-day" aria-hidden="true" />
+            El crucero {{ plan.leg }} zarpa en {{ plan.weekday.expected }} y el {{ formatDayKey(newStart) }} es
+            {{ plan.weekday.actual }}. Se puede crear igual si es correcto.
+          </p>
+        </div>
+        <p v-else-if="planError" class="plan-alert plan-alert--danger">
+          <i class="fa-solid fa-circle-exclamation" aria-hidden="true" /> {{ planError }}
+        </p>
+        <p v-else-if="planning" class="plan-hint"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true" /> Calculando…</p>
+        <p v-else class="plan-hint">
+          {{ newLeg ? 'Elige la fecha de inicio: la fecha de fin, la ruta y el código se completan solos.' : 'Elige el tipo de crucero y la fecha de inicio: el resto se completa solo.' }}
+        </p>
+      </Transition>
+
+      <button type="button" class="btn btn-primary create-btn" :disabled="!canCreate" @click="createCruise()">
+        <i class="fa-solid" :class="creating ? 'fa-spinner fa-spin' : 'fa-plus'" aria-hidden="true" />
+        {{ creating ? 'Creando…' : plan ? `Crear crucero ${plan.code}` : 'Crear crucero' }}
+      </button>
+    </section>
+
+    <!-- Programar varios: generador del ciclo A → B → C (opción secundaria) -->
+    <section class="cycle">
+      <button
+        type="button"
+        class="cycle-toggle"
+        :aria-expanded="showGenerator"
+        aria-controls="cycle-panel"
+        @click="showGenerator = !showGenerator"
+      >
+        <i class="fa-solid fa-layer-group" aria-hidden="true" />
+        <span>Programar varios</span>
+        <small>Repite A → B → C entre dos fechas</small>
+        <i class="fa-solid fa-chevron-down cycle-chevron" :class="{ 'cycle-chevron--open': showGenerator }" aria-hidden="true" />
+      </button>
+      <Transition name="fold">
+        <div v-if="showGenerator" id="cycle-panel" class="cycle-panel">
+          <article class="generate">
+            <div class="field">
+              <label>Inicio del crucero A</label>
+              <BaseDatePicker v-model="startDate" placeholder="Sábado de inicio" />
+            </div>
+            <div class="field">
+              <label>Programar hasta</label>
+              <BaseDatePicker v-model="untilDate" placeholder="Fecha final" />
+            </div>
+            <button type="button" class="btn btn-primary" :disabled="generating" @click="generate">
+              <i class="fa-regular fa-clock" aria-hidden="true" />
+              {{ generating ? 'Programando…' : 'Programar cruceros' }}
+            </button>
+          </article>
+          <p class="rule">
+            Se repite A → B → C con su código y {{ settings?.cabinCount ?? 9 }} cabinas limpias. Volver a
+            programar no duplica cruceros y nunca toca los finalizados.
+          </p>
+        </div>
+      </Transition>
     </section>
 
     <div class="tabs">
@@ -172,7 +350,7 @@ async function onPassengersSaved() {
 
     <SkeletonList v-if="loading" variant="card" :rows="3" />
     <p v-else-if="!visible.length" class="empty">
-      {{ tab === 'cerradas' ? 'Aún no hay cruceros finalizados.' : 'Aún no hay crucero programado. Genera el ciclo arriba.' }}
+      {{ tab === 'cerradas' ? 'Aún no hay cruceros finalizados.' : 'Aún no hay crucero programado. Crea uno arriba.' }}
     </p>
 
     <TransitionGroup v-else name="list" tag="div" class="cruises">
@@ -281,37 +459,113 @@ async function onPassengersSaved() {
   margin-bottom: 0.6rem;
 }
 
-.cycle {
-  margin-bottom: 1.5rem;
-}
-
-.cycle-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.75rem;
-  align-items: start;
-
-  @include tablet {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  @include wide {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-.leg,
-.generate {
+// ---- Nuevo crucero ----
+.new-cruise {
+  margin-bottom: 1rem;
+  padding: 1rem;
   background: var(--surface);
   border: 1px solid var(--cream-200);
   border-radius: var(--radius);
-  padding: 1rem;
-  min-width: 0;
+  box-shadow: var(--shadow);
+
+  @include tablet {
+    padding: 1.25rem 1.4rem;
+  }
 }
 
-.leg {
+.new-title {
   display: flex;
-  gap: 0.8rem;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 1.3rem;
+  margin-bottom: 0.9rem;
+
+  i {
+    color: var(--gold-500);
+  }
+}
+
+.step {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-400);
+}
+
+.leg-options {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+
+  @include tablet {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.leg-option {
+  min-width: 0;
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  padding: 0.85rem 0.95rem;
+  text-align: left;
+  background: var(--surface);
+  border: 2px solid var(--cream-200);
+  border-radius: var(--radius);
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.12s ease;
+
+  &:hover {
+    border-color: var(--powder-300);
+  }
+
+  &:active {
+    transform: scale(0.98);
+  }
+
+  &--on {
+    border-color: var(--navy-800);
+    background: var(--powder-100);
+    box-shadow: 0 0 0 3px rgba(39, 68, 90, 0.12);
+  }
+}
+
+.leg-option-head {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+}
+
+.leg-letter {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  color: var(--ink-900);
+}
+
+.leg-check {
+  margin-left: auto;
+  font-size: 1.25rem;
+  color: var(--navy-800);
+}
+
+.leg-route {
+  font-weight: 600;
+  color: var(--ink-900);
+  overflow-wrap: anywhere;
+}
+
+.leg-meta {
+  font-size: 0.84rem;
+  color: var(--ink-600);
 }
 
 .leg-icon {
@@ -325,32 +579,202 @@ async function onPassengersSaved() {
   color: var(--navy-700);
 }
 
-.leg-body {
-  min-width: 0;
+.leg-option--on .leg-icon {
+  background: var(--navy-800);
+  color: #fff;
+}
 
-  h3 {
-    font-family: var(--font-sans);
-    font-size: 0.95rem;
-    font-weight: 600;
-  }
+.start-field {
+  max-width: 360px;
+  margin-bottom: 1rem;
+}
 
-  p {
-    margin: 0.15rem 0 0;
-    font-size: 0.88rem;
-    color: var(--ink-600);
+.plan {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem 1.4rem;
+  align-items: flex-start;
+  padding: 0.9rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--powder-100);
+  transition: opacity 0.15s ease;
+
+  &--busy {
+    opacity: 0.6;
   }
 }
 
-.leg-meta {
-  font-size: 0.78rem !important;
-  color: var(--ink-400) !important;
+.plan-code {
+  display: flex;
+  flex-direction: column;
+
+  span {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink-400);
+  }
+
+  strong {
+    font-family: var(--font-serif);
+    font-size: 1.9rem;
+    line-height: 1.1;
+    color: var(--navy-800);
+  }
+}
+
+.plan-grid {
+  flex: 1 1 320px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.6rem 1.2rem;
+  margin: 0;
+
+  dt {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-400);
+  }
+
+  dd {
+    margin: 0.1rem 0 0;
+    font-weight: 600;
+    color: var(--ink-900);
+  }
+}
+
+.plan-alert {
+  flex: 1 1 100%;
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.9rem;
+
+  &--danger {
+    background: rgba(180, 72, 59, 0.1);
+    color: var(--danger);
+  }
+
+  &--warning {
+    background: rgba(185, 128, 47, 0.12);
+    color: var(--warning);
+  }
+}
+
+.plan-hint {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: var(--ink-400);
+}
+
+.create-btn {
+  min-height: 52px;
+  width: 100%;
+
+  @include tablet {
+    width: auto;
+    min-width: 260px;
+  }
+}
+
+// ---- Programar varios (plegado) ----
+.cycle {
+  margin-bottom: 1.5rem;
+}
+
+.cycle-toggle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.6rem;
+  width: 100%;
+  min-height: 52px;
+  padding: 0.6rem 0.95rem;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--cream-200);
+  border-radius: var(--radius);
+  font-weight: 600;
+  color: var(--ink-900);
+  transition: border-color 0.15s ease;
+
+  &:hover {
+    border-color: var(--powder-300);
+  }
+
+  > i:first-child {
+    color: var(--navy-700);
+  }
+
+  small {
+    font-weight: 500;
+    color: var(--ink-400);
+  }
+}
+
+.cycle-chevron {
+  margin-left: auto;
+  color: var(--ink-400);
+  transition: transform 0.2s ease;
+
+  &--open {
+    transform: rotate(180deg);
+  }
+}
+
+.cycle-panel {
+  padding-top: 0.6rem;
 }
 
 .generate {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+  padding: 1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--cream-200);
   background: var(--powder-100);
+
+  @include tablet {
+    flex-direction: row;
+    align-items: flex-end;
+
+    .field {
+      flex: 1 1 0;
+      margin: 0;
+    }
+  }
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.18s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.fold-enter-active,
+.fold-leave-active {
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+
+.fold-enter-from,
+.fold-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 .rule {

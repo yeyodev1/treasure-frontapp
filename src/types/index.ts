@@ -196,6 +196,31 @@ export interface CycleSettings {
   cabinCount: number
 }
 
+/** Vista previa de Nuevo crucero: lo calcula el servidor con la regla del ciclo. */
+export interface NewCruisePlan {
+  code: string
+  leg: string
+  label: string
+  routeFrom: string
+  routeTo: string
+  name: string
+  startDate: string
+  endDate: string
+  endKey: string
+  durationDays: number
+  departureTime: string
+  cabinCount: number
+  weekday: { ok: boolean; expected: string; actual: string }
+  overlap: {
+    _id: string
+    code: string
+    name: string
+    status: CruiseStatus
+    startDate: string
+    endDate: string | null
+  } | null
+}
+
 export interface OrderItem {
   product: string
   name: string

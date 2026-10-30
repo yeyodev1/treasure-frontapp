@@ -15,6 +15,7 @@ import type {
   PurchaseStatus,
   StartCheck,
   CycleSettings,
+  NewCruisePlan,
   LivePulse,
   Order,
   Passenger,
@@ -111,6 +112,17 @@ export async function apiGenerateCycle(startDate: string, until: string) {
     until,
   })
   return data
+}
+
+/** Nuevo crucero: tipo + fecha de inicio → fecha de fin, ruta, código y avisos. */
+export async function apiPlanCruise(leg: string, startDate: string) {
+  const { data } = await http.get<{ plan: NewCruisePlan }>('/cruises/plan', { params: { leg, startDate } })
+  return data.plan
+}
+
+export async function apiCreatePlannedCruise(leg: string, startDate: string, acceptWeekday: boolean) {
+  const { data } = await http.post<{ cruise: Cruise }>('/cruises/plan', { leg, startDate, acceptWeekday })
+  return data.cruise
 }
 
 export async function apiUpdateCruise(id: string, payload: Record<string, unknown>) {
