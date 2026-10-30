@@ -20,7 +20,7 @@ const emit = defineEmits<{ back: []; saved: [requisition: Requisition] }>()
 const catalog = useCatalogStore()
 const toast = useToastStore()
 const { play } = useSound()
-const save = useSaveAttempt()
+const save = useSaveAttempt('la solicitud')
 
 interface Line {
   product: Product
@@ -107,7 +107,7 @@ function done() {
 <template>
   <section class="flow">
     <FlowHeader
-      title="Solicitar abastecimiento"
+      title="Solicitar productos"
       icon="fa-hand-holding-droplet"
       :steps="['Qué necesitas', 'Enviar']"
       :current="reviewing ? 1 : 0"
@@ -125,7 +125,7 @@ function done() {
           @click="setKind('abastecimiento')"
         >
           <i class="fa-solid fa-dolly" aria-hidden="true" />
-          <strong>Pedir producto</strong>
+          <strong>Solicitar producto</strong>
           <small>Falta en el bar y lo debe subir bodega</small>
           <i v-if="!isRevision" class="fa-solid fa-circle-check tick" aria-hidden="true" />
         </button>
@@ -201,13 +201,13 @@ function done() {
 
     <SummaryModal
       v-if="reviewing"
-      :title="isRevision ? 'Enviar revisión de inventario' : 'Enviar requerimiento'"
-      :confirm-label="isRevision ? 'Enviar revisión' : 'Enviar a la directora'"
+      :title="isRevision ? 'Enviar revisión de inventario' : 'Enviar solicitud'"
+      :confirm-label="isRevision ? 'Enviar revisión' : 'Enviar solicitud'"
       :state="save.state.value"
       :message="save.message.value"
       :offline="save.offline.value"
-      :saved-text="saved ? `Guardado · ${saved.code} enviado` : 'Guardado'"
-      :notice="isRevision ? 'Bodega o la administradora lo revisan con un conteo.' : 'La directora lo aprueba y bodega lo sube al barco. Hasta entonces el stock no cambia.'"
+      :saved-text="saved ? (isRevision ? `Revisión ${saved.code} enviada · Se revisará con un conteo.` : `Solicitud ${saved.code} enviada · Pendiente de aprobación`) : 'Guardado'"
+      :notice="isRevision ? 'Se revisará con un conteo físico.' : 'Dirección de crucero la aprueba y bodega la sube al barco. Hasta entonces el stock no cambia.'"
       @confirm="confirm"
       @close="reviewing = false"
       @done="done"
