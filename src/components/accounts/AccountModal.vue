@@ -15,6 +15,7 @@ import {
   apiBonifyConsumption,
   apiCollectCabin,
   apiOrders,
+  apiProforma,
   apiReviewAnnulment,
   apiUndoConsumption,
 } from '@/services/api'
@@ -35,12 +36,13 @@ const annulmentOrders = shallowRef<Order[]>([])
 const loading = shallowRef(true)
 const busy = shallowRef(false)
 const showQr = shallowRef(false)
+const proformaBusy = shallowRef<'' | 'ver' | 'descargar'>('')
 
 const STATUS_LABEL: Record<string, string> = {
   abierta: 'Abierta',
   en_revision: 'En revisión',
   aprobada: 'Aprobada',
-  cobrada: 'Cobrada',
+  cobrada: 'Pagada',
 }
 
 const ACTION_LABEL: Record<string, string> = {
@@ -50,13 +52,13 @@ const ACTION_LABEL: Record<string, string> = {
   aprobada: 'Aprobada',
   devuelta: 'Devuelta con motivo',
   invalidada: 'Aprobación sin efecto',
-  cobrada: 'Cobrada',
-  reversada: 'Cobro reversado',
+  cobrada: 'Pagada',
+  reversada: 'Pago reversado',
 }
 
 const METHOD_OPTIONS = [
   { value: 'efectivo', label: 'Efectivo' },
-  { value: 'tarjeta', label: 'Tarjeta (datafast físico)' },
+  { value: 'tarjeta', label: 'Tarjeta' },
   { value: 'transferencia', label: 'Transferencia' },
   { value: 'online', label: 'Pago en línea' },
 ]
@@ -79,12 +81,30 @@ const missing = computed(() => ({
   country: !payer.value?.country,
 }))
 
-const deliveredLines = computed(() =>
-  (account.value?.orders ?? []).flatMap((order) =>
+function linesOf(orders: AccountSummary['orders']) {
+  return orders.flatMap((order) =>
     order.items
       .filter((i) => i.chargeableQty > 0)
       .map((i) => ({ ...i, orderId: order.id, by: order.by, at: order.createdAt, single: order.items.length === 1 })),
-  ),
+  )
+}
+
+const deliveredLines = computed(() => linesOf(account.value?.orders ?? []))
+/** Lo ya pagado se conserva: productos, pagos e historial (checklist 29-oct, 01). */
+const paidLines = computed(() => linesOf(account.value?.paidOrders ?? []))
+const neverCharged = computed(() => !deliveredLines.value.length && !paidLines.value.length)
+
+const INVOICE_LABEL: Record<string, string> = {
+  pendiente: 'Factura pendiente',
+  emitiendo: 'Emitiendo factura…',
+  emitida: 'Factura emitida',
+  error: 'Factura pendiente',
+  no_aplica: 'Sin factura',
+}
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+const emailError = computed(() =>
+  billing.email.trim() && !EMAIL.test(billing.email.trim()) ? 'Revisa el correo. Ejemplo: nombre@dominio.com.' : '',
 )
 
 const publicUrl = computed(() => `${window.location.origin}/cuenta/${props.cabin.accountToken}`)
@@ -103,11 +123,12 @@ const collectReady = computed(
     Boolean(account.value?.readyToCollect) &&
     (!missing.value.idNumber || billing.idNumber.trim()) &&
     (!missing.value.name || billing.name.trim()) &&
+    !emailError.value &&
     (method.value !== 'efectivo' || cashConfirmed.value) &&
     (method.value !== 'transferencia' || reference.value.trim()),
 )
 
-/** La directora corrige: bonificar (se consumió) o quitar (no se sirvió). */
+/** Dirección corrige: cortesía (se sirvió) o deshacer registro por error (no se sirvió). */
 const canCorrect = computed(() => userStore.isDirector && account.value?.status !== 'cobrada')
 const isBar = computed(() => userStore.role === 'bartender')
 
@@ -146,14 +167,14 @@ async function run(action: () => Promise<void>, successSound: 'success' | 'cash'
 function submitReview() {
   return run(async () => {
     account.value = await apiAccountAction(props.cruiseId, props.cabin.number, 'submit')
-    toast.success('Cuenta enviada a revisión de la directora')
+    toast.success('Cuenta enviada a revisión')
   })
 }
 
 function approve() {
   return run(async () => {
     account.value = await apiAccountAction(props.cruiseId, props.cabin.number, 'approve')
-    toast.success('Cuenta aprobada: lista para cobrar')
+    toast.success('Cuenta aprobada. Lista para cobrar.')
   })
 }
 
@@ -202,16 +223,16 @@ async function reviewAnnulment(order: Order, annulmentId: string, decision: 'apr
 
 async function bonify(line: { orderId: string; name: string; chargeableQty: number }) {
   const reason = await confirmStore.askReason({
-    title: `¿Bonificar ${line.chargeableQty} ${line.name}?`,
-    message: 'Deja de cobrarse, pero se consumió: los ingredientes siguen descontados. La aprobación de la cuenta queda sin efecto.',
-    confirmLabel: 'Bonificar',
+    title: `¿Marcar ${line.chargeableQty} ${line.name} como cortesía?`,
+    message: 'Deja de cobrarse, pero se sirvió: los ingredientes siguen descontados. La aprobación de la cuenta queda sin efecto.',
+    confirmLabel: 'Marcar como cortesía',
     icon: 'fa-gift',
     reason: { label: 'Motivo (obligatorio)', suggestions: ['Cortesía de la casa', 'Compensación al pasajero'] },
   })
   if (!reason) return
   await run(async () => {
     await apiBonifyConsumption(line.orderId, reason)
-    toast.success('Bebida bonificada')
+    toast.success('Marcada como cortesía')
   })
 }
 
@@ -221,9 +242,9 @@ async function removeLine(line: { orderId: string; name: string; chargeableQty: 
     return
   }
   const reason = await confirmStore.askReason({
-    title: `¿Quitar ${line.chargeableQty} ${line.name}?`,
-    message: 'Para un registro por error sin bebida servida: se quita el cargo y los ingredientes vuelven al stock.',
-    confirmLabel: 'Quitar',
+    title: `¿Deshacer ${line.chargeableQty} ${line.name} registrado por error?`,
+    message: 'Se quitará el cargo y se devolverán los ingredientes porque la bebida no se sirvió.',
+    confirmLabel: 'Deshacer registro',
     danger: true,
     icon: 'fa-rotate-left',
     reason: { label: 'Motivo (obligatorio)', suggestions: ['No se sirvió', 'Cabina equivocada'] },
@@ -231,7 +252,7 @@ async function removeLine(line: { orderId: string; name: string; chargeableQty: 
   if (!reason) return
   await run(async () => {
     await apiUndoConsumption(line.orderId, reason)
-    toast.success('Cargo y stock revertidos')
+    toast.success('Registro deshecho: cargo quitado e ingredientes devueltos')
   })
 }
 
@@ -239,7 +260,7 @@ async function collect() {
   if (!account.value) return
   const ok = await confirmStore.ask({
     title: `¿Cobrar ${formatMoney(account.value.total)} a cabina ${props.cabin.number}?`,
-    message: `Método: ${METHOD_OPTIONS.find((m) => m.value === method.value)?.label}. Se emite la factura a nombre de ${billing.name || payer.value?.name}.`,
+    message: `Método: ${METHOD_OPTIONS.find((m) => m.value === method.value)?.label}. Factura a nombre de ${billing.name || payer.value?.name}.`,
     confirmLabel: 'Cobrar',
     icon: 'fa-cash-register',
   })
@@ -258,15 +279,45 @@ async function collect() {
         country: billing.country || undefined,
       },
     })
+    // Pago y factura son estados separados: nunca se afirma una emisión pendiente (L03).
     if (payment?.invoiceStatus === 'emitida') {
-      toast.success(`Cabina ${props.cabin.number} cobrada · factura ${payment.invoiceNumber ?? ''}`)
+      toast.success(`Pago registrado. Factura ${payment.invoiceNumber ?? ''} emitida.`)
     } else {
-      toast.success(`Cabina ${props.cabin.number} cobrada`)
-      if (payment?.invoiceStatus === 'error') {
-        toast.error(`La factura quedó pendiente: ${payment.invoiceError}. Reintenta desde Cobros.`)
-      }
+      toast.success(`Pago registrado · cabina ${props.cabin.number}`)
+      toast.push(
+        `Factura pendiente. ${payment?.invoiceError || 'Reintenta la emisión desde Cobros.'}`,
+        payment?.invoiceStatus === 'error' ? 'error' : 'info',
+      )
     }
   }, 'cash')
+}
+
+/**
+ * Prefactura en inglés: "Ver" la abre en otra pestaña (se reserva antes de
+ * pedirla para que el navegador no la bloquee); "Descargar" guarda el PDF.
+ */
+async function openProforma(download: boolean) {
+  if (proformaBusy.value) return
+  const tab = download ? null : window.open('', '_blank')
+  proformaBusy.value = download ? 'descargar' : 'ver'
+  try {
+    const { blob, fileName } = await apiProforma(props.cruiseId, props.cabin.number, download)
+    const url = URL.createObjectURL(blob)
+    if (tab) {
+      tab.location.href = url
+    } else {
+      const link = document.createElement('a')
+      link.href = url
+      link.download = fileName
+      link.click()
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  } catch (err) {
+    tab?.close()
+    toast.error(apiErrorMessage(err))
+  } finally {
+    proformaBusy.value = ''
+  }
 }
 </script>
 
@@ -280,8 +331,24 @@ async function collect() {
     <div v-else-if="account" class="acc">
       <header class="acc-state" :class="`acc-state--${account.status}`">
         <span class="acc-status">{{ STATUS_LABEL[account.status] }}</span>
-        <strong class="acc-total">{{ formatMoney(account.total) }}</strong>
+        <strong class="acc-total">{{ formatMoney(account.status === 'cobrada' ? account.consumed : account.total) }}</strong>
       </header>
+
+      <!-- Cuenta completa: lo pagado no desaparece (checklist 29-oct, 01) -->
+      <dl v-if="!isBar && !neverCharged" class="acc-sums">
+        <div>
+          <dt>Consumos</dt>
+          <dd>{{ formatMoney(account.consumed) }}</dd>
+        </div>
+        <div>
+          <dt>Pagado</dt>
+          <dd>{{ formatMoney(account.paid) }}</dd>
+        </div>
+        <div :class="{ 'acc-sums--due': account.due > 0 }">
+          <dt>Por cobrar</dt>
+          <dd>{{ formatMoney(account.due) }}</dd>
+        </div>
+      </dl>
 
       <p v-if="account.pendingDeliveries" class="warn">
         <i class="fa-solid fa-hourglass-half" aria-hidden="true" />
@@ -291,7 +358,8 @@ async function collect() {
 
       <!-- Consumos entregados con su autor -->
       <section class="lines">
-        <p v-if="!deliveredLines.length" class="muted">Sin consumos en esta cuenta.</p>
+        <p v-if="neverCharged" class="muted">Sin consumos en esta cuenta.</p>
+        <p v-else-if="!deliveredLines.length" class="muted">Sin consumos por cobrar.</p>
         <div v-for="line in deliveredLines" :key="`${line.orderId}-${line.index}`" class="line">
           <div class="line-main">
             <span class="line-name">
@@ -309,10 +377,10 @@ async function collect() {
           </span>
           <div v-if="canCorrect && line.single" class="line-actions">
             <button v-if="!line.courtesy" type="button" class="line-btn" :disabled="busy" @click="bonify(line)">
-              <i class="fa-solid fa-gift" aria-hidden="true" /> Bonificar
+              <i class="fa-solid fa-gift" aria-hidden="true" /> Marcar como cortesía
             </button>
             <button type="button" class="line-btn line-btn--danger" :disabled="busy" @click="removeLine(line)">
-              <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Quitar
+              <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Deshacer registro por error
             </button>
           </div>
         </div>
@@ -320,6 +388,49 @@ async function collect() {
           Cortesías registradas: {{ formatMoney(account.courtesyTotal) }}
         </p>
       </section>
+
+      <!-- Consumos ya pagados y sus pagos: solo lectura -->
+      <section v-if="paidLines.length || account.payments.length" class="paid">
+        <h4><i class="fa-solid fa-circle-check" aria-hidden="true" /> Pagado</h4>
+        <div v-for="line in paidLines" :key="`p-${line.orderId}-${line.index}`" class="line line--paid">
+          <div class="line-main">
+            <span class="line-name">
+              {{ line.chargeableQty }} × {{ line.name }}
+              <em v-if="line.courtesy" class="tag-courtesy">cortesía</em>
+            </span>
+            <span class="line-meta">
+              <i class="fa-regular fa-user" aria-hidden="true" /> {{ line.by }} · {{ formatDateTime(line.at) }}
+            </span>
+          </div>
+          <span class="line-amount">{{ formatMoney(line.courtesy ? 0 : line.chargeableQty * line.unitPrice) }}</span>
+        </div>
+        <ul v-if="!isBar" class="payments">
+          <li v-for="p in account.payments" :key="p.id">
+            <span>
+              <strong>Pago registrado</strong> · {{ METHOD_OPTIONS.find((m) => m.value === p.method)?.label ?? p.method }} ·
+              {{ formatDateTime(p.createdAt) }}
+              <small :class="`invoice invoice--${p.invoiceStatus}`">
+                {{ INVOICE_LABEL[p.invoiceStatus] ?? p.invoiceStatus }}{{ p.invoiceNumber ? ` ${p.invoiceNumber}` : '' }}{{
+                  p.invoiceStatus !== 'emitida' && p.invoiceError ? `. ${p.invoiceError}` : ''
+                }}
+              </small>
+            </span>
+            <strong>{{ formatMoney(p.total) }}</strong>
+          </li>
+        </ul>
+      </section>
+
+      <!-- Prefactura en inglés: antes y después de pagar, sin correo ni Contífico -->
+      <div v-if="userStore.isDirector && !neverCharged" class="proforma">
+        <button type="button" class="btn btn-ghost" :disabled="Boolean(proformaBusy)" @click="openProforma(false)">
+          <i class="fa-regular fa-file-lines" aria-hidden="true" />
+          {{ proformaBusy === 'ver' ? 'Abriendo…' : 'Ver prefactura' }}
+        </button>
+        <button type="button" class="btn btn-ghost" :disabled="Boolean(proformaBusy)" @click="openProforma(true)">
+          <i class="fa-solid fa-file-arrow-down" aria-hidden="true" />
+          {{ proformaBusy === 'descargar' ? 'Descargando…' : 'Descargar prefactura en inglés' }}
+        </button>
+      </div>
 
       <!-- Anulaciones pendientes de revisión -->
       <section v-if="annulmentOrders.length && userStore.isLead" class="annulments">
@@ -393,7 +504,7 @@ async function collect() {
           </button>
         </div>
         <p v-if="account.status === 'en_revision' && !userStore.isLead" class="muted small">
-          La directora está revisando esta cuenta.
+          Cuenta en revisión.
         </p>
       </div>
 
@@ -415,7 +526,16 @@ async function collect() {
           </div>
           <div v-if="missing.email" class="field">
             <label for="bill-email">Correo para la factura (opcional)</label>
-            <input id="bill-email" v-model="billing.email" type="email" />
+            <input
+              id="bill-email"
+              v-model="billing.email"
+              type="email"
+              :aria-invalid="Boolean(emailError)"
+              aria-describedby="bill-email-error"
+            />
+            <Transition name="fade">
+              <small v-if="emailError" id="bill-email-error" class="field-error">{{ emailError }}</small>
+            </Transition>
           </div>
           <div v-if="missing.country" class="field">
             <label>País (opcional)</label>
@@ -438,7 +558,7 @@ async function collect() {
           </button>
         </template>
         <p v-else-if="account.readyToCollect" class="muted small">
-          Aprobada. Cobra la directora.
+          Aprobada. Lista para cobrar.
         </p>
       </section>
 
@@ -449,7 +569,7 @@ async function collect() {
       <Transition name="fade">
         <div v-if="showQr" class="qr-box">
           <QrCanvas :text="publicUrl" :size="220" />
-          <p>El pasajero escanea y ve su consumo en su celular.</p>
+          <p>El pasajero escanea y ve su cuenta en inglés: total, pagos y saldo.</p>
         </div>
       </Transition>
 
@@ -533,6 +653,107 @@ async function collect() {
     background: var(--navy-800);
     color: #fff;
   }
+}
+
+.acc-sums {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin: 0;
+
+  div {
+    padding: 0.55rem 0.7rem;
+    border-radius: var(--radius-sm);
+    background: var(--cream-100);
+    min-width: 0;
+  }
+
+  dt {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-400);
+  }
+
+  dd {
+    margin: 0.1rem 0 0;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &--due dd {
+    color: var(--warning);
+  }
+}
+
+.paid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+
+  h4 {
+    margin: 0;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: var(--ink-600);
+
+    i {
+      color: var(--success);
+    }
+  }
+}
+
+.line--paid {
+  opacity: 0.8;
+}
+
+.payments {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  font-size: 0.86rem;
+
+  li {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  small {
+    display: block;
+  }
+}
+
+.invoice {
+  font-weight: 600;
+  color: var(--warning);
+
+  &--emitida {
+    color: var(--success);
+  }
+
+  &--error {
+    color: var(--danger);
+  }
+}
+
+.proforma {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.5rem;
+}
+
+.field-error {
+  color: var(--danger);
+  font-weight: 600;
+  font-size: 0.8rem;
 }
 
 .acc-status {
