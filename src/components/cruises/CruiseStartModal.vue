@@ -24,7 +24,7 @@ const check = shallowRef<StartCheck | null>(null)
 const starting = shallowRef(false)
 const showWarnings = shallowRef(false)
 
-const label = computed(() => (props.cruise.code ? `Salida ${props.cruise.code}` : props.cruise.name))
+const label = computed(() => (props.cruise.code ? `Crucero ${props.cruise.code}` : props.cruise.name))
 const warningCount = computed(() => (check.value ? check.value.warnings.unavailable.length + check.value.warnings.low.length : 0))
 
 onMounted(async () => {
@@ -71,7 +71,7 @@ async function start() {
           <dd>{{ check.occupancy.passengers }} pasajeros en {{ check.occupancy.occupied }} de {{ check.occupancy.cabins }} cabinas</dd>
         </div>
         <div v-if="check.occupancy.empty.length">
-          <dt>Cabinas vacías</dt>
+          <dt>Cabinas sin pasajeros</dt>
           <dd>{{ check.occupancy.empty.join(', ') }} (no aceptan consumos)</dd>
         </div>
       </dl>
@@ -95,7 +95,7 @@ async function start() {
           <div v-if="showWarnings" class="box-body">
             <p v-if="check.warnings.unavailable.length"><strong>No disponibles en el bar:</strong> {{ check.warnings.unavailable.join(' · ') }}</p>
             <p v-if="check.warnings.low.length"><strong>Stock bajo:</strong> {{ check.warnings.low.join(' · ') }}</p>
-            <p class="hint">Cárgalos desde Bodega o pide un requerimiento. El bar verá "No disponible" solo en esos productos.</p>
+            <p class="hint">Cárgalos desde Bodega o envía una solicitud. El bar verá "No disponible" solo en esos productos.</p>
           </div>
         </Transition>
       </div>
