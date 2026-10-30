@@ -3,12 +3,16 @@ import { computed, shallowRef } from 'vue'
 import type { Availability, Product, ProductCategory } from '@/types'
 import { CATEGORY_LABELS } from '@/stores/catalog'
 import ProductIcon from '@/components/ui/ProductIcon.vue'
+import BaseModal from '@/components/ui/BaseModal.vue'
 import { formatMoney } from '@/utils/format'
 
 /**
  * Carta del bar: el producto es el botón (un toque suma una unidad).
  * Favoritos, Todas, Sin alcohol y categorías; lo que no tiene stock a bordo
  * aparece "No disponible" con lo que falta, sin bloquear el resto.
+ * En celular (checklist 29-oct, 12) solo quedan Favoritos, Todas, Sin alcohol
+ * y "Más" (resto de categorías y Editar favoritos) para que las bebidas se
+ * vean sin desplazarse; las zonas táctiles no se achican.
  */
 const props = withDefaults(
   defineProps<{
@@ -30,10 +34,25 @@ const emit = defineEmits<{
 
 const NON_ALCOHOLIC: ProductCategory[] = ['gaseosa', 'agua', 'jugo', 'snack']
 
-type Filter = 'favoritos' | 'todas' | 'sin_alcohol' | ProductCategory
-const filter = shallowRef<Filter>(props.favorites.length ? 'favoritos' : 'todas')
+export type CatalogFilter = 'favoritos' | 'todas' | 'sin_alcohol' | ProductCategory
+type Filter = CatalogFilter
+/** El filtro lo guarda la vista del bar para recuperarlo al recargar. */
+const filter = defineModel<Filter>('filter', { default: 'todas' })
 const query = shallowRef('')
 const editingFavorites = shallowRef(false)
+const showMore = shallowRef(false)
+
+const isCategory = computed(() => !['favoritos', 'todas', 'sin_alcohol'].includes(filter.value))
+
+function pickMore(next: Filter) {
+  filter.value = next
+  showMore.value = false
+}
+
+function editFromMore() {
+  showMore.value = false
+  editingFavorites.value = true
+}
 
 function normalize(text: string): string {
   return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -107,11 +126,23 @@ function onTap(p: Product) {
         v-for="cat in categories"
         :key="cat"
         type="button"
-        class="chip"
+        class="chip chip--cat"
         :class="{ 'chip--active': filter === cat }"
         @click="filter = cat"
       >
         {{ CATEGORY_LABELS[cat] }}
+      </button>
+      <!-- Celular: el resto de categorías va en "Más"; si hay una elegida, se nombra aquí -->
+      <button
+        type="button"
+        class="chip chip--more"
+        :class="{ 'chip--active': isCategory }"
+        :aria-expanded="showMore"
+        @click="showMore = true"
+      >
+        <template v-if="isCategory">{{ CATEGORY_LABELS[filter as ProductCategory] }}</template>
+        <template v-else>Más</template>
+        <i class="fa-solid fa-chevron-down" aria-hidden="true" />
       </button>
       <button
         type="button"
@@ -136,6 +167,24 @@ function onTap(p: Product) {
       <template v-else-if="filter === 'favoritos'">Aún no hay favoritos: toca "Editar favoritos" o usa Todas.</template>
       <template v-else>No hay bebidas en este grupo.</template>
     </p>
+
+    <BaseModal v-if="showMore" title="Más categorías" @close="showMore = false">
+      <div class="more-grid">
+        <button
+          v-for="cat in categories"
+          :key="cat"
+          type="button"
+          class="chip"
+          :class="{ 'chip--active': filter === cat }"
+          @click="pickMore(cat)"
+        >
+          {{ CATEGORY_LABELS[cat] }}
+        </button>
+      </div>
+      <button type="button" class="chip chip--edit-more" @click="editFromMore">
+        <i class="fa-solid fa-pen" aria-hidden="true" /> Editar favoritos
+      </button>
+    </BaseModal>
 
     <TransitionGroup name="tile" tag="div" class="grid">
       <template v-for="product in visible" :key="product._id">
@@ -177,7 +226,7 @@ function onTap(p: Product) {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  min-height: 52px;
+  min-height: 48px;
   padding: 0 0.9rem;
   margin-bottom: 0.7rem;
   background: var(--surface);
@@ -219,9 +268,51 @@ function onTap(p: Product) {
 
 .chips {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.4rem;
   padding-bottom: 0.6rem;
+
+  @include tablet {
+    flex-wrap: wrap;
+  }
+}
+
+// Celular: Favoritos, Todas, Sin alcohol y Más en una sola fila.
+.chip--cat,
+.chip--edit {
+  display: none !important;
+
+  @include tablet {
+    display: inline-flex !important;
+  }
+}
+
+.chips > .chip {
+  flex: 1 1 auto;
+  justify-content: center;
+  min-width: 0;
+
+  @include tablet {
+    flex: 0 0 auto;
+  }
+}
+
+.chip--more {
+
+  @include tablet {
+    display: none !important;
+  }
+}
+
+.more-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.chip--edit-more {
+  border-style: dashed;
 }
 
 .chip {
@@ -229,7 +320,7 @@ function onTap(p: Product) {
   align-items: center;
   gap: 0.4rem;
   min-height: 48px;
-  padding: 0 1rem;
+  padding: 0 0.8rem;
   border-radius: 999px;
   background: var(--surface);
   border: 1.5px solid var(--cream-200);
@@ -252,6 +343,10 @@ function onTap(p: Product) {
     margin-left: auto;
     border-style: dashed;
   }
+
+  @include tablet {
+    padding: 0 1rem;
+  }
 }
 
 .edit-help {
@@ -269,7 +364,12 @@ function onTap(p: Product) {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+
+  @include tablet {
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  }
+
   gap: 0.55rem;
 
   @include desktop {
@@ -289,8 +389,9 @@ function onTap(p: Product) {
   background: var(--surface);
   border: 2px solid var(--cream-200);
   border-radius: var(--radius-sm);
-  min-height: 112px;
+  min-height: 96px;
   text-align: left;
+
   transition:
     transform 0.12s ease,
     border-color 0.15s ease,
@@ -313,6 +414,10 @@ function onTap(p: Product) {
   &--fav {
     border-color: var(--gold-500);
     background: rgba(159, 107, 60, 0.07);
+  }
+
+  @include tablet {
+    min-height: 112px;
   }
 
   &--off {
