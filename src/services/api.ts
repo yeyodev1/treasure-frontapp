@@ -241,10 +241,27 @@ export async function apiCollectCabin(payload: {
   method: PaymentMethod
   cashConfirmed?: boolean
   reference?: string
+  /** Monto de este pago (parcial o el saldo completo). */
+  amount?: number
+  /** Saldo que vio quien cobra: si cambió, el servidor rechaza (doble clic). */
+  expectedDue?: number
   billing: { name?: string; idNumber?: string; email?: string; country?: string }
 }) {
-  const { data } = await http.post<{ payment: Payment }>('/payments/collect', payload)
-  return data.payment
+  const { data } = await http.post<{
+    payment: Payment
+    settled: boolean
+    due: number
+    email: { status: 'enviado' | 'error' | 'omitido'; to: string; error: string } | null
+  }>('/payments/collect', payload)
+  return data
+}
+
+/** Reenvía el resumen de la cuenta pagada al correo del pagador. */
+export async function apiResendSummary(paymentId: string) {
+  const { data } = await http.post<{ email: { status: string; to: string; error: string } }>(
+    `/payments/${paymentId}/resend-summary`,
+  )
+  return data.email
 }
 
 export async function apiPayments(

@@ -16,6 +16,7 @@ import {
   apiCollectCabin,
   apiOrders,
   apiProforma,
+  apiResendSummary,
   apiReviewAnnulment,
   apiUndoConsumption,
 } from '@/services/api'
@@ -53,7 +54,10 @@ const ACTION_LABEL: Record<string, string> = {
   devuelta: 'Devuelta con motivo',
   invalidada: 'Aprobación sin efecto',
   cobrada: 'Pagada',
+  pago_parcial: 'Pago parcial',
   reversada: 'Pago reversado',
+  correo_enviado: 'Resumen enviado por correo',
+  correo_no_enviado: 'Correo no enviado',
 }
 
 const METHOD_OPTIONS = [
@@ -72,6 +76,23 @@ const method = shallowRef('efectivo')
 const cashConfirmed = shallowRef(false)
 /** Voucher, número de transferencia… (obligatorio en transferencias). */
 const reference = shallowRef('')
+/** Monto de este pago: por defecto el saldo; menor = pago parcial (P05). */
+const amount = shallowRef('')
+const amountValue = computed(() => Number(amount.value.replace(',', '.')))
+const amountError = computed(() => {
+  const due = account.value?.due ?? 0
+  const value = amountValue.value
+  if (!amount.value.trim() || !Number.isFinite(value) || Math.round(value * 100) <= 0) {
+    return 'Introduce una cantidad mayor que cero.'
+  }
+  if (Math.round(value * 100) > Math.round(due * 100)) {
+    return `No puede ser mayor que el saldo (${formatMoney(due)}).`
+  }
+  return ''
+})
+const isPartial = computed(
+  () => !amountError.value && Math.round(amountValue.value * 100) < Math.round((account.value?.due ?? 0) * 100),
+)
 
 /** Solo se piden los datos que el pagador no tiene registrados. */
 const missing = computed(() => ({
@@ -100,6 +121,12 @@ const INVOICE_LABEL: Record<string, string> = {
   emitida: 'Factura emitida',
   error: 'Factura pendiente',
   no_aplica: 'Sin factura',
+  parcial: 'Se factura al completar el pago',
+}
+
+function invoiceLabel(p: AccountSummary['payments'][number]) {
+  if (p.invoiceStatus === 'parcial') return p.settled ? 'Incluido en la factura del pago final' : INVOICE_LABEL.parcial
+  return INVOICE_LABEL[p.invoiceStatus] ?? p.invoiceStatus
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
@@ -124,6 +151,7 @@ const collectReady = computed(
     (!missing.value.idNumber || billing.idNumber.trim()) &&
     (!missing.value.name || billing.name.trim()) &&
     !emailError.value &&
+    !amountError.value &&
     (method.value !== 'efectivo' || cashConfirmed.value) &&
     (method.value !== 'transferencia' || reference.value.trim()),
 )
@@ -139,6 +167,7 @@ async function load() {
       apiOrders({ cruiseId: props.cruiseId, cabinNumber: props.cabin.number, annulment: 'pendiente' }),
     ])
     account.value = acc
+    amount.value = acc.due > 0 ? acc.due.toFixed(2) : ''
     annulmentOrders.value = ann.orders
   } catch (err) {
     toast.error(apiErrorMessage(err))
@@ -257,21 +286,28 @@ async function removeLine(line: { orderId: string; name: string; chargeableQty: 
 }
 
 async function collect() {
-  if (!account.value) return
+  if (!account.value || amountError.value) return
+  const charge = Math.round(amountValue.value * 100) / 100
+  const due = account.value.due
+  const methodLabel = METHOD_OPTIONS.find((m) => m.value === method.value)?.label
   const ok = await confirmStore.ask({
-    title: `¿Cobrar ${formatMoney(account.value.total)} a cabina ${props.cabin.number}?`,
-    message: `Método: ${METHOD_OPTIONS.find((m) => m.value === method.value)?.label}. Factura a nombre de ${billing.name || payer.value?.name}.`,
+    title: `¿Cobrar ${formatMoney(charge)} a cabina ${props.cabin.number}?`,
+    message: isPartial.value
+      ? `Pago parcial con ${methodLabel}. Queda un saldo de ${formatMoney(due - charge)}: la cuenta se marca Pagada cuando llegue a cero.`
+      : `Método: ${methodLabel}. Factura a nombre de ${billing.name || payer.value?.name}.`,
     confirmLabel: 'Cobrar',
     icon: 'fa-cash-register',
   })
   if (!ok) return
   await run(async () => {
-    const payment = await apiCollectCabin({
+    const result = await apiCollectCabin({
       cruiseId: props.cruiseId,
       cabinNumber: props.cabin.number,
       method: method.value as PaymentMethod,
       cashConfirmed: cashConfirmed.value,
       reference: reference.value.trim() || undefined,
+      amount: charge,
+      expectedDue: due,
       billing: {
         name: billing.name || undefined,
         idNumber: billing.idNumber || undefined,
@@ -279,17 +315,55 @@ async function collect() {
         country: billing.country || undefined,
       },
     })
+    const payment = result.payment
+    // Otro medio para el siguiente pago: se limpia lo del anterior.
+    cashConfirmed.value = false
+    reference.value = ''
+    if (!result.settled) {
+      toast.success(`Pago parcial registrado. Saldo ${formatMoney(result.due)}`)
+      return
+    }
     // Pago y factura son estados separados: nunca se afirma una emisión pendiente (L03).
     if (payment?.invoiceStatus === 'emitida') {
-      toast.success(`Pago registrado. Factura ${payment.invoiceNumber ?? ''} emitida.`)
+      toast.success(`Cuenta pagada. Factura ${payment.invoiceNumber ?? ''} emitida.`)
     } else {
-      toast.success(`Pago registrado · cabina ${props.cabin.number}`)
+      toast.success(`Cuenta pagada · cabina ${props.cabin.number}`)
       toast.push(
         `Factura pendiente. ${payment?.invoiceError || 'Reintenta la emisión desde Cobros.'}`,
         payment?.invoiceStatus === 'error' ? 'error' : 'info',
       )
     }
+    if (result.email?.status === 'enviado') toast.push(`Resumen enviado a ${result.email.to}`, 'info')
+    else if (result.email?.status === 'error') toast.push(`Correo no enviado: ${result.email.error}`, 'error')
   }, 'cash')
+}
+
+/** Pago que liquidó la cuenta: lleva la factura y el resumen por correo. */
+const settlingPayment = computed(() => {
+  const list = account.value?.payments ?? []
+  return [...list].reverse().find((p) => p.settled && p.invoiceStatus !== 'parcial') ?? null
+})
+
+async function resendSummary() {
+  const target = settlingPayment.value
+  if (!target) return
+  const to = target.summaryEmail.to || payer.value?.email || ''
+  if (!to) {
+    toast.error('El pagador no tiene correo. Regístralo en Pasajeros y vuelve a intentar.')
+    return
+  }
+  const ok = await confirmStore.ask({
+    title: '¿Reenviar el resumen de la cuenta?',
+    message: `Se enviará a ${to} en inglés, con la prefactura en PDF. No es una factura.`,
+    confirmLabel: 'Reenviar',
+    icon: 'fa-envelope',
+  })
+  if (!ok) return
+  await run(async () => {
+    const email = await apiResendSummary(target.id)
+    if (email.status === 'enviado') toast.success(`Resumen enviado a ${email.to}`)
+    else throw new Error(`Correo no enviado: ${email.error}`)
+  })
 }
 
 /**
@@ -331,7 +405,7 @@ async function openProforma(download: boolean) {
     <div v-else-if="account" class="acc">
       <header class="acc-state" :class="`acc-state--${account.status}`">
         <span class="acc-status">{{ STATUS_LABEL[account.status] }}</span>
-        <strong class="acc-total">{{ formatMoney(account.status === 'cobrada' ? account.consumed : account.total) }}</strong>
+        <strong class="acc-total">{{ formatMoney(account.status === 'cobrada' ? account.consumed : account.due) }}</strong>
       </header>
 
       <!-- Cuenta completa: lo pagado no desaparece (checklist 29-oct, 01) -->
@@ -407,10 +481,11 @@ async function openProforma(download: boolean) {
         <ul v-if="!isBar" class="payments">
           <li v-for="p in account.payments" :key="p.id">
             <span>
-              <strong>Pago registrado</strong> · {{ METHOD_OPTIONS.find((m) => m.value === p.method)?.label ?? p.method }} ·
+              <strong>{{ p.invoiceStatus === 'parcial' ? 'Pago parcial' : 'Pago registrado' }}</strong> ·
+              {{ METHOD_OPTIONS.find((m) => m.value === p.method)?.label ?? p.method }} ·
               {{ formatDateTime(p.createdAt) }}
               <small :class="`invoice invoice--${p.invoiceStatus}`">
-                {{ INVOICE_LABEL[p.invoiceStatus] ?? p.invoiceStatus }}{{ p.invoiceNumber ? ` ${p.invoiceNumber}` : '' }}{{
+                {{ invoiceLabel(p) }}{{ p.invoiceNumber ? ` ${p.invoiceNumber}` : '' }}{{
                   p.invoiceStatus !== 'emitida' && p.invoiceError ? `. ${p.invoiceError}` : ''
                 }}
               </small>
@@ -418,6 +493,24 @@ async function openProforma(download: boolean) {
             <strong>{{ formatMoney(p.total) }}</strong>
           </li>
         </ul>
+        <!-- Resumen por correo al pagador (al quedar Pagada) -->
+        <div v-if="!isBar && settlingPayment && account.status === 'cobrada'" class="mail">
+          <p class="small" :class="`mail--${settlingPayment.summaryEmail.status}`">
+            <i class="fa-regular fa-envelope" aria-hidden="true" />
+            <template v-if="settlingPayment.summaryEmail.status === 'enviado'">
+              Resumen enviado a {{ settlingPayment.summaryEmail.to }}
+              <span v-if="settlingPayment.summaryEmail.sentAt"> · {{ formatDateTime(settlingPayment.summaryEmail.sentAt) }}</span>
+            </template>
+            <template v-else-if="settlingPayment.summaryEmail.status === 'error'">
+              Correo no enviado: {{ settlingPayment.summaryEmail.error }}
+            </template>
+            <template v-else-if="settlingPayment.summaryEmail.status === 'enviando'">Enviando resumen…</template>
+            <template v-else>Resumen por correo sin enviar</template>
+          </p>
+          <button v-if="userStore.canCollect" type="button" class="line-btn" :disabled="busy" @click="resendSummary">
+            <i class="fa-solid fa-paper-plane" aria-hidden="true" /> Reenviar resumen por correo
+          </button>
+        </div>
       </section>
 
       <!-- Prefactura en inglés: antes y después de pagar, sin correo ni Contífico -->
@@ -541,6 +634,39 @@ async function openProforma(download: boolean) {
             <label>País (opcional)</label>
             <BaseSelect v-model="billing.country" :options="COUNTRY_OPTIONS" searchable placeholder="Buscar país…" />
           </div>
+          <p v-if="account.partialPaid > 0" class="muted small">
+            Pagos parciales: {{ formatMoney(account.partialPaid) }} · Saldo {{ formatMoney(account.due) }}
+          </p>
+          <div class="field">
+            <label for="pay-amount">Monto a cobrar</label>
+            <div class="amount-row">
+              <span class="amount-prefix" aria-hidden="true">$</span>
+              <input
+                id="pay-amount"
+                v-model="amount"
+                type="text"
+                inputmode="decimal"
+                autocomplete="off"
+                :aria-invalid="Boolean(amountError)"
+                aria-describedby="pay-amount-help"
+              />
+              <button
+                v-if="Math.round(amountValue * 100) !== Math.round(account.due * 100)"
+                type="button"
+                class="line-btn"
+                @click="amount = account.due.toFixed(2)"
+              >
+                Saldo completo
+              </button>
+            </div>
+            <Transition name="fade" mode="out-in">
+              <small v-if="amountError" id="pay-amount-help" key="err" class="field-error">{{ amountError }}</small>
+              <small v-else-if="isPartial" id="pay-amount-help" key="partial" class="muted small">
+                Pago parcial: quedará un saldo de {{ formatMoney(account.due - amountValue) }}.
+              </small>
+              <small v-else id="pay-amount-help" key="full" class="muted small">Saldo completo: la cuenta queda Pagada.</small>
+            </Transition>
+          </div>
           <div class="field">
             <label>Método de pago</label>
             <BaseSelect v-model="method" :options="METHOD_OPTIONS" />
@@ -554,7 +680,8 @@ async function openProforma(download: boolean) {
             Confirmo que el efectivo ingresó a caja
           </label>
           <button type="button" class="btn btn-gold" :disabled="!collectReady || busy" @click="collect">
-            <i class="fa-solid fa-cash-register" aria-hidden="true" /> Cobrar {{ formatMoney(account.total) }}
+            <i class="fa-solid fa-cash-register" aria-hidden="true" />
+            Cobrar {{ amountError ? '' : formatMoney(amountValue) }}
           </button>
         </template>
         <p v-else-if="account.readyToCollect" class="muted small">
@@ -742,6 +869,49 @@ async function openProforma(download: boolean) {
   &--error {
     color: var(--danger);
   }
+}
+
+.mail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+
+  p {
+    margin: 0;
+    flex: 1 1 220px;
+    color: var(--ink-600);
+  }
+
+  i {
+    margin-right: 0.3rem;
+  }
+}
+
+.mail--enviado {
+  color: var(--success) !important;
+}
+
+.mail--error {
+  color: var(--danger) !important;
+  font-weight: 600;
+}
+
+.amount-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  input {
+    flex: 1;
+    min-width: 0;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.amount-prefix {
+  font-weight: 700;
+  color: var(--ink-600);
 }
 
 .proforma {

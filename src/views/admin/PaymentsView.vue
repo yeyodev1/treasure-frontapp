@@ -41,6 +41,7 @@ const INVOICE_LABELS: Record<InvoiceStatus, string> = {
   emitida: 'Factura emitida',
   error: 'Factura pendiente',
   no_aplica: 'Sin factura',
+  parcial: 'Va en la factura del pago final',
 }
 
 const METHOD_LABELS: Record<string, string> = {
@@ -132,9 +133,12 @@ const confirmStore = useConfirmStore()
 async function reverse(payment: Payment) {
   const reason = await confirmStore.askReason({
     title: `¿Reversar el pago de cabina ${payment.cabinNumber}?`,
-    message: `${formatMoney(payment.total)} · la cuenta vuelve a abrirse para corregirla y aprobarla de nuevo.${
-      payment.invoiceStatus === 'emitida' ? ' La factura emitida requiere nota de crédito en Contífico.' : ''
-    }`,
+    message:
+      payment.settled === false
+        ? `${formatMoney(payment.total)} · pago parcial: vuelve al saldo de la cuenta y la aprobación se mantiene.`
+        : `${formatMoney(payment.total)} · la cuenta vuelve a abrirse para corregirla y aprobarla de nuevo.${
+            payment.invoiceStatus === 'emitida' ? ' La factura emitida requiere nota de crédito en Contífico.' : ''
+          }`,
     confirmLabel: 'Reversar',
     danger: true,
     icon: 'fa-rotate-left',
@@ -144,7 +148,7 @@ async function reverse(payment: Payment) {
   try {
     await apiReversePayment(payment._id, reason)
     play('success')
-    toast.success('Pago reversado: la cuenta quedó abierta')
+    toast.success(payment.settled === false ? 'Pago parcial reversado: volvió al saldo' : 'Pago reversado: la cuenta quedó abierta')
     await refresh()
   } catch (err) {
     play('error')
@@ -216,7 +220,9 @@ function collectorName(payment: Payment): string {
               <span v-if="payment.status === 'reversado'" class="pill pill--error" :title="payment.reverseReason">
                 Pago reversado
               </span>
-              <span v-else class="pill pill--emitida">Pago registrado</span>
+              <span v-else class="pill pill--emitida">
+                {{ payment.invoiceStatus === 'parcial' ? 'Pago parcial' : 'Pago registrado' }}
+              </span>
             </td>
             <td>
               <span v-if="payment.status === 'reversado'" class="muted">—</span>

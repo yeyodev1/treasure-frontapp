@@ -209,8 +209,8 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
           </span>
         </header>
 
-        <!-- Pagada: conserva importes (Consumos · Pagado · Por cobrar) -->
-        <template v-if="row.paidOrders && !isBar">
+        <!-- Pagada o con pagos parciales: Consumos · Pagado · Por cobrar -->
+        <template v-if="(row.paidOrders || row.paid > 0) && !isBar">
           <p class="account-total">{{ formatMoney(row.consumed) }}</p>
           <p class="account-sums">
             <span>Consumos {{ formatMoney(row.consumed) }}</span>

@@ -458,8 +458,10 @@ export interface AccountSummary {
   orders: AccountOrder[]
   subtotal: number
   courtesyTotal: number
-  /** Saldo abierto. */
+  /** Consumos abiertos (lo que se aprueba). El saldo por cobrar es `due`. */
   total: number
+  /** Pagos parciales recibidos sobre los consumos abiertos. */
+  partialPaid: number
   /** La cuenta pagada conserva sus productos (checklist 29-oct, 01). */
   paidOrders: AccountOrder[]
   payments: AccountPayment[]
@@ -484,9 +486,20 @@ export interface AccountPayment {
   createdAt: string
   method: PaymentMethod
   total: number
+  /** false: pago parcial de una cuenta que aún tiene saldo. */
+  settled: boolean
   invoiceStatus: InvoiceStatus
   invoiceNumber: string
   invoiceError: string
+  /** Resumen por correo al pagador (solo el pago que liquida la cuenta). */
+  summaryEmail: SummaryEmail
+}
+
+export interface SummaryEmail {
+  status: 'no_aplica' | 'enviando' | 'enviado' | 'error'
+  to: string
+  sentAt: string | null
+  error: string
 }
 
 export interface CabinAccountRow {
@@ -501,11 +514,13 @@ export interface CabinAccountRow {
   paidOrders: number
   consumed: number
   paid: number
+  /** Pagos parciales sobre la cuenta abierta. */
+  partialPaid: number
   due: number
 }
 
 export type PaymentMethod = 'efectivo' | 'tarjeta' | 'transferencia' | 'online'
-export type InvoiceStatus = 'pendiente' | 'emitiendo' | 'emitida' | 'error' | 'no_aplica'
+export type InvoiceStatus = 'pendiente' | 'emitiendo' | 'emitida' | 'error' | 'no_aplica' | 'parcial'
 
 export interface Payment {
   _id: string
@@ -513,7 +528,13 @@ export interface Payment {
   cabinNumber: number
   subtotal: number
   courtesyTotal: number
+  /** Lo recibido en este pago. */
   total: number
+  /** Total de la cuenta al cobrar (importe de la factura en el pago final). */
+  accountTotal?: number | null
+  /** false: pago parcial con saldo pendiente. */
+  settled?: boolean
+  settledBy?: string | null
   method: PaymentMethod
   reference?: string
   cashConfirmed: boolean
