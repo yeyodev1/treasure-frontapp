@@ -374,18 +374,39 @@ export interface AccountSummary {
   readyToCollect: boolean
   pendingDeliveries: number
   pendingAnnulments: number
-  orders: Array<{
-    id: string
-    createdAt: string
-    by: string
-    status: OrderStatus
-    items: AccountLineItem[]
-    total: number
-  }>
+  /** Consumos sin pago: se revisan, aprueban y cobran. */
+  orders: AccountOrder[]
   subtotal: number
   courtesyTotal: number
+  /** Saldo abierto. */
   total: number
+  /** La cuenta pagada conserva sus productos (checklist 29-oct, 01). */
+  paidOrders: AccountOrder[]
+  payments: AccountPayment[]
+  consumed: number
+  paid: number
+  due: number
+  courtesyAll: number
   history: Array<{ action: string; version: number; reason: string; by: string; at: string }>
+}
+
+export interface AccountOrder {
+  id: string
+  createdAt: string
+  by: string
+  status: OrderStatus
+  items: AccountLineItem[]
+  total: number
+}
+
+export interface AccountPayment {
+  id: string
+  createdAt: string
+  method: PaymentMethod
+  total: number
+  invoiceStatus: InvoiceStatus
+  invoiceNumber: string
+  invoiceError: string
 }
 
 export interface CabinAccountRow {
@@ -397,6 +418,10 @@ export interface CabinAccountRow {
   total: number
   orders: number
   pendingDeliveries: number
+  paidOrders: number
+  consumed: number
+  paid: number
+  due: number
 }
 
 export type PaymentMethod = 'efectivo' | 'tarjeta' | 'transferencia' | 'online'
@@ -558,8 +583,11 @@ export interface PublicAccount {
       total: number
       items: Array<{ name: string; qty: number; unitPrice: number; courtesy: boolean }>
     }>
+    payments: Array<{ createdAt: string; method: PaymentMethod; total: number }>
     subtotal: number
     courtesyTotal: number
     total: number
+    paid: number
+    due: number
   }
 }
