@@ -154,7 +154,7 @@ async function logout() {
           <i class="fa-solid" :class="drawerOpen ? 'fa-xmark' : 'fa-bars'" aria-hidden="true" />
         </button>
         <div class="brand">
-          <BrandSeal :size="40" variant="cream" class="brand-seal" />
+          <BrandSeal :size="44" class="brand-seal" />
           <span class="brand-text">
             <span class="brand-eyebrow">Treasure of Galápagos</span>
             <span class="brand-page">{{ pageTitle }}</span>
@@ -266,15 +266,29 @@ async function logout() {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  background: var(--navy-800);
-  border-bottom: 3px solid var(--gold-500);
-  color: var(--cream-100);
+  // Portada del menú: azul empolvado con las algas a línea.
+  background: var(--powder-300);
+  border-bottom: 1px solid rgba(27, 43, 37, 0.22);
+  color: var(--ink-900);
   box-sizing: border-box;
   height: calc(var(--header-h) + env(safe-area-inset-top));
   padding: env(safe-area-inset-top) 0.75rem 0;
   position: sticky;
   top: 0;
   z-index: 30;
+  isolation: isolate;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url('/brand/algas.png') center 40% / 320px auto repeat;
+    opacity: 0.3;
+    // Despeja el sello y el título: las algas aparecen hacia la derecha.
+    mask-image: linear-gradient(to right, transparent 120px, #000 340px);
+    pointer-events: none;
+    z-index: -1;
+  }
 }
 
 .shell {
@@ -293,12 +307,12 @@ async function logout() {
   display: grid;
   place-items: center;
   border-radius: var(--radius-sm);
-  color: var(--cream-100);
+  color: var(--ink-900);
   font-size: 1.1rem;
   transition: background 0.15s ease, transform 0.15s ease;
 
   &:hover {
-    background: rgba(247, 243, 233, 0.08);
+    background: rgba(27, 43, 37, 0.08);
   }
 
   &:active {
@@ -318,8 +332,7 @@ async function logout() {
 }
 
 .brand-seal {
-  color: var(--gold-500);
-  flex-shrink: 0;
+    flex-shrink: 0;
 }
 
 .brand-text {
@@ -336,7 +349,7 @@ async function logout() {
   font-weight: 600;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--powder-300);
+  color: var(--navy-700);
   white-space: nowrap;
 
   @include tablet {
@@ -371,11 +384,11 @@ async function logout() {
   display: grid;
   place-items: center;
   border-radius: var(--radius-sm);
-  color: var(--cream-200);
+  color: var(--ink-900);
   transition: background 0.15s ease, transform 0.15s ease;
 
   &:hover {
-    background: rgba(247, 243, 233, 0.08);
+    background: rgba(27, 43, 37, 0.08);
   }
 
   &:active {
@@ -390,17 +403,17 @@ async function logout() {
   gap: 0.45rem;
   min-width: 40px;
   min-height: 40px;
-  border: 1px solid rgba(247, 243, 233, 0.3);
+  border: 1px solid rgba(27, 43, 37, 0.35);
   border-radius: var(--radius-sm);
   padding: 0.38rem 0.6rem;
-  color: var(--cream-100);
+  color: var(--ink-900);
   font-weight: 600;
   font-size: 0.85rem;
   transition: background 0.15s ease, border-color 0.15s ease;
 
   &:hover {
-    background: rgba(247, 243, 233, 0.08);
-    border-color: var(--gold-500);
+    background: rgba(27, 43, 37, 0.08);
+    border-color: var(--navy-700);
   }
 
   @include tablet {
