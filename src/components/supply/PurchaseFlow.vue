@@ -22,7 +22,7 @@ const emit = defineEmits<{ back: []; receive: [purchaseId: string] }>()
 const catalog = useCatalogStore()
 const toast = useToastStore()
 const { play } = useSound()
-const save = useSaveAttempt()
+const save = useSaveAttempt('la factura')
 
 interface Line {
   product: Product
@@ -259,7 +259,7 @@ const dateLabel = computed(() => {
                   :label="`${plural(line.product.containerLabel, 2)} de ${line.product.name}`"
                   :unit="plural(line.product.containerLabel, line.containers)"
                 />
-                <span class="conv">{{ conversionText(line.containers, line.product) }}</span>
+                <span v-if="line.containers > 0" class="conv">{{ conversionText(line.containers, line.product) }}</span>
               </div>
               <div class="line-cost">
                 <label class="mini-label" :for="`cost-${line.product._id}`">Costo por {{ line.product.containerLabel }}</label>
@@ -274,11 +274,10 @@ const dateLabel = computed(() => {
                   />
                 </div>
                 <span class="conv">
-                  Subtotal {{ formatMoney(line.containers * costOf(line)) }}
+                  Subtotal {{ formatMoney(line.containers > 0 ? line.containers * costOf(line) : 0) }}
                 </span>
               </div>
             </div>
-            <small v-if="!line.containers" class="err">Indica cuántos llegan en la factura o quita el producto.</small>
           </article>
         </TransitionGroup>
 
