@@ -266,14 +266,14 @@ async function save() {
         </div>
       </template>
 
-      <!-- Precio: solo Paula -->
+      <!-- Precio: solo Gerencia (permiso por rol) -->
       <div v-if="form.kind !== 'fisico' || form.sellable" class="field">
-        <label for="p-price">Precio de venta (USD)</label>
+        <label for="p-price">Precio (USD)</label>
         <input id="p-price" v-model.number="form.price" type="number" min="0" step="0.25" :disabled="!isAdmin" />
         <small v-if="!isAdmin" class="lock">
-          <i class="fa-solid fa-lock" aria-hidden="true" /> Solo Paula cambia el precio vigente.
+          <i class="fa-solid fa-lock" aria-hidden="true" /> Solo Gerencia cambia el precio vigente.
         </small>
-        <small v-else class="help">Las ventas anteriores conservan el precio con el que se registraron.</small>
+        <small v-else class="help">Los consumos anteriores conservan el precio con el que se registraron.</small>
       </div>
 
       <!-- Facturación: producto equivalente en Contífico -->
