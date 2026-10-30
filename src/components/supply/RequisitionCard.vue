@@ -92,8 +92,18 @@ const reviewVerb = computed(() => {
 .rq {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  padding: 0.95rem 1rem;
+  gap: 0.7rem;
+  padding: 1rem 1.1rem;
+  transition: border-color 0.2s ease;
+
+  &.rq--solicitado {
+    border-left: 4px solid var(--gold-500);
+  }
+
+  &.rq--aprobado,
+  &.rq--recibido_parcial {
+    border-left: 4px solid var(--navy-600);
+  }
 }
 
 .rq-head {
@@ -115,22 +125,33 @@ const reviewVerb = computed(() => {
   }
 
   strong {
-    font-size: 1.05rem;
+    font-size: 1.1rem;
+    font-weight: 600;
   }
 
   small {
     color: var(--ink-400);
-    font-weight: 600;
+    font-weight: 500;
+    font-size: 0.92rem;
   }
 }
 
 .rq-lines {
   margin: 0;
-  padding-left: 1.1rem;
+  padding: 0;
+  list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
-  font-size: 0.95rem;
+  font-size: 1.02rem;
+
+  li {
+    padding: 0.35rem 0;
+    border-bottom: 1px solid var(--rule);
+
+    &:last-child {
+      border-bottom: none;
+    }
+  }
 }
 
 .rq-note {
@@ -183,6 +204,11 @@ const reviewVerb = computed(() => {
 
   :slotted(.btn) {
     min-height: 52px;
+    flex: 1 1 auto;
+
+    @media (min-width: 640px) {
+      flex: 0 0 auto;
+    }
   }
 }
 </style>
