@@ -36,9 +36,9 @@ const startDate = shallowRef('')
 const untilDate = shallowRef('')
 
 const STATUS_LABELS: Record<CruiseStatus, string> = {
-  planificado: 'Programada',
+  planificado: 'Programado',
   abordo: 'En curso',
-  cerrado: 'Finalizada',
+  cerrado: 'Finalizado',
 }
 
 const LEG_ICONS = ['fa-sun', 'fa-water', 'fa-compass']
@@ -54,7 +54,7 @@ const visible = computed(() =>
 )
 
 function label(cruise: Cruise): string {
-  return cruise.code ? `Salida ${cruise.code}` : cruise.name
+  return cruise.code ? `Crucero ${cruise.code}` : cruise.name
 }
 
 async function refresh() {
@@ -92,8 +92,8 @@ async function generate() {
     play('success')
     toast.success(
       created.length
-        ? `Se generaron ${created.length} salida(s): ${created.join(', ')}${skipped ? ` · ${skipped} ya existían` : ''}`
-        : `No hay salidas nuevas: las ${skipped} ya existían`,
+        ? `Se generaron ${created.length} crucero(s): ${created.join(', ')}${skipped ? ` · ${skipped} ya existían` : ''}`
+        : `No hay cruceros nuevos: los ${skipped} ya existían`,
     )
     await refresh()
   } catch (err) {
@@ -121,7 +121,7 @@ async function onPassengersSaved() {
 <template>
   <div class="page">
     <header class="head">
-      <h1 class="page-title">Salidas</h1>
+      <h1 class="page-title">Cruceros</h1>
       <button type="button" class="btn btn-ghost" @click="showSettings = true">
         <i class="fa-solid fa-sliders" aria-hidden="true" /> Configurar ciclo
       </button>
@@ -151,28 +151,28 @@ async function onPassengersSaved() {
           </div>
           <button type="button" class="btn btn-primary" :disabled="generating" @click="generate">
             <i class="fa-regular fa-clock" aria-hidden="true" />
-            {{ generating ? 'Generando…' : 'Generar próximas salidas' }}
+            {{ generating ? 'Generando…' : 'Generar próximos cruceros' }}
           </button>
         </article>
       </div>
       <p class="rule">
         Se repite A → B → C con su código y {{ settings?.cabinCount ?? 9 }} cabinas limpias. Volver a
-        generar no duplica salidas y nunca toca los viajes cerrados.
+        generar no duplica cruceros y nunca toca los finalizados.
       </p>
     </section>
 
     <div class="tabs">
       <button type="button" class="tab" :class="{ 'tab--on': tab === 'proximas' }" @click="tab = 'proximas'">
-        Programadas y en curso
+        Programados y en curso
       </button>
       <button type="button" class="tab" :class="{ 'tab--on': tab === 'cerradas' }" @click="tab = 'cerradas'">
-        Finalizadas
+        Finalizados
       </button>
     </div>
 
     <SkeletonList v-if="loading" variant="card" :rows="3" />
     <p v-else-if="!visible.length" class="empty">
-      {{ tab === 'cerradas' ? 'Aún no hay salidas finalizadas.' : 'No hay salidas programadas. Genera el ciclo arriba.' }}
+      {{ tab === 'cerradas' ? 'Aún no hay cruceros finalizados.' : 'Aún no hay crucero programado. Genera el ciclo arriba.' }}
     </p>
 
     <TransitionGroup v-else name="list" tag="div" class="cruises">
@@ -202,7 +202,7 @@ async function onPassengersSaved() {
             @click="paxTarget = { cruise, cabin }"
           >
             <strong>{{ cabin.number }}</strong>
-            <span>{{ cabin.passengers.length ? cabin.guestName : 'Vacía' }}</span>
+            <span>{{ cabin.passengers.length ? cabin.guestName : 'Sin pasajeros' }}</span>
             <small v-if="cabin.passengers.length > 1">{{ cabin.passengers.length }} pax</small>
           </button>
         </div>
@@ -222,7 +222,7 @@ async function onPassengersSaved() {
             class="btn btn-ghost"
             @click="finishTarget = cruise"
           >
-            <i class="fa-solid fa-anchor" aria-hidden="true" /> Finalizar crucero
+            <i class="fa-solid fa-anchor" aria-hidden="true" /> Finalizar operación del crucero
           </button>
           <p v-if="cruise.closeReason" class="close-reason">Cierre excepcional: {{ cruise.closeReason }}</p>
         </footer>
