@@ -112,7 +112,7 @@ function close() {
 
 .unsure {
   margin: 0;
-  font-size: 0.88rem;
+  font-size: 0.95rem;
   color: var(--ink-600);
 }
 
