@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, shallowRef } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useToastStore } from '@/stores/toast'
 import { useUserStore } from '@/stores/user'
 import { apiPayments, apiRetryInvoice, apiReversePayment } from '@/services/api'
@@ -13,8 +14,14 @@ import { useInfiniteScroll } from '@/composables/useInfiniteScroll'
 import { useSound } from '@/composables/useSound'
 import type { InvoiceStatus, Payment } from '@/types'
 
+/**
+ * Cobros y facturas: el pago registrado y la factura son estados separados
+ * (checklist 29-oct, 03). Reintentar solo vuelve a emitir el documento.
+ */
 const toast = useToastStore()
 const userStore = useUserStore()
+const route = useRoute()
+const router = useRouter()
 
 const { play } = useSound()
 
@@ -25,13 +32,22 @@ const loading = shallowRef(true)
 const loadingMore = shallowRef(false)
 const hasMore = shallowRef(false)
 const sentinel = shallowRef<HTMLElement | null>(null)
+/** Desde las alertas del resumen: solo facturas pendientes. */
+const onlyPending = shallowRef(route.query.factura === 'pendiente')
 
 const INVOICE_LABELS: Record<InvoiceStatus, string> = {
-  pendiente: 'Pendiente',
-  emitiendo: 'Emitiendo…',
-  emitida: 'Emitida',
-  error: 'Error',
-  no_aplica: 'No aplica',
+  pendiente: 'Factura pendiente',
+  emitiendo: 'Emitiendo factura…',
+  emitida: 'Factura emitida',
+  error: 'Factura pendiente',
+  no_aplica: 'Sin factura',
+}
+
+const METHOD_LABELS: Record<string, string> = {
+  efectivo: 'Efectivo',
+  tarjeta: 'Tarjeta',
+  transferencia: 'Transferencia',
+  online: 'Pago en línea',
 }
 
 function rangeParams() {
@@ -39,7 +55,14 @@ function rangeParams() {
     // Días completos en hora de Galápagos (el servidor interpreta 'YYYY-MM-DD').
     from: from.value || undefined,
     to: to.value || undefined,
+    invoice: onlyPending.value ? ('pendiente' as const) : undefined,
   }
+}
+
+function togglePending() {
+  onlyPending.value = !onlyPending.value
+  router.replace({ query: onlyPending.value ? { factura: 'pendiente' } : {} })
+  refresh()
 }
 
 async function refresh() {
@@ -83,12 +106,16 @@ async function retry(payment: Payment) {
   retrying.value = payment._id
   try {
     const updated = await apiRetryInvoice(payment._id)
+    // Solo se afirma la emisión si el documento quedó emitido.
     if (updated.invoiceStatus === 'emitida') {
       play('success')
       toast.success(`Factura ${updated.invoiceNumber ?? ''} emitida`)
     } else {
       play('error')
-      toast.error(updated.invoiceError || 'La factura no se pudo emitir')
+      toast.push(
+        `Factura pendiente. ${updated.invoiceError || 'No se pudo emitir. Intenta de nuevo más tarde.'}`,
+        updated.invoiceStatus === 'error' ? 'error' : 'info',
+      )
     }
     await refresh()
   } catch (err) {
@@ -104,7 +131,7 @@ const confirmStore = useConfirmStore()
 /** Un cobro con pago o factura no se cancela: se reversa con motivo. */
 async function reverse(payment: Payment) {
   const reason = await confirmStore.askReason({
-    title: `¿Reversar el cobro de cabina ${payment.cabinNumber}?`,
+    title: `¿Reversar el pago de cabina ${payment.cabinNumber}?`,
     message: `${formatMoney(payment.total)} · la cuenta vuelve a abrirse para corregirla y aprobarla de nuevo.${
       payment.invoiceStatus === 'emitida' ? ' La factura emitida requiere nota de crédito en Contífico.' : ''
     }`,
@@ -117,7 +144,7 @@ async function reverse(payment: Payment) {
   try {
     await apiReversePayment(payment._id, reason)
     play('success')
-    toast.success('Cobro reversado: la cuenta quedó abierta')
+    toast.success('Pago reversado: la cuenta quedó abierta')
     await refresh()
   } catch (err) {
     play('error')
@@ -147,6 +174,15 @@ function collectorName(payment: Payment): string {
         <label id="f-to-label">Hasta</label>
         <BaseDatePicker v-model="to" clearable aria-labelledby="f-to-label" @update:model-value="refresh" />
       </div>
+      <button
+        type="button"
+        class="pending-toggle"
+        :class="{ 'pending-toggle--on': onlyPending }"
+        :aria-pressed="onlyPending"
+        @click="togglePending"
+      >
+        <i class="fa-solid fa-file-circle-exclamation" aria-hidden="true" /> Solo facturas pendientes
+      </button>
     </div>
 
     <section v-if="loading" class="card table-card">
@@ -163,6 +199,7 @@ function collectorName(payment: Payment): string {
             <th>Total</th>
             <th>Método</th>
             <th>Cobró</th>
+            <th>Pago</th>
             <th>Factura</th>
             <th></th>
           </tr>
@@ -173,14 +210,18 @@ function collectorName(payment: Payment): string {
             <td>{{ cruiseName(payment) }}</td>
             <td>{{ payment.cabinNumber }}</td>
             <td><strong>{{ formatMoney(payment.total) }}</strong></td>
-            <td class="method">{{ payment.method }}</td>
+            <td>{{ METHOD_LABELS[payment.method] ?? payment.method }}</td>
             <td>{{ collectorName(payment) }}</td>
             <td>
               <span v-if="payment.status === 'reversado'" class="pill pill--error" :title="payment.reverseReason">
-                Reversado
+                Pago reversado
               </span>
+              <span v-else class="pill pill--emitida">Pago registrado</span>
+            </td>
+            <td>
+              <span v-if="payment.status === 'reversado'" class="muted">—</span>
               <template v-else>
-                <span class="pill" :class="`pill--${payment.invoiceStatus}`" :title="payment.invoiceError || undefined">
+                <span class="pill" :class="`pill--${payment.invoiceStatus}`">
                   {{ INVOICE_LABELS[payment.invoiceStatus] }}
                 </span>
                 <a
@@ -192,17 +233,21 @@ function collectorName(payment: Payment): string {
                 >
                   <i class="fa-solid fa-file-pdf" aria-hidden="true" /> {{ payment.invoiceNumber }}
                 </a>
-                <small v-if="payment.invoiceStatus === 'error' && payment.invoiceError" class="invoice-error">
+                <small
+                  v-if="payment.invoiceStatus !== 'emitida' && payment.invoiceError"
+                  class="invoice-error"
+                  :class="{ 'invoice-error--soft': payment.invoiceStatus === 'pendiente' }"
+                >
                   {{ payment.invoiceError }}
                 </small>
                 <button
-                  v-if="userStore.isAdmin && (payment.invoiceStatus === 'pendiente' || payment.invoiceStatus === 'error')"
+                  v-if="userStore.isDirector && (payment.invoiceStatus === 'pendiente' || payment.invoiceStatus === 'error')"
                   type="button"
                   class="retry"
                   :disabled="retrying === payment._id"
                   @click="retry(payment)"
                 >
-                  {{ retrying === payment._id ? 'Emitiendo…' : 'Reintentar' }}
+                  {{ retrying === payment._id ? 'Emitiendo…' : 'Reintentar emisión de factura' }}
                 </button>
               </template>
             </td>
@@ -219,7 +264,7 @@ function collectorName(payment: Payment): string {
             </td>
           </tr>
           <tr v-if="!payments.length">
-            <td colspan="8" class="empty">Sin cobros en este rango.</td>
+            <td colspan="9" class="empty">{{ onlyPending ? 'Sin facturas pendientes en este rango.' : 'Sin cobros en este rango.' }}</td>
           </tr>
         </tbody>
       </table>
@@ -237,7 +282,11 @@ function collectorName(payment: Payment): string {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.75rem;
-  max-width: 420px;
+  max-width: 640px;
+
+  @include tablet {
+    grid-template-columns: 1fr 1fr auto;
+  }
   margin-bottom: 1rem;
 }
 
@@ -273,8 +322,37 @@ function collectorName(payment: Payment): string {
   }
 }
 
-.method {
-  text-transform: capitalize;
+.pending-toggle {
+  align-self: end;
+  grid-column: 1 / -1;
+  justify-self: start;
+
+  @include tablet {
+    grid-column: auto;
+  }
+
+  min-height: 44px;
+  padding: 0 0.9rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--cream-200);
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--ink-600);
+  white-space: nowrap;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease;
+
+  &--on {
+    background: var(--navy-800);
+    border-color: var(--navy-800);
+    color: var(--cream-100);
+  }
+}
+
+.muted {
+  color: var(--ink-400);
 }
 
 .pill {
@@ -328,6 +406,11 @@ function collectorName(payment: Payment): string {
   font-size: 0.72rem;
   line-height: 1.3;
   color: var(--danger);
+  white-space: normal;
+
+  &--soft {
+    color: #9a6a16;
+  }
 }
 
 .reverse {
@@ -347,7 +430,9 @@ tr.reversed td {
 }
 
 .retry {
-  margin-left: 0.4rem;
+  display: block;
+  margin-top: 0.3rem;
+  min-height: 32px;
   font-size: 0.75rem;
   font-weight: 700;
   color: var(--navy-600);
