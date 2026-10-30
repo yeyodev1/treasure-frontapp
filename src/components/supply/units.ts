@@ -96,12 +96,12 @@ export const PURCHASE_STATUS: Record<PurchaseStatus, string> = {
 }
 
 export const REQUISITION_STATUS: Record<RequisitionStatus, string> = {
-  solicitado: 'Solicitado',
-  aprobado: 'Aprobado',
-  rechazado: 'Rechazado',
-  recibido_parcial: 'Recibido parcial',
-  recibido: 'Recibido',
-  atendido: 'Atendido',
+  solicitado: 'Solicitada',
+  aprobado: 'Aprobada',
+  rechazado: 'Rechazada',
+  recibido_parcial: 'Recibida parcial',
+  recibido: 'Recibida',
+  atendido: 'Atendida',
 }
 
 export const LOCATION_LABEL = { bodega: 'Bodega', abordo: 'A bordo' } as const
