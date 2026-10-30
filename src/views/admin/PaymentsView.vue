@@ -194,7 +194,7 @@ function collectorName(payment: Payment): string {
         <thead>
           <tr>
             <th>Fecha</th>
-            <th>Salida</th>
+            <th>Crucero</th>
             <th>Cabina</th>
             <th>Total</th>
             <th>Método</th>
