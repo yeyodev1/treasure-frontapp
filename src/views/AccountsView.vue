@@ -47,7 +47,7 @@ const STATUS: Record<AccountStatus, { label: string; icon: string }> = {
 const cruiseOptions = computed(() =>
   cruises.value.map((c) => ({
     value: c._id,
-    label: `${c.code ? `Salida ${c.code}` : c.name}${c.status === 'abordo' ? ' · en curso' : c.status === 'cerrado' ? ' · finalizada' : ' · programada'}`,
+    label: `${c.code ? `Crucero ${c.code}` : c.name}${c.status === 'abordo' ? ' · en curso' : c.status === 'cerrado' ? ' · finalizado' : ' · programado'}`,
   })),
 )
 
@@ -112,7 +112,7 @@ async function onChanged() {
 
 function heldCruise(order: Order) {
   const c = cruises.value.find((x) => x._id === order.cruise)
-  return c ? (c.code ? `Salida ${c.code}` : c.name) : 'Salida anterior'
+  return c ? (c.code ? `Crucero ${c.code}` : c.name) : 'Crucero anterior'
 }
 
 /** Envío tardío: aceptar lo carga en su salida original; rechazar lo descarta con motivo. */
@@ -122,7 +122,7 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
     title: decision === 'aceptar' ? `¿Aceptar ${item.qty} ${item.name} en cabina ${order.cabinNumber}?` : `¿Rechazar ${item.name}?`,
     message:
       decision === 'aceptar'
-        ? `Se carga en ${heldCruise(order)} (su salida original) y descuenta el stock a bordo. Nunca pasa al viaje nuevo.`
+        ? `Se carga en ${heldCruise(order)} (su crucero original) y descuenta el stock a bordo. Nunca pasa al crucero nuevo.`
         : 'No se carga ni descuenta nada. Queda registrado con el motivo.',
     confirmLabel: decision === 'aceptar' ? 'Aceptar' : 'Rechazar',
     danger: decision === 'rechazar',
@@ -137,7 +137,7 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
   try {
     await apiReviewHeld(order._id, decision, reason)
     play('success')
-    toast.success(decision === 'aceptar' ? 'Consumo aceptado en su salida original' : 'Consumo rechazado')
+    toast.success(decision === 'aceptar' ? 'Consumo aceptado en su crucero original' : 'Consumo rechazado')
     await Promise.all([loadHeld(), loadRows()])
   } catch (err) {
     play('error')
@@ -154,11 +154,11 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
       <div>
         <h1 class="page-title">Cuentas por cabina</h1>
         <p v-if="cruise && isBar" class="subtitle">
-          {{ cruise.code ? `Salida ${cruise.code}` : cruise.name }}
+          {{ cruise.code ? `Crucero ${cruise.code}` : cruise.name }}
           <template v-if="cruise.routeFrom"> · {{ cruise.routeFrom }} → {{ cruise.routeTo }}</template>
         </p>
         <div v-else-if="cruiseOptions.length" class="cruise-pick">
-          <BaseSelect :model-value="selectedId" :options="cruiseOptions" aria-label="Salida" @update:model-value="changeCruise" />
+          <BaseSelect :model-value="selectedId" :options="cruiseOptions" aria-label="Crucero" @update:model-value="changeCruise" />
         </div>
       </div>
       <div v-if="!loading && rows.length" class="summary">
@@ -172,7 +172,7 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
     <Transition name="fade">
       <section v-if="held.length" class="held">
         <h2><i class="fa-solid fa-hourglass-half" aria-hidden="true" /> Consumos enviados tarde, pendientes de revisión</h2>
-        <p class="muted">Llegaron con la salida ya finalizada. Revísalos: se cargan siempre en su salida original.</p>
+        <p class="muted">Llegaron con el crucero ya finalizado. Revísalos: se cargan siempre en su crucero original.</p>
         <div v-for="order in held" :key="order._id" class="held-row">
           <span>
             <strong>{{ heldCruise(order) }} · cabina {{ order.cabinNumber }}</strong>
@@ -189,7 +189,7 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
 
     <SkeletonList v-if="loading" variant="card" :rows="9" />
 
-    <p v-else-if="!cruise" class="empty">No hay salida activa ni programada.</p>
+    <p v-else-if="!cruise" class="empty">No hay crucero en curso ni programado.</p>
 
     <div v-else class="accounts">
       <button
