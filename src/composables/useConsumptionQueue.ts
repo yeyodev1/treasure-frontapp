@@ -174,7 +174,7 @@ export function useConsumptionQueue(options: {
     try {
       await apiHeartbeat({
         deviceId: deviceId(),
-        label: `Tablet bar · ${navigator.userAgent.includes('iPad') ? 'iPad' : 'equipo'}`,
+        label: `Tableta del bar · ${navigator.userAgent.includes('iPad') ? 'iPad' : 'equipo'}`,
         pending: entries.value.length,
         lastSyncAt: lastSyncAt.value,
         cruiseId: options.cruiseId(),
