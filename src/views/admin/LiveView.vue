@@ -138,8 +138,10 @@ onBeforeUnmount(() => {
       <div class="page-head-text">
         <h1 class="page-title">En vivo</h1>
         <p class="page-lead">
-          Día de operación:
-          <strong>{{ pulse ? formatLongDate(pulse.commercialDate) : '…' }}</strong>
+          <span>
+            Día de operación:
+            <strong>{{ pulse ? formatLongDate(pulse.commercialDate) : '…' }}</strong>
+          </span>
           <span v-if="pulse?.cruise" class="lead-cruise">
             <i class="fa-solid fa-ship" aria-hidden="true" />
             {{ pulse.cruise.code ? `Crucero ${pulse.cruise.code}` : pulse.cruise.name }}
@@ -270,7 +272,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.35rem 1rem;
 
   strong {
     color: var(--ink-900);
@@ -281,7 +283,6 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  margin-left: 0.6rem;
   font-weight: 600;
   color: var(--ink-900);
 
