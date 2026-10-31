@@ -35,6 +35,26 @@ const ROLE_LABELS: Record<UserRole, string> = {
 
 const roleOptions = Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label }))
 
+/** Para la tarjeta: el nombre del rol y, aparte, lo que abarca. */
+function roleName(role: UserRole): string {
+  return (ROLE_LABELS[role] ?? role).split(' (')[0]!
+}
+
+function roleScope(role: UserRole): string {
+  const m = /\(([^)]+)\)/.exec(ROLE_LABELS[role] ?? '')
+  return m ? m[1]! : ''
+}
+
+function initials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0] ?? '')
+    .join('')
+    .toUpperCase()
+}
+
 /** Cargos del barco: con ellos se nombran los registros por cargo (R-07, R-22, R-23). */
 const POSITION_LABELS: Record<string, string> = {
   CAP: 'Capitán',
@@ -155,52 +175,74 @@ async function toggleActive(user: TeamUser) {
 
 <template>
   <div class="page">
-    <header class="head">
-      <h1 class="page-title">Equipo</h1>
-      <button type="button" class="btn btn-gold" @click="openNew">
-        <i class="fa-solid fa-user-plus" aria-hidden="true" /> Nuevo acceso
-      </button>
+    <header class="page-head">
+      <div class="page-head-text">
+        <h1 class="page-title">Equipo</h1>
+        <p class="page-lead">
+          Cada persona tiene su propio acceso: así se sabe quién registró cada consumo, merma o cobro.
+        </p>
+      </div>
+      <div class="page-actions">
+        <button type="button" class="btn btn-primary" @click="openNew">
+          <i class="fa-solid fa-user-plus" aria-hidden="true" /> Nuevo acceso
+        </button>
+      </div>
     </header>
 
-    <p class="note">
-      Cada persona tiene su propio acceso: así se sabe quién registró cada consumo, merma o cobro.
-    </p>
-
     <SkeletonList v-if="loading" variant="card" :rows="4" />
-    <div v-else class="users">
-      <article v-for="user in users" :key="user._id" class="card user" :class="{ off: !user.active }">
+    <div v-else-if="!users.length" class="vacio">
+      <i class="fa-solid fa-users" aria-hidden="true" />
+      <p>Aún no hay accesos. Crea el primero con «Nuevo acceso».</p>
+    </div>
+    <TransitionGroup v-else name="list" tag="div" class="users">
+      <article v-for="user in users" :key="user._id" class="user" :class="{ off: !user.active }">
+        <span class="user-avatar" aria-hidden="true">{{ initials(user.name) }}</span>
         <div class="user-info">
-          <strong>{{ user.name }}</strong>
+          <strong class="user-name">{{ user.name }}</strong>
           <span class="user-email">{{ user.email }}</span>
           <span class="user-role">
-            {{ ROLE_LABELS[user.role] }}
-            <template v-if="user.position"> · {{ POSITION_LABELS[user.position] ?? user.position }}</template>
+            <span class="estado estado--info">{{ roleName(user.role) }}</span>
+            <span v-if="user.position" class="estado">{{ POSITION_LABELS[user.position] ?? user.position }}</span>
           </span>
+          <span v-if="roleScope(user.role)" class="user-scope">{{ roleScope(user.role) }}</span>
           <span class="user-audit">
             Alta {{ formatDate(user.createdAt) }}<template v-if="user.createdBy"> por {{ user.createdBy.name }}</template>
             <template v-if="user.updatedBy"> · editó {{ user.updatedBy.name }}</template>
           </span>
         </div>
         <div class="user-actions">
-          <button type="button" class="edit-btn" @click="openEdit(user)">
-            <i class="fa-solid fa-pen" aria-hidden="true" /> Editar
-          </button>
-          <button type="button" class="pill-btn" :class="{ on: user.active }" @click="toggleActive(user)">
+          <button
+            type="button"
+            class="state"
+            :class="{ on: user.active }"
+            :aria-pressed="user.active"
+            :aria-label="`${user.name}: ${user.active ? 'acceso activo, tocar para desactivar' : 'acceso inactivo, tocar para activar'}`"
+            @click="toggleActive(user)"
+          >
+            <span class="state-dot" aria-hidden="true" />
             {{ user.active ? 'Activo' : 'Inactivo' }}
+          </button>
+          <button type="button" class="btn btn-secondary edit-btn" @click="openEdit(user)">
+            <i class="fa-solid fa-pen" aria-hidden="true" /> Editar
           </button>
         </div>
       </article>
-    </div>
+    </TransitionGroup>
 
-    <BaseModal v-if="showForm" :title="editing ? 'Editar persona' : 'Nuevo acceso'" @close="showForm = false">
+    <BaseModal
+      v-if="showForm"
+      :title="editing ? 'Editar acceso' : 'Nuevo acceso'"
+      :subtitle="editing ? editing.email : 'Nombre, correo, contraseña y lo que puede hacer en el sistema.'"
+      @close="showForm = false"
+    >
       <div class="modal-form">
         <div class="field">
           <label for="u-name">Nombre</label>
-          <input id="u-name" v-model="form.name" type="text" />
+          <input id="u-name" v-model="form.name" type="text" autocomplete="off" />
         </div>
         <div v-if="!editing" class="field">
           <label for="u-email">Correo</label>
-          <input id="u-email" v-model="form.email" type="email" />
+          <input id="u-email" v-model="form.email" type="email" inputmode="email" autocomplete="off" />
         </div>
         <div class="field">
           <label for="u-pass">{{ editing ? 'Nueva contraseña (opcional)' : 'Contraseña' }}</label>
@@ -216,12 +258,17 @@ async function toggleActive(user: TeamUser) {
         </div>
         <p v-if="['capitan', 'tripulante', 'designada'].includes(form.role)" class="ship-note">
           <i class="fa-solid fa-clipboard-check" aria-hidden="true" />
-          Entra en registros.teseturis.app para llenar y firmar los registros ISM.
+          <span>Entra en registros.teseturis.app para llenar y firmar los registros ISM.</span>
         </p>
-        <button type="button" class="btn btn-gold" :disabled="saving" @click="save">
-          <i class="fa-solid fa-floppy-disk" aria-hidden="true" /> {{ saving ? 'Guardando…' : 'Guardar' }}
-        </button>
       </div>
+
+      <template #footer>
+        <button type="button" class="btn btn-secondary" @click="showForm = false">Cancelar</button>
+        <button type="button" class="btn btn-primary btn-lg" :disabled="saving" @click="save">
+          <i class="fa-solid" :class="saving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'" aria-hidden="true" />
+          {{ saving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear acceso' }}
+        </button>
+      </template>
     </BaseModal>
   </div>
 </template>
@@ -229,127 +276,180 @@ async function toggleActive(user: TeamUser) {
 <style scoped lang="scss">
 @use '@/styles/mixins' as *;
 
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 0.5rem;
-
-  .page-title {
-    margin-bottom: 0;
-  }
-}
-
-.note {
-  margin: 0 0 1rem;
-  color: var(--ink-400);
-  font-size: 0.88rem;
-}
-
 .users {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: 1fr;
   gap: 0.75rem;
+
+  @include tablet {
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  }
 }
 
 .user {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: 1fr auto;
+  gap: 0.4rem 0.85rem;
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  transition:
+    opacity 0.2s ease,
+    border-color 0.16s ease;
 
   &.off {
-    opacity: 0.55;
+    background: var(--cream-100);
+
+    .user-avatar {
+      background: var(--pill-neutral-bg);
+      color: var(--ink-400);
+    }
+
+    .user-name,
+    .user-role {
+      opacity: 0.7;
+    }
   }
+}
+
+.user-avatar {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--powder-200);
+  color: var(--navy-800);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
 }
 
 .user-info {
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  gap: 0.2rem;
   min-width: 0;
 }
 
+.user-name {
+  font-size: 1.05rem;
+  color: var(--ink-900);
+}
+
 .user-email {
-  font-size: 0.8rem;
-  color: var(--ink-400);
+  font-size: 0.95rem;
+  color: var(--ink-600);
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.cashier {
-  font-style: normal;
-  margin-left: 0.35rem;
-  color: var(--gold-500);
-}
-
-.user-audit {
-  font-size: 0.72rem;
-  color: var(--ink-400);
-}
-
-.cashier-check {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  font-size: 0.88rem;
-  font-weight: 600;
-  padding: 0.6rem;
-  border-radius: var(--radius-sm);
-  background: var(--powder-100);
-
-  input {
-    width: 1.15rem;
-    height: 1.15rem;
-    accent-color: var(--navy-800);
-  }
+  white-space: nowrap;
 }
 
 .user-role {
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: var(--navy-600);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.3rem;
+}
+
+.user-scope {
+  font-size: 0.92rem;
+  color: var(--ink-600);
+
+  &::first-letter {
+    text-transform: uppercase;
+  }
+}
+
+.user-audit {
+  margin-top: 0.15rem;
+  font-size: 0.88rem;
+  color: var(--ink-400);
 }
 
 .user-actions {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.6rem;
-  flex-shrink: 0;
+  margin-top: 0.6rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--rule);
 }
 
 .edit-btn {
-  font-weight: 700;
-  color: var(--navy-600);
+  min-height: 48px;
 }
 
-.pill-btn {
-  font-size: 0.75rem;
-  font-weight: 700;
-  padding: 0.3rem 0.7rem;
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 48px;
+  padding: 0 1rem;
   border-radius: 999px;
-  background: var(--cream-200);
-  color: var(--ink-400);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink-600);
+  white-space: nowrap;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    transform 0.14s var(--ease-out);
 
   &.on {
-    background: rgba(63, 174, 106, 0.15);
-    color: var(--success);
+    border-color: transparent;
+    background: var(--pill-ok-bg);
+    color: var(--pill-ok-ink);
+  }
+
+  &:hover {
+    border-color: var(--navy-600);
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
+}
+
+.state-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ink-300);
+  transition: background-color 0.16s ease;
+
+  .on & {
+    background: var(--success);
   }
 }
 
 .ship-note {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
   margin: 0;
-  font-size: 0.84rem;
-  color: var(--ink-600);
-  background: var(--powder-100);
+  padding: 0.7rem 0.85rem;
   border-radius: var(--radius-sm);
-  padding: 0.6rem 0.75rem;
+  background: var(--powder-100);
+  font-size: 0.98rem;
+  line-height: 1.45;
+  color: var(--ink-900);
+
+  i {
+    color: var(--navy-600);
+  }
 }
 
 .modal-form {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 1rem;
 }
 </style>
