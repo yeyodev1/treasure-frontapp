@@ -106,31 +106,36 @@ async function toggleActive(product: Product) {
 </script>
 
 <template>
-  <div class="page">
-    <header class="head">
-      <div>
+  <div class="page cat">
+    <header class="page-head">
+      <div class="page-head-text">
         <h1 class="page-title">Catálogo</h1>
-        <p class="hint">
-          Físicos llevan stock en su unidad · Recetas descuentan sus ingredientes · Servicios no mueven
-          inventario.
+        <p class="page-lead">
+          Lo que se vende y se cuenta: los físicos llevan stock, las recetas descuentan sus ingredientes
+          y los servicios no mueven inventario.
         </p>
       </div>
-      <button type="button" class="btn btn-gold" @click="editor = { product: null }">
-        <i class="fa-solid fa-plus" aria-hidden="true" /> Nuevo producto
-      </button>
+      <div class="page-actions">
+        <button type="button" class="btn btn-gold" @click="editor = { product: null }">
+          <i class="fa-solid fa-plus" aria-hidden="true" /> Nuevo producto
+        </button>
+      </div>
     </header>
 
     <div class="tools">
-      <div class="tabs">
+      <div class="segs" role="tablist" aria-label="Tipo de producto">
         <button
           v-for="k in (['todos', 'fisico', 'receta', 'servicio'] as const)"
           :key="k"
           type="button"
-          class="tab"
-          :class="{ 'tab--on': kindFilter === k }"
+          role="tab"
+          class="segs-item"
+          :class="{ 'segs-item--on': kindFilter === k }"
+          :aria-selected="kindFilter === k"
           @click="kindFilter = k"
         >
-          {{ k === 'todos' ? 'Todos' : KIND_LABELS[k] }} <span class="tab-count">{{ counts[k] }}</span>
+          {{ k === 'todos' ? 'Todos' : KIND_LABELS[k] }}
+          <span class="segs-count num">{{ counts[k] }}</span>
         </button>
       </div>
       <label class="search">
@@ -146,29 +151,36 @@ async function toggleActive(product: Product) {
           <thead>
             <tr>
               <th>Producto</th>
-              <th>Tipo</th>
+              <th class="col-kind">Tipo</th>
               <th class="num">Precio</th>
-              <th>Medida / receta</th>
+              <th class="col-detail">Medida o receta</th>
               <th>Estado</th>
-              <th></th>
+              <th><span class="sr-only">Acciones</span></th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="p in visible" :key="p._id" :class="{ inactive: !p.active }">
-              <td class="prod">
-                <ProductIcon :icon="p.icon" :size="20" />
-                <span>
-                  {{ p.name }}
-                  <small>{{ CATEGORY_LABELS[p.category] }}</small>
+              <td>
+                <span class="prod">
+                  <ProductIcon :icon="p.icon" :size="22" />
+                  <span class="prod-text">
+                    <span class="prod-name">
+                      {{ p.name }}
+                      <span v-if="p.isCustom" class="custom-tag">creado en bar</span>
+                    </span>
+                    <small>
+                      {{ CATEGORY_LABELS[p.category] }}
+                      <span class="kind-inline">· {{ KIND_LABELS[p.kind] }}</span>
+                    </small>
+                  </span>
                 </span>
-                <span v-if="p.isCustom" class="custom-tag">creado en bar</span>
               </td>
-              <td><span class="kind" :class="`kind--${p.kind}`">{{ KIND_LABELS[p.kind] }}</span></td>
+              <td class="col-kind"><span class="kind" :class="`kind--${p.kind}`">{{ KIND_LABELS[p.kind] }}</span></td>
               <td class="num">
                 <strong v-if="p.kind !== 'fisico' || p.sellable">{{ formatMoney(p.price) }}</strong>
                 <span v-else class="muted">Insumo</span>
               </td>
-              <td class="detail">
+              <td class="detail col-detail">
                 <template v-if="p.kind === 'fisico'">
                   {{ p.containerSize > 1 ? `${formatNumber(p.containerSize)} ${unitShort(p.stockUnit)} por ${p.containerLabel}` : p.containerLabel }}
                 </template>
@@ -176,18 +188,26 @@ async function toggleActive(product: Product) {
                 <template v-else>Sin inventario</template>
               </td>
               <td>
-                <button type="button" class="state" :class="{ on: p.active }" @click="toggleActive(p)">
-                  {{ p.active ? 'Activo' : 'Inactivo' }}
+                <button
+                  type="button"
+                  class="state"
+                  :class="{ on: p.active }"
+                  :aria-pressed="p.active"
+                  :aria-label="`${p.name}: ${p.active ? 'activo, tocar para desactivar' : 'inactivo, tocar para activar'}`"
+                  @click="toggleActive(p)"
+                >
+                  <span class="state-dot" aria-hidden="true" />
+                  <span class="state-label">{{ p.active ? 'Activo' : 'Inactivo' }}</span>
                 </button>
               </td>
-              <td>
-                <button type="button" class="edit-btn" @click="editor = { product: p }">
-                  <i class="fa-solid fa-pen" aria-hidden="true" /> Editar
+              <td class="col-edit">
+                <button type="button" class="btn btn-secondary edit-btn" @click="editor = { product: p }">
+                  <i class="fa-solid fa-pen" aria-hidden="true" /> <span class="edit-label">Editar</span>
                 </button>
               </td>
             </tr>
             <tr v-if="!visible.length">
-              <td colspan="6" class="empty">Sin resultados.</td>
+              <td colspan="6" class="empty">Ningún producto con ese nombre o tipo.</td>
             </tr>
           </tbody>
         </table>
@@ -212,76 +232,37 @@ async function toggleActive(product: Product) {
 <style scoped lang="scss">
 @use '@/styles/mixins' as *;
 
-.head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  flex-wrap: wrap;
-  margin-bottom: 1rem;
-
-  .page-title {
-    margin-bottom: 0.15rem;
-  }
-}
-
-.hint {
-  margin: 0;
-  color: var(--ink-400);
-  font-size: 0.86rem;
+.cat {
+  max-width: 1240px;
 }
 
 .tools {
   display: flex;
-  gap: 0.6rem;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 0.75rem;
   margin-bottom: 0.9rem;
 }
 
-.tabs {
-  display: flex;
-  gap: 0.35rem;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.tab {
-  flex-shrink: 0;
-  min-height: 42px;
-  padding: 0.4rem 0.9rem;
-  border-radius: 999px;
-  border: 1.5px solid var(--cream-200);
-  background: var(--surface);
-  font-weight: 600;
-  font-size: 0.86rem;
-  color: var(--ink-600);
-  transition: all 0.15s ease;
-
-  &--on {
-    background: var(--navy-800);
-    border-color: var(--navy-800);
-    color: #fff;
-  }
-}
-
-.tab-count {
-  font-size: 0.74rem;
-  opacity: 0.7;
-  margin-left: 0.2rem;
-}
-
 .search {
-  flex: 1;
-  min-width: 200px;
+  flex: 1 1 240px;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  min-height: 42px;
-  padding: 0 0.85rem;
-  border: 1.5px solid var(--cream-200);
+  gap: 0.55rem;
+  min-height: 48px;
+  padding: 0 0.95rem;
+  border: 1px solid var(--line-strong);
   border-radius: 999px;
   background: var(--surface);
   color: var(--ink-400);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+
+  &:focus-within {
+    border-color: var(--navy-600);
+    box-shadow: var(--focus-ring);
+  }
 
   input {
     flex: 1;
@@ -289,11 +270,17 @@ async function toggleActive(product: Product) {
     border: none;
     outline: none;
     background: transparent;
+    font-size: 1rem;
+    color: var(--ink-900);
   }
 }
 
 .table-card {
-  padding: 0.75rem;
+  padding: 0.5rem 0.75rem;
+
+  @include tablet {
+    padding: 0.75rem 1.1rem;
+  }
 }
 
 .table-wrap {
@@ -303,26 +290,42 @@ async function toggleActive(product: Product) {
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.86rem;
+  font-size: 1rem;
+
+  @media (max-width: 639px) {
+    th,
+    td {
+      padding-left: 0.3rem !important;
+      padding-right: 0.3rem !important;
+    }
+  }
 
   th {
     text-align: left;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-size: 0.88rem;
+    font-weight: 500;
     color: var(--ink-400);
-    padding: 0.5rem 0.6rem;
-    border-bottom: 2px solid var(--cream-200);
+    padding: 0.65rem 0.5rem;
+    border-bottom: 1px solid var(--line);
     white-space: nowrap;
   }
 
   td {
-    padding: 0.55rem 0.6rem;
-    border-bottom: 1px solid var(--cream-200);
+    padding: 0.7rem 0.5rem;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: middle;
   }
 
-  tr.inactive td {
-    opacity: 0.5;
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  tr.inactive td > * {
+    opacity: 0.55;
+  }
+
+  tr.inactive td .state {
+    opacity: 1;
   }
 }
 
@@ -335,60 +338,100 @@ async function toggleActive(product: Product) {
 .prod {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-weight: 600;
-  min-width: 200px;
+  gap: 0.6rem;
 
   svg {
     color: var(--navy-700);
     flex-shrink: 0;
   }
 
+  @include tablet {
+    min-width: 210px;
+  }
+}
+
+.prod-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+
   small {
-    display: block;
-    font-weight: 500;
-    font-size: 0.72rem;
+    font-size: 0.88rem;
     color: var(--ink-400);
   }
 }
 
+.prod-name {
+  font-weight: 600;
+}
+
 .custom-tag {
-  font-size: 0.65rem;
-  font-weight: 700;
-  color: var(--gold-500);
-  background: rgba(159, 107, 60, 0.12);
-  padding: 0.1rem 0.45rem;
+  display: inline-block;
+  margin-left: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--pill-warn-ink);
+  background: var(--pill-warn-bg);
+  padding: 0.05rem 0.5rem;
   border-radius: 999px;
   white-space: nowrap;
+  vertical-align: 1px;
+}
+
+// En celular el tipo va en la segunda línea y la medida se omite (se ve al editar).
+.kind-inline {
+  @include tablet {
+    display: none;
+  }
+}
+
+.col-kind,
+.col-detail {
+  display: none;
+
+  @include tablet {
+    display: table-cell;
+  }
+}
+
+.col-detail {
+  @include tablet {
+    display: none;
+  }
+
+  @include desktop {
+    display: table-cell;
+  }
 }
 
 .kind {
-  font-size: 0.72rem;
-  font-weight: 700;
-  padding: 0.2rem 0.55rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
   border-radius: 999px;
   white-space: nowrap;
 
   &--fisico {
-    background: var(--powder-100);
-    color: var(--navy-700);
+    background: var(--pill-info-bg);
+    color: var(--pill-info-ink);
   }
 
   &--receta {
-    background: rgba(159, 107, 60, 0.13);
-    color: var(--gold-500);
+    background: var(--pill-warn-bg);
+    color: var(--pill-warn-ink);
   }
 
   &--servicio {
-    background: var(--cream-100);
-    color: var(--ink-600);
+    background: var(--pill-neutral-bg);
+    color: var(--pill-neutral-ink);
   }
 }
 
 .detail {
   color: var(--ink-600);
-  font-size: 0.8rem;
+  font-size: 0.92rem;
   min-width: 220px;
+  max-width: 340px;
 }
 
 .muted {
@@ -396,34 +439,94 @@ async function toggleActive(product: Product) {
 }
 
 .state {
-  font-size: 0.74rem;
-  font-weight: 700;
-  padding: 0.25rem 0.65rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 44px;
+  padding: 0 0.8rem;
   border-radius: 999px;
-  background: var(--cream-100);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  font-size: 0.92rem;
+  font-weight: 600;
   color: var(--ink-400);
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 
   &.on {
-    background: rgba(63, 122, 87, 0.13);
-    color: var(--success);
+    border-color: transparent;
+    background: var(--pill-ok-bg);
+    color: var(--pill-ok-ink);
+  }
+
+  &:hover {
+    border-color: var(--navy-600);
   }
 }
 
+.state-label {
+  @media (max-width: 639px) {
+    display: none;
+  }
+}
+
+.state {
+  @media (max-width: 639px) {
+    justify-content: center;
+    width: 44px;
+    padding: 0;
+  }
+}
+
+.state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-300);
+
+  .on & {
+    background: var(--success);
+  }
+}
+
+.col-edit {
+  text-align: right;
+}
+
 .edit-btn {
-  font-weight: 700;
-  color: var(--navy-700);
+  min-width: 48px;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.95rem;
+}
+
+.edit-label {
+  display: none;
+
+  @include tablet {
+    display: inline;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
   white-space: nowrap;
 }
 
 .empty {
-  text-align: center;
-  color: var(--ink-400);
-  padding: 1rem;
+  color: var(--ink-600);
+  padding: 1.25rem 0.5rem;
 }
 
 .note {
   margin: 0.8rem 0 0;
-  font-size: 0.84rem;
-  color: var(--ink-400);
+  font-size: 0.95rem;
+  color: var(--ink-600);
 }
 </style>
