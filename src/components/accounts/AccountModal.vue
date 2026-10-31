@@ -9,16 +9,15 @@ import { useUserStore } from '@/stores/user'
 import { useConfirmStore } from '@/stores/confirm'
 import { useToastStore } from '@/stores/toast'
 import { useSound } from '@/composables/useSound'
+import { useConsumptionCorrections } from '@/composables/useConsumptionCorrections'
 import {
   apiAccountAction,
   apiCabinAccount,
-  apiBonifyConsumption,
   apiCollectCabin,
   apiOrders,
   apiProforma,
   apiResendSummary,
   apiReviewAnnulment,
-  apiUndoConsumption,
 } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { COUNTRY_OPTIONS } from '@/utils/countries'
@@ -31,6 +30,7 @@ const userStore = useUserStore()
 const confirmStore = useConfirmStore()
 const toast = useToastStore()
 const { play } = useSound()
+const corrections = useConsumptionCorrections()
 
 const account = shallowRef<AccountSummary | null>(null)
 const annulmentOrders = shallowRef<Order[]>([])
@@ -38,13 +38,6 @@ const loading = shallowRef(true)
 const busy = shallowRef(false)
 const showQr = shallowRef(false)
 const proformaBusy = shallowRef<'' | 'ver' | 'descargar'>('')
-
-const STATUS_LABEL: Record<string, string> = {
-  abierta: 'Abierta',
-  en_revision: 'En revisión',
-  aprobada: 'Aprobada',
-  cobrada: 'Pagada',
-}
 
 const ACTION_LABEL: Record<string, string> = {
   creada: 'Cuenta abierta',
@@ -68,14 +61,15 @@ const METHOD_OPTIONS = [
 ]
 
 /**
- * Recorrido de la cuenta en tres pasos: Consumos (abierta o en revisión) →
- * Aprobada → Pagada. Solo informa; las reglas viven en el servidor.
+ * Recorrido de la cuenta en tres pasos: Consumos (abierta; "en revisión" es
+ * un estado heredado y se trata igual) → Aprobada → Pagada. Solo informa;
+ * las reglas viven en el servidor.
  */
 const steps = computed(() => {
   const status = account.value?.status ?? 'abierta'
   const at = status === 'cobrada' ? 2 : status === 'aprobada' ? 1 : 0
   return [
-    { key: 'consumos', label: status === 'en_revision' ? 'En revisión' : 'Consumos', state: at > 0 ? 'done' : 'now' },
+    { key: 'consumos', label: 'Consumos', state: at > 0 ? 'done' : 'now' },
     { key: 'aprobada', label: 'Aprobada', state: at > 1 ? 'done' : at === 1 ? 'now' : 'next' },
     { key: 'pagada', label: 'Pagada', state: at === 2 ? 'done' : 'next' },
   ] as const
@@ -181,28 +175,21 @@ const emailError = computed(() =>
 const publicUrl = computed(() => `${window.location.origin}/cuenta/${props.cabin.accountToken}`)
 
 /**
- * Quien aprueba (Dirección de crucero o Gerencia) ve dos acciones en la
- * misma cuenta: Modificar y Aprobar. El bar envía a revisión.
+ * Quien aprueba (Dirección de crucero o Gerencia) ve abajo solo Aprobar; la
+ * cortesía y el retiro están siempre bajo cada consumo (pedido 31-oct-2026).
  */
 const isApprover = computed(() => userStore.isDirector)
+const isBar = computed(() => userStore.role === 'bartender')
 const hasOpenCharges = computed(() => (account.value?.orders.length ?? 0) > 0)
-const canSubmit = computed(
-  () => !isApprover.value && account.value?.status === 'abierta' && hasOpenCharges.value,
-)
-const canApprove = computed(
-  () =>
-    isApprover.value &&
-    hasOpenCharges.value &&
-    (account.value?.status === 'abierta' || account.value?.status === 'en_revision'),
-)
-const canModify = computed(
-  () =>
-    isApprover.value &&
-    hasOpenCharges.value &&
-    ['abierta', 'en_revision', 'aprobada'].includes(account.value?.status ?? ''),
-)
-/** Modo Modificar: cortesía y retiro por línea. */
-const editing = shallowRef(false)
+/** "En revisión" es heredado: se trata como abierta. */
+const isOpen = computed(() => account.value?.status === 'abierta' || account.value?.status === 'en_revision')
+const isApproved = computed(() => account.value?.status === 'aprobada')
+const canApprove = computed(() => isApprover.value && hasOpenCharges.value && isOpen.value)
+/**
+ * Cortesía / Retirar bajo cada consumo sin pagar: el bar con la cuenta
+ * abierta; Dirección y Gerencia también con la cuenta aprobada (la anula).
+ */
+const canCorrect = computed(() => (isApprover.value && (isOpen.value || isApproved.value)) || (isBar.value && isOpen.value))
 const collectSection = useTemplateRef<HTMLElement>('collectSection')
 const collectReady = computed(
   () =>
@@ -215,11 +202,6 @@ const collectReady = computed(
     (method.value !== 'transferencia' || reference.value.trim()),
 )
 
-/** Dirección corrige en modo Modificar: cortesía (se sirvió) o retiro con motivo. */
-const canCorrect = computed(
-  () => editing.value && isApprover.value && account.value?.status === 'abierta',
-)
-const isBar = computed(() => userStore.role === 'bartender')
 
 async function load() {
   try {
@@ -228,7 +210,6 @@ async function load() {
       apiOrders({ cruiseId: props.cruiseId, cabinNumber: props.cabin.number, annulment: 'pendiente' }),
     ])
     account.value = acc
-    if (acc.status !== 'abierta' || !acc.orders.length) editing.value = false
     amount.value = acc.due > 0 ? acc.due.toFixed(2) : ''
     annulmentOrders.value = ann.orders
   } catch (err) {
@@ -253,13 +234,6 @@ async function run(action: () => Promise<void>, successSound: 'success' | 'cash'
   } finally {
     busy.value = false
   }
-}
-
-function submitReview() {
-  return run(async () => {
-    account.value = await apiAccountAction(props.cruiseId, props.cabin.number, 'submit')
-    toast.success('Cuenta enviada a revisión')
-  })
 }
 
 /** Aprobar en un toque: el modal muestra los consumos y el total; luego se cobra aquí mismo. */
@@ -287,49 +261,12 @@ async function approve() {
   if (!ok) return
   await run(async () => {
     account.value = await apiAccountAction(props.cruiseId, props.cabin.number, 'approve')
-    editing.value = false
     toast.success('Cuenta aprobada. Lista para cobrar.')
   })
   if (account.value?.readyToCollect) {
     await nextTick()
     collectSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
-}
-
-/**
- * Modificar: con la cuenta abierta entra directo a la edición; en revisión
- * o aprobada la reabre con motivo (la aprobación queda anulada).
- */
-async function modify() {
-  const acc = account.value
-  if (!acc) return
-  if (editing.value) {
-    editing.value = false
-    return
-  }
-  if (acc.status === 'abierta') {
-    editing.value = true
-    return
-  }
-  const reason = await confirmStore.askReason({
-    title: `¿Modificar la cuenta de cabina ${props.cabin.number}?`,
-    message:
-      acc.status === 'aprobada'
-        ? 'La aprobación queda anulada. Corrige los consumos y vuelve a aprobar.'
-        : 'La cuenta vuelve a abierta para corregir los consumos.',
-    confirmLabel: 'Modificar',
-    icon: 'fa-pen',
-    reason: {
-      label: 'Motivo (obligatorio)',
-      suggestions: ['El pasajero reclama un cargo', 'Falta un consumo', 'Revisar cortesía'],
-    },
-  })
-  if (!reason) return
-  await run(async () => {
-    account.value = await apiAccountAction(props.cruiseId, props.cabin.number, 'return', reason)
-    editing.value = true
-    toast.success('Cuenta abierta para modificar')
-  })
 }
 
 async function reviewAnnulment(order: Order, annulmentId: string, decision: 'aprobar' | 'rechazar', restock: boolean) {
@@ -357,19 +294,11 @@ async function reviewAnnulment(order: Order, annulmentId: string, decision: 'apr
   })
 }
 
-async function bonify(line: { orderId: string; name: string; chargeableQty: number }) {
-  const reason = await confirmStore.askReason({
-    title: `¿Marcar ${line.chargeableQty} ${line.name} como cortesía?`,
-    message: 'Deja de cobrarse, pero se sirvió: los ingredientes siguen descontados. Queda en el historial.',
-    confirmLabel: 'Marcar como cortesía',
-    icon: 'fa-gift',
-    reason: { label: 'Motivo (obligatorio)', suggestions: ['Cortesía de la casa', 'Compensación al pasajero'] },
-  })
-  if (!reason) return
-  await run(async () => {
-    await apiBonifyConsumption(line.orderId, reason)
-    toast.success('Marcada como cortesía')
-  })
+type AccountLine = { orderId: string; name: string; chargeableQty: number; courtesy: boolean }
+
+/** Cortesía: se sirvió, deja de cobrarse. Con la cuenta aprobada, la anula. */
+async function bonify(line: AccountLine) {
+  await correct(() => corrections.courtesy({ orderId: line.orderId, name: line.name, qty: line.chargeableQty }, { approved: isApproved.value }))
 }
 
 /**
@@ -377,39 +306,30 @@ async function bonify(line: { orderId: string; name: string; chargeableQty: numb
  * deshace y vuelven los ingredientes; si se sirvió, queda como cortesía y el
  * stock sigue descontado. El total se actualiza y queda en el historial.
  */
-async function retire(line: { orderId: string; name: string; chargeableQty: number }) {
-  if (account.value?.status !== 'abierta') {
-    toast.error('Toca Modificar para corregir la cuenta')
-    return
+async function retire(line: AccountLine) {
+  await correct(() =>
+    corrections.retire(
+      { orderId: line.orderId, name: line.name, qty: line.chargeableQty, courtesy: line.courtesy },
+      { approved: isApproved.value },
+    ),
+  )
+}
+
+async function correct(action: () => Promise<{ message: string } | null>) {
+  busy.value = true
+  try {
+    const result = await action()
+    if (!result) return
+    play('success')
+    toast.success(result.message)
+    emit('changed')
+    await load()
+  } catch (err) {
+    play('error')
+    toast.error(apiErrorMessage(err))
+  } finally {
+    busy.value = false
   }
-  const answer = await confirmStore.askChoice({
-    title: `¿Retirar ${line.chargeableQty} ${line.name} de la cuenta?`,
-    message: 'El total se actualiza al instante y la corrección queda en el historial.',
-    confirmLabel: 'Retirar consumo',
-    danger: true,
-    icon: 'fa-rotate-left',
-    choice: {
-      label: '¿Se sirvió la bebida?',
-      options: [
-        { value: 'no', label: 'No se sirvió', hint: 'Vuelven los ingredientes' },
-        { value: 'si', label: 'Sí se sirvió', hint: 'Queda como cortesía; el stock sigue descontado' },
-      ],
-    },
-    reason: {
-      label: 'Motivo (obligatorio)',
-      suggestions: ['El pasajero dice que no lo pidió', 'Cabina equivocada', 'Compensación al pasajero'],
-    },
-  })
-  if (!answer) return
-  await run(async () => {
-    if (answer.choice === 'no') {
-      await apiUndoConsumption(line.orderId, answer.reason)
-      toast.success('Consumo retirado: ingredientes devueltos')
-    } else {
-      await apiBonifyConsumption(line.orderId, `Retirado por reclamo (se sirvió): ${answer.reason}`)
-      toast.success('Consumo retirado como cortesía')
-    }
-  })
 }
 
 async function collect() {
@@ -590,19 +510,19 @@ async function openProforma(download: boolean) {
 
       <p v-if="account.pendingDeliveries" class="notice">
         <i class="fa-solid fa-hourglass-half" aria-hidden="true" />
-        Hay {{ account.pendingDeliveries }} bebida(s) sin entregar. Entrégalas o cancélalas en el Bar antes de enviar a
-        revisión.
+        Hay {{ account.pendingDeliveries }} bebida(s) sin entregar. Entrégalas o cancélalas en el Bar antes de aprobar.
       </p>
 
       <!-- Consumos por día (Galápagos): subtotal del día y acumulado de la cabina -->
       <section class="block" aria-labelledby="acc-lines-title">
         <h4 id="acc-lines-title" class="block-title">Consumos</h4>
-        <Transition name="fade">
-          <p v-if="editing" class="edit-banner">
-            <i class="fa-solid fa-pen" aria-hidden="true" />
-            Modificando: marca cortesías o retira consumos. Cada cambio actualiza el total y queda en el historial.
-          </p>
-        </Transition>
+        <p v-if="canCorrect && isApproved && hasOpenCharges" class="edit-banner">
+          <i class="fa-solid fa-circle-info" aria-hidden="true" />
+          Cuenta aprobada: una cortesía o un retiro anula la aprobación y hay que volver a aprobarla.
+        </p>
+        <p v-else-if="isBar && isApproved && hasOpenCharges" class="muted">
+          Cuenta aprobada: las correcciones las hace Dirección de crucero o Gerencia.
+        </p>
         <p v-if="neverCharged" class="muted">Sin consumos en esta cuenta.</p>
         <div v-for="day in days" :key="day.key" class="day">
           <h5 class="day-head">
@@ -613,7 +533,7 @@ async function openProforma(download: boolean) {
             v-for="line in day.lines"
             :key="`${line.paid ? 'p' : 'o'}-${line.orderId}-${line.index}`"
             class="line"
-            :class="{ 'line--paid': line.paid, 'line--editing': canCorrect && !line.paid && line.single }"
+            :class="{ 'line--paid': line.paid }"
           >
             <div class="line-main">
               <span class="line-name">
@@ -629,16 +549,21 @@ async function openProforma(download: boolean) {
             <span class="line-amount" :class="{ 'line-amount--zero': lineAmount(line) === 0 }">
               {{ formatMoney(lineAmount(line)) }}
             </span>
-            <Transition name="fade">
-              <div v-if="canCorrect && !line.paid && line.single" class="line-actions">
-                <button v-if="!line.courtesy" type="button" class="line-btn" :disabled="busy" @click="bonify(line)">
-                  <i class="fa-solid fa-gift" aria-hidden="true" /> Marcar como cortesía
-                </button>
-                <button type="button" class="line-btn line-btn--danger" :disabled="busy" @click="retire(line)">
-                  <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Retirar consumo
-                </button>
-              </div>
-            </Transition>
+            <!-- Corrección directa bajo cada consumo (sin modo Modificar) -->
+            <div v-if="canCorrect && !line.paid && line.single" class="line-actions">
+              <button
+                v-if="!line.courtesy && !line.pendingQty"
+                type="button"
+                class="btn-text line-link"
+                :disabled="busy"
+                @click="bonify(line)"
+              >
+                <i class="fa-solid fa-gift" aria-hidden="true" /> Cortesía
+              </button>
+              <button type="button" class="btn-text line-link line-link--danger" :disabled="busy" @click="retire(line)">
+                <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Retirar consumo
+              </button>
+            </div>
           </div>
           <p class="day-total">
             <span>Acumulado de la cabina</span>
@@ -726,47 +651,17 @@ async function openProforma(download: boolean) {
         </template>
       </section>
 
-      <!-- Siguiente paso según rol: el bar envía; quien aprueba ve Modificar y Aprobar -->
-      <section
-        v-if="canSubmit || canApprove || canModify || account.status === 'en_revision'"
-        class="flow"
-        :class="{ 'flow--sticky': canSubmit || canApprove }"
-        aria-label="Siguiente paso"
-      >
+      <!-- Abajo solo Aprobar (Dirección de crucero o Gerencia); luego se cobra aquí mismo -->
+      <section v-if="canApprove" class="flow flow--sticky" aria-label="Siguiente paso">
         <button
-          v-if="canSubmit"
           type="button"
-          class="btn btn-primary btn-wide"
-          :disabled="busy || account.pendingDeliveries > 0"
-          @click="submitReview"
+          class="btn btn-primary btn-wide btn-approve"
+          :disabled="busy || account.pendingDeliveries > 0 || account.pendingAnnulments > 0"
+          @click="approve"
         >
-          <i class="fa-solid fa-paper-plane" aria-hidden="true" /> Enviar a revisión
+          <i class="fa-solid fa-shield-halved" aria-hidden="true" /> Aprobar {{ formatMoney(account.due) }}
         </button>
-        <div v-if="canApprove || canModify" class="flow-pair" :class="{ 'flow-pair--single': !canApprove }">
-          <button
-            v-if="canModify"
-            type="button"
-            class="btn btn-ghost"
-            :class="{ 'btn-editing': editing }"
-            :disabled="busy"
-            :aria-pressed="editing"
-            @click="modify"
-          >
-            <i class="fa-solid" :class="editing ? 'fa-check' : 'fa-pen'" aria-hidden="true" />
-            {{ editing ? 'Terminar cambios' : 'Modificar' }}
-          </button>
-          <button
-            v-if="canApprove"
-            type="button"
-            class="btn btn-primary"
-            :disabled="busy || account.pendingDeliveries > 0 || account.pendingAnnulments > 0"
-            @click="approve"
-          >
-            <i class="fa-solid fa-shield-halved" aria-hidden="true" /> Aprobar {{ formatMoney(account.due) }}
-          </button>
-        </div>
-        <p v-if="canApprove && account.pendingAnnulments > 0" class="muted">Resuelve las anulaciones pendientes para aprobar.</p>
-        <p v-if="account.status === 'en_revision' && !isApprover" class="muted">Cuenta en revisión.</p>
+        <p v-if="account.pendingAnnulments > 0" class="muted">Resuelve las anulaciones pendientes para aprobar.</p>
       </section>
 
       <!-- Cobro: bloqueado hasta aprobar -->
@@ -1197,10 +1092,6 @@ async function openProforma(download: boolean) {
   padding: 0.7rem 0.75rem;
   border-bottom: 1px solid var(--line);
   transition: background 0.2s ease;
-
-  &--editing {
-    background: #f8fafc;
-  }
 }
 
 .line-main {
@@ -1274,30 +1165,35 @@ async function openProforma(download: boolean) {
 .line-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  align-items: center;
   width: 100%;
-  margin-top: 0.4rem;
+  margin: 0.1rem 0 -0.45rem;
 }
 
-.line-btn {
-  @include touch-target;
+// Acciones pequeñas de texto bajo cada consumo, con zona táctil de 44 px.
+.line-link {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0 1rem;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0 0.6rem;
+  margin-left: -0.6rem;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--line-strong);
-  background: var(--surface);
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   font-weight: 500;
-  color: var(--navy-800);
+  color: var(--navy-700);
   transition:
-    border-color 0.15s ease,
-    opacity 0.15s ease,
-    transform 0.12s ease;
+    background 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease;
+
+  i {
+    font-size: 0.8125rem;
+  }
 
   &:hover:not(:disabled) {
-    border-color: currentColor;
+    background: var(--powder-100);
+    color: var(--navy-900);
   }
 
   &:active:not(:disabled) {
@@ -1310,6 +1206,15 @@ async function openProforma(download: boolean) {
 
   &--danger {
     color: var(--danger);
+
+    &:hover:not(:disabled) {
+      background: #fbecea;
+      color: var(--danger-ink, var(--danger));
+    }
+  }
+
+  & + & {
+    margin-left: 0.5rem;
   }
 }
 
@@ -1480,8 +1385,8 @@ async function openProforma(download: boolean) {
   flex-direction: column;
   gap: 0.6rem;
 
-  // Antes de aprobar, Modificar / Aprobar quedan a la vista mientras se
-  // recorren los consumos con el pasajero.
+  // Antes de aprobar, Aprobar queda a la vista mientras se recorren los
+  // consumos con el pasajero.
   &--sticky {
     position: sticky;
     bottom: -1.25rem;
@@ -1497,25 +1402,9 @@ async function openProforma(download: boolean) {
   width: 100%;
 }
 
-.flow-pair {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
-  gap: 0.6rem;
-
-  &--single {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .btn {
-    min-height: 52px;
-    font-size: 1rem;
-  }
-}
-
-.btn-editing {
-  border-color: var(--navy-800);
-  background: var(--powder-100);
-  color: var(--navy-900);
+.btn-approve {
+  min-height: 52px;
+  font-size: 1rem;
 }
 
 // Cobro
