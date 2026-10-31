@@ -76,13 +76,9 @@ function touchEmail(index: number) {
   touchedEmail.value = new Set(touchedEmail.value).add(index)
 }
 
-function setPayer(index: number) {
-  passengers.value.forEach((p, i) => (p.isPayer = i === index))
-}
-
 async function save() {
   const clean = passengers.value.filter((p) => p.name.trim())
-  if (passengers.value.some((p) => !p.name.trim() && (p.email || p.idNumber || p.phone))) {
+  if (passengers.value.some((p) => !p.name.trim() && (p.email || p.idNumber))) {
     toast.error('Cada pasajero necesita su nombre')
     return
   }
@@ -117,7 +113,7 @@ async function save() {
     :title="`Cabina ${cabin.number} · ${cruiseLabel}`"
     :subtitle="readonly
       ? 'Crucero finalizado: los pasajeros se conservan solo para consulta.'
-      : 'Registra a cada persona. La facturación toma los datos del pagador y solo pide lo que falte.'"
+      : 'Solo los datos para facturar. Quién paga (o si dividen la cuenta) se elige al cobrar.'"
     size="lg"
     @close="emit('close')"
   >
@@ -137,19 +133,9 @@ async function save() {
       </div>
 
       <TransitionGroup name="list" tag="div" class="list">
-        <article v-for="(p, index) in passengers" :key="index" class="person" :class="{ 'person--payer': p.isPayer }">
+        <article v-for="(p, index) in passengers" :key="index" class="person">
           <header class="person-head">
             <span class="person-n">Pasajero {{ index + 1 }}</span>
-            <button
-              type="button"
-              class="payer-toggle"
-              :class="{ on: p.isPayer }"
-              :disabled="readonly"
-              @click="setPayer(index)"
-            >
-              <i class="fa-solid" :class="p.isPayer ? 'fa-circle-check' : 'fa-circle'" aria-hidden="true" />
-              {{ p.isPayer ? 'Pagador' : 'Marcar como pagador' }}
-            </button>
             <button
               v-if="!readonly"
               type="button"
@@ -171,16 +157,8 @@ async function save() {
               <BaseSelect v-model="p.country" :options="COUNTRY_OPTIONS" searchable placeholder="Buscar país…" :disabled="readonly" />
             </div>
             <div class="field">
-              <label>Nacionalidad</label>
-              <BaseSelect v-model="p.nationality" :options="COUNTRY_OPTIONS" searchable placeholder="Buscar…" :disabled="readonly" />
-            </div>
-            <div class="field">
               <label :for="`pax-id-${index}`">Pasaporte / cédula</label>
               <input :id="`pax-id-${index}`" v-model="p.idNumber" type="text" :disabled="readonly" />
-            </div>
-            <div class="field">
-              <label :for="`pax-phone-${index}`">Teléfono (opcional)</label>
-              <input :id="`pax-phone-${index}`" v-model="p.phone" type="tel" :disabled="readonly" />
             </div>
             <div class="field span-2">
               <label :for="`pax-email-${index}`">Correo (opcional)</label>
@@ -303,10 +281,6 @@ async function save() {
     border-color 0.16s ease,
     box-shadow 0.16s ease;
 
-  &--payer {
-    border-color: var(--navy-600);
-    box-shadow: inset 3px 0 0 var(--navy-800);
-  }
 }
 
 .person-head {
@@ -322,41 +296,8 @@ async function save() {
   font-size: 1.1rem;
 }
 
-.payer-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  min-height: 44px;
-  margin-left: auto;
-  padding: 0.4rem 0.9rem;
-  border-radius: 999px;
-  font-size: 0.92rem;
-  font-weight: 600;
-  color: var(--ink-600);
-  border: 1px solid var(--line-strong);
-  background: var(--surface);
-  transition:
-    background-color 0.16s ease,
-    border-color 0.16s ease,
-    color 0.16s ease;
-
-  &:not(:disabled):not(.on):hover {
-    border-color: var(--navy-600);
-    color: var(--ink-900);
-  }
-
-  &.on {
-    color: #fff;
-    background: var(--navy-800);
-    border-color: var(--navy-800);
-  }
-
-  &:disabled {
-    cursor: default;
-  }
-}
-
 .person-remove {
+  margin-left: auto;
   width: 48px;
   height: 48px;
   display: grid;
