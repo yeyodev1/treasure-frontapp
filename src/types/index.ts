@@ -32,6 +32,9 @@ export type ProductCategory =
 
 export type ProductKind = 'fisico' | 'receta' | 'servicio'
 
+/** Tipo de vino para dividir la carta del bar. */
+export type WineStyle = 'tinto' | 'blanco' | 'rosado' | 'espumante'
+
 export type StockUnit =
   | 'ml'
   | 'unidad'
@@ -85,6 +88,8 @@ export interface Product {
   servingSize: number
   servingPrice: number
   recipe: RecipeItem[]
+  /** Solo vinos; vacío = sin clasificar. */
+  wineStyle?: WineStyle | ''
   isCustom: boolean
   active: boolean
   priceHistory: PriceChange[]
@@ -270,7 +275,13 @@ export interface Order {
 /** Consumo de la barra del bar; canUndo = se puede retirar, canCourtesy = marcar cortesía. */
 export interface CabinConsumption {
   orderId: string
+  /** Línea del pedido (los consumos directos tienen una sola: 0). */
+  line?: number
+  productId?: string
   name: string
+  unitPrice?: number
+  /** Registrado hoy (fecha comercial de Galápagos). */
+  today?: boolean
   qty: number
   courtesy: boolean
   total: number
@@ -286,7 +297,7 @@ export interface CabinSummary {
   todayTotal: number
   accountStatus: AccountStatus
   last: CabinConsumption | null
-  /** Consumos recientes de la cabina (el más nuevo primero). */
+  /** Todos los consumos de la cabina en el viaje (el más nuevo primero). */
   recent?: CabinConsumption[]
 }
 
