@@ -46,6 +46,7 @@ interface AccountLine {
   name: string
   unitPrice: number
   courtesy: boolean
+  agency: boolean
   qty: number
   pending: number
   total: number
@@ -58,11 +59,11 @@ const consumptions = computed(() => props.summary?.recent ?? [])
 
 const lines = computed<AccountLine[]>(() => {
   const map = new Map<string, AccountLine>()
-  const lineFor = (productId: string, name: string, unitPrice: number, courtesy: boolean) => {
-    const key = `${productId || name}|${courtesy ? 'c' : 'p'}|${unitPrice}`
+  const lineFor = (productId: string, name: string, unitPrice: number, courtesy: boolean, agency = false) => {
+    const key = `${productId || name}|${courtesy ? (agency ? 'a' : 'c') : 'p'}|${unitPrice}`
     let line = map.get(key)
     if (!line) {
-      line = { key, productId, name, unitPrice, courtesy, qty: 0, pending: 0, total: 0, items: [], lastAt: 0 }
+      line = { key, productId, name, unitPrice, courtesy, agency, qty: 0, pending: 0, total: 0, items: [], lastAt: 0 }
       map.set(key, line)
     }
     return line
@@ -71,7 +72,7 @@ const lines = computed<AccountLine[]>(() => {
     if (scope.value === 'hoy' && !c.today) continue
     if (c.qty <= 0) continue
     const unit = c.unitPrice ?? (c.qty ? c.total / c.qty : 0)
-    const line = lineFor(c.productId ?? '', c.name, unit, c.courtesy)
+    const line = lineFor(c.productId ?? '', c.name, unit, c.courtesy, c.courtesyKind === 'agencia')
     line.qty += c.qty
     line.total += c.total
     line.items.push(c)
@@ -79,7 +80,7 @@ const lines = computed<AccountLine[]>(() => {
   }
   // Lo que esta tableta aún envía es de hoy: suma a su línea como pendiente.
   for (const e of props.queued) {
-    const line = lineFor(e.productId, e.productName, e.price, e.courtesy)
+    const line = lineFor(e.productId, e.productName, e.price, e.courtesy, e.courtesyKind === 'agencia')
     line.pending += 1
     line.lastAt = Math.max(line.lastAt, new Date(e.clientAt).getTime())
   }
@@ -189,7 +190,7 @@ function names(c: Cabin) {
         <li v-for="line in lines" :key="line.key" class="line" :class="{ 'line--courtesy': line.courtesy }">
           <span class="line-name">{{ line.name }}</span>
           <span class="line-meta">
-              <template v-if="line.courtesy"><span class="tag">Cortesía</span></template>
+              <template v-if="line.courtesy"><span class="tag" :class="{ 'tag--agency': line.agency }">{{ line.agency ? 'Cortesía agencia' : 'Cortesía casa' }}</span></template>
               <span v-else class="nowrap">{{ formatMoney(line.unitPrice) }} c/u</span>
               <span v-if="line.pending" class="line-pending">
                 <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true" /> {{ line.pending }} enviando
@@ -524,6 +525,11 @@ function names(c: Cabin) {
   color: var(--pill-ok-ink, var(--navy-800));
   font-weight: 700;
   font-size: 0.72rem;
+}
+
+.tag--agency {
+  background: var(--pill-warn-bg);
+  color: var(--pill-warn-ink);
 }
 
 .line-pending {
