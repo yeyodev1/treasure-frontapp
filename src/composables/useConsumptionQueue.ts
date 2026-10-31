@@ -2,7 +2,7 @@ import { computed, ref, shallowRef, watch } from 'vue'
 import axios from 'axios'
 import { apiConsume, apiHeartbeat } from '@/services/api'
 import { apiErrorMessage, isNetworkError } from '@/services/httpBase'
-import type { CabinSummary } from '@/types'
+import type { CabinSummary, CourtesyKind } from '@/types'
 
 /**
  * Cola de consumos del bar (guía auditada 27-oct-2026). Cada toque es un
@@ -22,6 +22,8 @@ export interface QueueEntry {
   price: number
   courtesy: boolean
   courtesyReason?: string
+  /** Quién paga la cortesía: la casa o la agencia. */
+  courtesyKind?: CourtesyKind
   clientAt: string
   state: QueueState
   attempts: number
@@ -134,6 +136,7 @@ export function useConsumptionQueue(options: {
             productId: entry.productId,
             courtesy: entry.courtesy,
             courtesyReason: entry.courtesyReason,
+            courtesyKind: entry.courtesyKind,
             idempotencyKey: entry.key,
             clientAt: entry.clientAt,
           })
