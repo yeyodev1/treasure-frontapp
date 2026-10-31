@@ -113,11 +113,15 @@ async function save() {
 </script>
 
 <template>
-  <BaseModal :title="`Cabina ${cabin.number} · ${cruiseLabel}`" @close="emit('close')">
+  <BaseModal
+    :title="`Cabina ${cabin.number} · ${cruiseLabel}`"
+    :subtitle="readonly
+      ? 'Crucero finalizado: los pasajeros se conservan solo para consulta.'
+      : 'Registra a cada persona. La facturación toma los datos del pagador y solo pide lo que falte.'"
+    size="lg"
+    @close="emit('close')"
+  >
     <div class="pax">
-      <p class="intro">
-        Registra a cada persona. La facturación toma los datos del pagador y solo pide lo que falte.
-      </p>
 
       <div v-if="!readonly" class="capacity">
         <span>Plazas de la cabina</span>
@@ -203,17 +207,23 @@ async function save() {
         </article>
       </TransitionGroup>
 
-      <template v-if="!readonly">
-        <button type="button" class="btn btn-ghost" @click="add">
-          <i class="fa-solid fa-user-plus" aria-hidden="true" /> Agregar pasajero
-        </button>
-        <button type="button" class="btn btn-gold" :disabled="saving" @click="save">
-          <i class="fa-solid fa-floppy-disk" aria-hidden="true" />
-          {{ saving ? 'Guardando…' : 'Guardar pasajeros' }}
-        </button>
-      </template>
-      <p v-else class="intro">El crucero está finalizado: los pasajeros se conservan solo para consulta.</p>
+      <button
+        v-if="!readonly"
+        type="button"
+        class="btn btn-secondary add-btn"
+        @click="add"
+      >
+        <i class="fa-solid fa-user-plus" aria-hidden="true" /> Agregar pasajero
+      </button>
     </div>
+
+    <template v-if="!readonly" #footer>
+      <button type="button" class="btn btn-secondary" @click="emit('close')">Cancelar</button>
+      <button type="button" class="btn btn-primary btn-lg" :disabled="saving" @click="save">
+        <i class="fa-solid" :class="saving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'" aria-hidden="true" />
+        {{ saving ? 'Guardando…' : 'Guardar pasajeros' }}
+      </button>
+    </template>
   </BaseModal>
 </template>
 
@@ -225,7 +235,9 @@ async function save() {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 0.8rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--radius-sm);
+  background: var(--cream-100);
   font-weight: 600;
 }
 
@@ -237,54 +249,63 @@ async function save() {
   button {
     width: 48px;
     height: 48px;
-    border-radius: 12px;
-    border: 2px solid var(--cream-200);
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    color: var(--navy-800);
     transition:
-      border-color 0.15s ease,
-      opacity 0.15s ease;
+      border-color 0.16s ease,
+      opacity 0.16s ease,
+      transform 0.14s var(--ease-out);
 
     &:disabled {
       opacity: 0.35;
+      cursor: not-allowed;
     }
 
     &:not(:disabled):hover {
       border-color: var(--navy-600);
     }
+
+    &:not(:disabled):active {
+      transform: scale(0.94);
+    }
   }
 
   strong {
-    min-width: 1.5rem;
+    min-width: 1.75rem;
     text-align: center;
-    font-size: 1.15rem;
+    font-size: 1.25rem;
+    font-variant-numeric: tabular-nums;
   }
 }
 
 .pax {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
-}
-
-.intro {
-  margin: 0;
-  font-size: 0.86rem;
-  color: var(--ink-600);
+  gap: 1rem;
 }
 
 .list {
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: 0.85rem;
 }
 
 .person {
-  border: 1.5px solid var(--cream-200);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  padding: 0.85rem;
-  transition: border-color 0.15s ease;
+  padding: 0.9rem 1rem 1rem;
+  background: var(--surface);
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
 
   &--payer {
-    border-color: var(--gold-500);
+    border-color: var(--navy-600);
+    box-shadow: inset 3px 0 0 var(--navy-800);
   }
 }
 
@@ -292,50 +313,67 @@ async function save() {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.65rem;
+  margin-bottom: 0.75rem;
 }
 
 .person-n {
+  font-family: var(--font-serif);
   font-weight: 700;
-  font-size: 0.85rem;
+  font-size: 1.1rem;
 }
 
 .payer-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.45rem;
+  min-height: 44px;
   margin-left: auto;
-  padding: 0.3rem 0.65rem;
+  padding: 0.4rem 0.9rem;
   border-radius: 999px;
-  font-size: 0.78rem;
+  font-size: 0.92rem;
   font-weight: 600;
-  color: var(--ink-400);
-  border: 1px solid var(--cream-200);
+  color: var(--ink-600);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease;
+
+  &:not(:disabled):not(.on):hover {
+    border-color: var(--navy-600);
+    color: var(--ink-900);
+  }
 
   &.on {
     color: #fff;
-    background: var(--gold-500);
-    border-color: var(--gold-500);
+    background: var(--navy-800);
+    border-color: var(--navy-800);
+  }
+
+  &:disabled {
+    cursor: default;
   }
 }
 
 .person-remove {
-  width: 36px;
-  height: 36px;
+  width: 48px;
+  height: 48px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
-  color: var(--danger);
+  border-radius: var(--radius-sm);
+  color: var(--danger-ink);
+  transition: background-color 0.16s ease;
 
   &:hover {
-    background: rgba(180, 72, 59, 0.1);
+    background: var(--pill-danger-bg);
   }
 }
 
 .grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 0.6rem;
+  gap: 0.75rem;
 
   @include tablet {
     grid-template-columns: 1fr 1fr;
@@ -345,14 +383,18 @@ async function save() {
 .field-error {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  color: var(--danger);
-  font-size: 0.85rem;
+  gap: 0.4rem;
+  color: var(--danger-ink);
+  font-size: 0.92rem;
   font-weight: 600;
 }
 
 input.invalid {
   border-color: var(--danger);
+}
+
+.add-btn {
+  align-self: flex-start;
 }
 
 .fade-enter-active,
