@@ -3,29 +3,84 @@ import { computed, ref, shallowRef } from 'vue'
 import type { Product } from '@/types'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
-import { apiCreateCustomCocktail } from '@/services/api'
+import { useConfirmStore } from '@/stores/confirm'
+import { apiCreateCustomCocktail, apiRemoveCustomCocktail } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatMoney, unitShort } from '@/utils/format'
 
-/** Insumos físicos disponibles como ingredientes (botellas, mezcladores, frutas). */
-const props = defineProps<{ physical: Product[] }>()
-const emit = defineEmits<{ close: []; created: [Product] }>()
+/**
+ * Crear cóctel en el bar. Los licores se eligen como trago (pedido del
+ * cliente, 31-oct-2026: "deberían aparecer los tragos, no botellas"): la
+ * medida arranca en un trago y el stock se descuenta de su botella. Abajo,
+ * los cócteles creados en el bar con Eliminar (sale de la carta; lo vendido
+ * queda en el historial).
+ */
+const props = defineProps<{
+  /** Insumos físicos: botellas (como trago o copa), mezcladores, frutas. */
+  physical: Product[]
+  /** Cócteles creados en el bar que siguen en la carta. */
+  custom: Product[]
+}>()
+const emit = defineEmits<{ close: []; created: [Product]; removed: [Product] }>()
+
+const confirmStore = useConfirmStore()
 
 interface IngredientLine {
   productId: string
   qty: number
 }
 
+const SHOT_ML = 60
+
 const name = shallowRef('')
-const ingredients = ref<IngredientLine[]>([{ productId: '', qty: 60 }])
+const ingredients = ref<IngredientLine[]>([{ productId: '', qty: SHOT_ML }])
 const saving = shallowRef(false)
+const removing = shallowRef('')
 const error = shallowRef('')
 
 const byId = computed(() => new Map(props.physical.map((p) => [p._id, p])))
 
+/** Cómo se nombra el insumo: el licor como trago, el vino como copa. */
+function servedAs(p: Product): 'trago' | 'copa' | null {
+  if (p.stockUnit !== 'ml') return null
+  if (p.category === 'licor') return 'trago'
+  if (p.category === 'vino' && p.containerSize >= 750) return 'copa'
+  return null
+}
+
+function ingredientLabel(p: Product): string {
+  const base = p.name.replace(/\s*\(botella\)\s*$/i, '')
+  const as = servedAs(p)
+  return as ? `${base} (${as})` : base
+}
+
+/** Medida con que arranca: un trago o una copa; el resto, la medida de siempre. */
+function defaultQty(p: Product): number {
+  return servedAs(p) && p.servingSize > 0 ? p.servingSize : servedAs(p) === 'trago' ? SHOT_ML : 30
+}
+
+const RANK: Record<string, number> = { licor: 0, vino: 2 }
+
 const ingredientOptions = computed(() =>
-  props.physical.map((p) => ({ value: p._id, label: p.name, hint: unitShort(p.stockUnit) })),
+  [...props.physical]
+    // Las botellas pequeñas de vino se venden cerradas: no son insumo de coctelería.
+    .filter((p) => !(p.category === 'vino' && !servedAs(p)))
+    .sort((a, b) => (RANK[a.category] ?? 1) - (RANK[b.category] ?? 1) || ingredientLabel(a).localeCompare(ingredientLabel(b), 'es'))
+    .map((p) => {
+      const as = servedAs(p)
+      return {
+        value: p._id,
+        label: ingredientLabel(p),
+        hint: as ? `${defaultQty(p)} ${unitShort(p.stockUnit)}` : unitShort(p.stockUnit),
+      }
+    }),
 )
+
+function pick(line: IngredientLine, productId: string) {
+  line.productId = productId
+  const p = byId.value.get(productId)
+  if (p) line.qty = defaultQty(p)
+}
 
 /** Mismo cálculo que el servidor: medida / medida de referencia × precio de referencia. */
 const suggested = computed(() => {
@@ -40,6 +95,16 @@ const suggested = computed(() => {
 function unitOf(line: IngredientLine): string {
   const p = byId.value.get(line.productId)
   return p ? unitShort(p.stockUnit) : ''
+}
+
+/** "1 trago", "1,5 tragos", "1 copa": ayuda a leer la medida en ml. */
+function servingNote(line: IngredientLine): string {
+  const p = byId.value.get(line.productId)
+  const as = p ? servedAs(p) : null
+  if (!p || !as || !(line.qty > 0)) return ''
+  const n = Math.round((line.qty / defaultQty(p)) * 100) / 100
+  const word = as === 'trago' ? (n === 1 ? 'trago' : 'tragos') : n === 1 ? 'copa' : 'copas'
+  return `${String(n).replace('.', ',')} ${word}`
 }
 
 function addLine() {
@@ -75,6 +140,28 @@ async function save() {
     saving.value = false
   }
 }
+
+async function remove(product: Product) {
+  if (removing.value) return
+  const ok = await confirmStore.ask({
+    title: `¿Eliminar el cóctel ${product.name}?`,
+    message: 'Sale de la carta del bar. Lo que ya se vendió queda en las cuentas y en el historial.',
+    confirmLabel: 'Eliminar cóctel',
+    danger: true,
+    icon: 'fa-trash-can',
+  })
+  if (!ok) return
+  removing.value = product._id
+  error.value = ''
+  try {
+    await apiRemoveCustomCocktail(product._id)
+    emit('removed', product)
+  } catch (err) {
+    error.value = apiErrorMessage(err)
+  } finally {
+    removing.value = ''
+  }
+}
 </script>
 
 <template>
@@ -90,15 +177,17 @@ async function save() {
         <TransitionGroup name="list">
           <div v-for="(line, index) in ingredients" :key="index" class="ingredient">
             <BaseSelect
-              v-model="line.productId"
+              :model-value="line.productId"
               :options="ingredientOptions"
-              placeholder="Elige insumo…"
+              placeholder="Elige trago o insumo…"
               searchable
+              @update:model-value="(v: string) => pick(line, v)"
             />
             <label class="qty">
               <input v-model.number="line.qty" type="number" min="0" step="5" aria-label="Medida" />
               <span>{{ unitOf(line) }}</span>
             </label>
+            <p v-if="servingNote(line)" class="serving-note">{{ servingNote(line) }}</p>
             <button
               type="button"
               class="ingredient-remove"
@@ -126,8 +215,31 @@ async function save() {
 
       <button type="button" class="btn btn-gold" :disabled="saving" @click="save">
         <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true" />
-        {{ saving ? 'Guardando…' : 'Crear y agregar a la comanda' }}
+        {{ saving ? 'Guardando…' : 'Crear cóctel' }}
       </button>
+
+      <!-- Cócteles creados en el bar: se pueden eliminar -->
+      <section v-if="custom.length" class="created" aria-labelledby="created-title">
+        <h3 id="created-title" class="created-title">Cócteles creados en el bar</h3>
+        <TransitionGroup name="list" tag="ul" class="created-list">
+          <li v-for="c in custom" :key="c._id" class="created-item">
+            <span class="created-name">
+              <strong>{{ c.name }}</strong>
+              <small>{{ formatMoney(c.price) }}</small>
+            </span>
+            <button
+              type="button"
+              class="created-remove"
+              :disabled="Boolean(removing)"
+              :aria-label="`Eliminar ${c.name}`"
+              @click="remove(c)"
+            >
+              <i class="fa-solid" :class="removing === c._id ? 'fa-spinner fa-spin' : 'fa-trash-can'" aria-hidden="true" />
+              Eliminar
+            </button>
+          </li>
+        </TransitionGroup>
+      </section>
     </div>
   </BaseModal>
 </template>
@@ -178,6 +290,15 @@ async function save() {
   }
 }
 
+.serving-note {
+  grid-column: 1 / -1;
+  margin: -0.2rem 0 0;
+  font-size: 0.78rem;
+  color: var(--ink-400);
+  text-align: right;
+  padding-right: calc(44px + 0.4rem);
+}
+
 .ingredient-remove {
   height: 48px;
   display: grid;
@@ -208,6 +329,82 @@ async function save() {
   strong {
     font-size: 1.3rem;
     color: var(--navy-800);
+  }
+}
+
+.created {
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.created-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-600);
+}
+
+.created-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.created-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.35rem 0.35rem 0.35rem 0.8rem;
+  border: 1px solid var(--cream-200);
+  border-radius: var(--radius-sm);
+}
+
+.created-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+
+  strong {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
+  small {
+    color: var(--ink-400);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.created-remove {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0 0.8rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--danger);
+  transition:
+    background 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.12s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--cream-100);
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  &:disabled {
+    opacity: 0.45;
   }
 }
 
