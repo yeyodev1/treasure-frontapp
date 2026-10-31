@@ -226,6 +226,31 @@ export interface NewCruisePlan {
   } | null
 }
 
+/** Fechas válidas de zarpe de un tipo de crucero y cuáles están ocupadas. */
+export interface CruiseLegOption {
+  code: string
+  label: string
+  routeFrom: string
+  routeTo: string
+  durationDays: number
+  departureTime: string
+  /** Día de zarpe ("sábado", "martes"). */
+  weekday: string
+  dates: Array<{
+    date: string
+    endDate: string
+    free: boolean
+    conflict: NonNullable<NewCruisePlan['overlap']> | null
+  }>
+}
+
+export interface NewCruiseOptions {
+  legs: CruiseLegOption[]
+  /** El que sigue en el ciclo, en su primera fecha libre. */
+  suggestion: { leg: string; startDate: string } | null
+  cabinCount: number
+}
+
 export interface OrderItem {
   product: string
   name: string
@@ -284,6 +309,7 @@ export interface CabinConsumption {
   today?: boolean
   qty: number
   courtesy: boolean
+  courtesyKind?: CourtesyKind
   total: number
   at: string
   by: string
@@ -492,7 +518,11 @@ export interface AccountLineItem {
   chargeableQty: number
   unitPrice: number
   courtesy: boolean
+  /** Con cortesía: la casa la absorbe o se le factura a la agencia. */
+  courtesyKind?: CourtesyKind
 }
+
+export type CourtesyKind = 'casa' | 'agencia'
 
 export interface AccountSummary {
   cabinNumber: number
@@ -537,11 +567,34 @@ export interface AccountPayment {
   total: number
   /** false: pago parcial de una cuenta que aún tiene saldo. */
   settled: boolean
+  /** Cobro al que pertenece (varias formas de pago = un cobro, una factura). */
+  group?: string | null
+  /** Parte por porcentaje con su propia factura. */
+  part?: boolean
+  /** Lleva la factura del cobro. */
+  head?: boolean
+  /** Quién pagó (datos de la factura). */
+  payer?: string
+  /** Cabinas cobradas juntas (en la cabeza del cobro). */
+  cabins?: number[]
   invoiceStatus: InvoiceStatus
   invoiceNumber: string
   invoiceError: string
   /** Resumen por correo al pagador (solo el pago que liquida la cuenta). */
   summaryEmail: SummaryEmail
+}
+
+/** Cortesía de agencia: no se cobra a la cabina; se factura a la agencia. */
+export interface AgencyCourtesy {
+  orderId: string
+  cabinNumber: number
+  name: string
+  qty: number
+  unitPrice: number
+  total: number
+  reason: string
+  by: string
+  at: string
 }
 
 export interface SummaryEmail {
