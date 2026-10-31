@@ -6,10 +6,12 @@ import { useToastStore } from '@/stores/toast'
 import { useUserStore } from '@/stores/user'
 import { useConfirmStore } from '@/stores/confirm'
 import { useSound } from '@/composables/useSound'
-import { apiCruiseAccounts, apiCruises, apiOrders, apiReviewHeld } from '@/services/api'
+import { apiAgencyCourtesies, apiCruiseAccounts, apiCruises, apiOrders, apiReviewHeld } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatDateTime, formatMoney } from '@/utils/format'
 import AccountModal from '@/components/accounts/AccountModal.vue'
+import GroupCollectModal from '@/components/accounts/GroupCollectModal.vue'
+import AgencyCourtesiesModal from '@/components/accounts/AgencyCourtesiesModal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import type { AccountStatus, Cabin, CabinAccountRow, Cruise, Order } from '@/types'
@@ -33,6 +35,10 @@ const held = shallowRef<Order[]>([])
 const loading = shallowRef(true)
 const target = shallowRef<Cabin | null>(null)
 const reviewing = shallowRef('')
+const showGroup = shallowRef(false)
+const showAgency = shallowRef(false)
+/** Cortesías de agencia del crucero (se le facturan a la agencia). */
+const agencyTotal = shallowRef(0)
 
 const isBar = computed(() => userStore.role === 'bartender')
 const cruise = computed(() => cruises.value.find((c) => c._id === selectedId.value) ?? active.value ?? null)
@@ -116,6 +122,21 @@ async function loadRows() {
   } catch (err) {
     toast.error(apiErrorMessage(err))
   }
+  if (userStore.isDirector) {
+    try {
+      agencyTotal.value = (await apiAgencyCourtesies(cruise.value._id)).total
+    } catch {
+      agencyTotal.value = 0
+    }
+  }
+}
+
+/** Cabinas aprobadas con saldo: con dos o más se pueden cobrar juntas. */
+const groupable = computed(() => rows.value.filter((r) => r.status === 'aprobada' && r.due > 0).length)
+
+async function onGroupCollected() {
+  showGroup.value = false
+  await onChanged()
 }
 
 async function loadHeld() {
@@ -281,6 +302,24 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
         </div>
       </section>
 
+      <!-- Dirección: cobrar varias cabinas a un pagador y la cuenta de la agencia -->
+      <div v-if="!isBar && userStore.isDirector" class="actions-row">
+        <button type="button" class="action" :disabled="groupable < 2" @click="showGroup = true">
+          <i class="fa-solid fa-people-group" aria-hidden="true" />
+          <span>
+            <strong>Cobrar cabinas juntas</strong>
+            <small>{{ groupable < 2 ? 'Necesitas dos o más cuentas aprobadas' : 'Una persona paga varias cabinas' }}</small>
+          </span>
+        </button>
+        <button type="button" class="action action--agency" @click="showAgency = true">
+          <i class="fa-solid fa-handshake" aria-hidden="true" />
+          <span>
+            <strong>Cortesías de agencia · {{ formatMoney(agencyTotal) }}</strong>
+            <small>Se facturan a la agencia al final del crucero</small>
+          </span>
+        </button>
+      </div>
+
       <!-- Filtro por estado: conteos de las mismas cuentas que se listan -->
       <div v-if="activeRows.length" class="filters" role="tablist" aria-label="Filtrar cuentas por estado">
         <button
@@ -378,6 +417,14 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
       @close="target = null"
       @changed="onChanged"
     />
+    <GroupCollectModal
+      v-if="showGroup && cruise"
+      :cruise="cruise"
+      :rows="rows"
+      @close="showGroup = false"
+      @collected="onGroupCollected"
+    />
+    <AgencyCourtesiesModal v-if="showAgency && cruise" :cruise="cruise" @close="showAgency = false" />
   </div>
 </template>
 
@@ -493,6 +540,66 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
 }
 
 // Filtros por estado
+.actions-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+
+  @include tablet {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.action {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 60px;
+  padding: 0.6rem 0.9rem;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  text-align: left;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.12s ease;
+
+  > i {
+    font-size: 1.2rem;
+    color: var(--navy-700);
+  }
+
+  span {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  small {
+    color: var(--ink-400);
+    font-size: 0.8rem;
+  }
+
+  &:hover:not(:disabled) {
+    border-color: var(--navy-600);
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+  }
+
+  &--agency > i {
+    color: var(--pill-warn-ink);
+  }
+}
+
 .filters {
   display: flex;
   gap: 0.5rem;
