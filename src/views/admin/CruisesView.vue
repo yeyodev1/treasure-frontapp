@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, shallowRef, watch } from 'vue'
+import { computed, nextTick, onMounted, shallowRef, watch } from 'vue'
 import axios from 'axios'
 import { useCruiseStore } from '@/stores/cruise'
 import { useToastStore } from '@/stores/toast'
@@ -10,10 +10,11 @@ import {
   apiCruises,
   apiCycleSettings,
   apiGenerateCycle,
+  apiNewCruiseOptions,
   apiPlanCruise,
 } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
-import { formatDate, formatDayKey, formatLongDate } from '@/utils/format'
+import { formatDate, formatLongDate } from '@/utils/format'
 import BaseDatePicker from '@/components/ui/BaseDatePicker.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import PassengersModal from '@/components/cruises/PassengersModal.vue'
@@ -21,7 +22,7 @@ import CycleSettingsModal from '@/components/cruises/CycleSettingsModal.vue'
 import CruiseStartModal from '@/components/cruises/CruiseStartModal.vue'
 import CruiseFinishModal from '@/components/cruises/CruiseFinishModal.vue'
 import { useUserStore } from '@/stores/user'
-import type { Cabin, Cruise, CruiseStatus, CycleSettings, NewCruisePlan } from '@/types'
+import type { Cabin, Cruise, CruiseStatus, CycleSettings, NewCruiseOptions, NewCruisePlan } from '@/types'
 
 const toast = useToastStore()
 const cruiseStore = useCruiseStore()
@@ -44,14 +45,68 @@ const untilDate = shallowRef('')
 /** "Programar varios" (generador del ciclo) va plegado: lo habitual es un crucero. */
 const showGenerator = shallowRef(false)
 
-// ---- Nuevo crucero: tipo + fecha de inicio; el resto lo completa el ciclo ----
+// ---- Nuevo crucero (pedido del cliente, 31-oct-2026) ----
+// Solo inician y terminan sábado o martes: cada tipo ofrece únicamente sus
+// fechas de zarpe, con las ocupadas marcadas con el crucero que las ocupa.
+// Al abrir, queda elegido el siguiente crucero del ciclo en su primera
+// fecha libre: lo habitual es revisar y tocar Crear.
 const newLeg = shallowRef('')
 const newStart = shallowRef('')
+const options = shallowRef<NewCruiseOptions | null>(null)
 const plan = shallowRef<NewCruisePlan | null>(null)
 const planning = shallowRef(false)
 const planError = shallowRef('')
 const creating = shallowRef(false)
+/** Crucero resaltado en la lista (el que ocupa una fecha). */
+const highlighted = shallowRef('')
 let planSeq = 0
+
+const legOption = computed(() => options.value?.legs.find((l) => l.code === newLeg.value) ?? null)
+const isSuggested = computed(
+  () =>
+    Boolean(options.value?.suggestion) &&
+    options.value!.suggestion!.leg === newLeg.value &&
+    options.value!.suggestion!.startDate === newStart.value,
+)
+
+async function loadOptions(applySuggestion = false) {
+  try {
+    options.value = await apiNewCruiseOptions()
+    const s = options.value.suggestion
+    if (applySuggestion && s) {
+      newLeg.value = s.leg
+      newStart.value = s.startDate
+    }
+  } catch (err) {
+    toast.error(apiErrorMessage(err))
+  }
+}
+
+/** Al cambiar de tipo: su primera fecha libre (o ninguna). */
+function pickLeg(code: string) {
+  if (newLeg.value === code) return
+  newLeg.value = code
+  const leg = options.value?.legs.find((l) => l.code === code)
+  newStart.value = leg?.dates.find((d) => d.free)?.date ?? ''
+}
+
+function useSuggestion() {
+  const s = options.value?.suggestion
+  if (!s) return
+  newLeg.value = s.leg
+  newStart.value = s.startDate
+}
+
+/** Lleva al crucero que ocupa la fecha y lo resalta un momento. */
+async function showCruise(cruiseId: string) {
+  tab.value = 'proximas'
+  highlighted.value = cruiseId
+  await nextTick()
+  document.querySelector(`[data-cruise="${cruiseId}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  setTimeout(() => {
+    if (highlighted.value === cruiseId) highlighted.value = ''
+  }, 2400)
+}
 
 async function loadPlan() {
   const seq = ++planSeq
@@ -76,52 +131,48 @@ async function loadPlan() {
 
 watch([newLeg, newStart], loadPlan)
 
-const canCreate = computed(() => Boolean(plan.value && !plan.value.overlap && !planning.value && !creating.value))
+const canCreate = computed(() =>
+  Boolean(plan.value && !plan.value.overlap && plan.value.weekday.ok && !planning.value && !creating.value),
+)
 
-async function createCruise(acceptWeekday = false) {
+async function createCruise() {
   const p = plan.value
-  if (!p || p.overlap || creating.value) return
-  if (!acceptWeekday) {
-    const dayWarning = p.weekday.ok
-      ? ''
-      : ` Atención: el crucero ${p.leg} zarpa en ${p.weekday.expected} y la fecha elegida es ${p.weekday.actual}.`
-    const ok = await confirmStore.ask({
-      title: `¿Crear el crucero ${p.code}?`,
-      message: `${p.routeFrom} → ${p.routeTo}. Del ${formatLongDate(newStart.value).toLowerCase()} al ${formatLongDate(p.endKey).toLowerCase()} (${p.durationDays} días), zarpe ${p.departureTime}, ${p.cabinCount} cabinas sin pasajeros.${dayWarning}`,
-      confirmLabel: p.weekday.ok ? 'Crear crucero' : 'Crear igual',
-      icon: p.weekday.ok ? 'fa-ship' : 'fa-calendar-day',
-    })
-    if (!ok) return
-  }
+  if (!p || p.overlap || !p.weekday.ok || creating.value) return
+  const ok = await confirmStore.ask({
+    title: `¿Crear el crucero ${p.code}?`,
+    message: `${p.routeFrom} → ${p.routeTo}. Del ${formatLongDate(newStart.value).toLowerCase()} al ${formatLongDate(p.endKey).toLowerCase()} (${p.durationDays} días), zarpe ${p.departureTime}, ${p.cabinCount} cabinas sin pasajeros.`,
+    confirmLabel: 'Crear crucero',
+    icon: 'fa-ship',
+  })
+  if (!ok) return
   creating.value = true
   try {
-    const cruise = await apiCreatePlannedCruise(p.leg, newStart.value, acceptWeekday || !p.weekday.ok)
+    const cruise = await apiCreatePlannedCruise(p.leg, newStart.value)
     play('success')
     toast.success(`Crucero ${cruise.code} creado: ${formatDate(cruise.startDate)} → ${formatDate(cruise.endDate ?? cruise.startDate)}`)
-    newLeg.value = ''
-    newStart.value = ''
     tab.value = 'proximas'
     await refresh()
+    // Queda listo el siguiente del ciclo.
+    await loadOptions(true)
+    void showCruise(cruise._id)
   } catch (err) {
     const code = axios.isAxiosError(err) ? (err.response?.data as { code?: string } | undefined)?.code : undefined
     play('error')
-    if (code === 'dia_distinto') {
-      // El servidor avisa del día de zarpe: se confirma y se reintenta.
-      const ok = await confirmStore.ask({
-        title: 'El día no es el de zarpe',
-        message: `${apiErrorMessage(err)} ¿Crear de todas formas?`,
-        confirmLabel: 'Crear igual',
-        icon: 'fa-calendar-day',
-      })
-      creating.value = false
-      if (ok) await createCruise(true)
-      return
-    }
     toast.error(apiErrorMessage(err))
-    if (code === 'solapa') await loadPlan()
+    if (code === 'solapa' || code === 'dia_distinto') {
+      await loadOptions()
+      await loadPlan()
+    }
   } finally {
     creating.value = false
   }
+}
+
+/** "sáb 7 nov" para los botones de fecha. */
+function shortDay(key: string) {
+  return new Intl.DateTimeFormat('es-EC', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
+    .format(new Date(`${key}T12:00:00Z`))
+    .replace(/\./g, '')
 }
 
 const STATUS_LABELS: Record<CruiseStatus, string> = {
@@ -167,22 +218,22 @@ async function refresh() {
   }
 }
 
-onMounted(refresh)
+onMounted(() => {
+  void refresh()
+  void loadOptions(true)
+})
 
 async function generate() {
   if (!startDate.value || !untilDate.value) {
     toast.error('Elige la fecha de inicio del crucero A y hasta cuándo programar')
     return
   }
-  const weekday = new Date(`${startDate.value}T12:00:00-05:00`).getDay()
+  // Los cruceros solo inician sábado o martes: el ciclo arranca con A en sábado.
+  const weekday = new Date(`${startDate.value}T12:00:00Z`).getUTCDay()
   if (weekday !== 6) {
-    const ok = await confirmStore.ask({
-      title: 'El crucero A zarpa en sábado',
-      message: 'La fecha elegida no es sábado. ¿Programar de todas formas desde ese día?',
-      confirmLabel: 'Programar igual',
-      icon: 'fa-calendar-day',
-    })
-    if (!ok) return
+    play('error')
+    toast.error('El crucero A zarpa los sábados: elige un sábado para empezar el ciclo')
+    return
   }
   generating.value = true
   try {
@@ -194,6 +245,7 @@ async function generate() {
         : `No hay cruceros nuevos: los ${skipped} ya existían`,
     )
     await refresh()
+    await loadOptions(true)
   } catch (err) {
     play('error')
     toast.error(apiErrorMessage(err))
@@ -221,7 +273,7 @@ async function onPassengersSaved() {
     <header class="page-head">
       <div class="page-head-text">
         <h1 class="page-title">Cruceros</h1>
-        <p class="page-lead">Elige el tipo y la fecha de inicio: el fin, la ruta y el código se completan solos.</p>
+        <p class="page-lead">El siguiente crucero ya viene sugerido: revisa y crea. Solo zarpan sábado o martes.</p>
       </div>
       <div class="page-actions">
         <button type="button" class="btn btn-secondary" @click="showSettings = true">
@@ -230,21 +282,38 @@ async function onPassengersSaved() {
       </div>
     </header>
 
-    <!-- Nuevo crucero: tipo + fecha de inicio (pedido de Gerencia, 30-oct-2026) -->
+    <!-- Nuevo crucero: el siguiente del ciclo ya elegido; tipo y fecha solo en días de zarpe -->
     <section class="new-cruise" aria-labelledby="new-cruise-title">
-      <h2 id="new-cruise-title" class="section-title">Nuevo crucero</h2>
+      <div class="new-head">
+        <h2 id="new-cruise-title" class="section-title">Nuevo crucero</h2>
+        <Transition name="fade" mode="out-in">
+          <span v-if="isSuggested" key="sug" class="suggested">
+            <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true" /> Sugerido: sigue en el ciclo
+          </span>
+          <button
+            v-else-if="options?.suggestion"
+            key="use"
+            type="button"
+            class="suggested suggested--btn"
+            @click="useSuggestion"
+          >
+            <i class="fa-solid fa-rotate-left" aria-hidden="true" />
+            Volver a la sugerencia: crucero {{ options.suggestion.leg }} · {{ shortDay(options.suggestion.startDate) }}
+          </button>
+        </Transition>
+      </div>
 
-      <p class="step">Tipo de crucero</p>
+      <p class="step"><span class="step-n">1</span> Tipo de crucero</p>
       <div class="leg-options" role="radiogroup" aria-label="Tipo de crucero">
         <button
-          v-for="(leg, i) in settings?.legs ?? []"
+          v-for="(leg, i) in options?.legs ?? settings?.legs ?? []"
           :key="leg.code"
           type="button"
           role="radio"
           class="leg-option"
           :class="{ 'leg-option--on': newLeg === leg.code }"
           :aria-checked="newLeg === leg.code"
-          @click="newLeg = leg.code"
+          @click="pickLeg(leg.code)"
         >
           <span class="leg-option-head">
             <span class="leg-icon"><i class="fa-solid" :class="LEG_ICONS[i]" aria-hidden="true" /></span>
@@ -260,10 +329,30 @@ async function onPassengersSaved() {
         </button>
       </div>
 
-      <p class="step">Fecha de inicio</p>
-      <div class="start-field">
-        <BaseDatePicker v-model="newStart" placeholder="Elige la fecha de inicio" />
-      </div>
+      <p class="step">
+        <span class="step-n">2</span> Fecha de inicio
+        <small v-if="legOption?.weekday">· el crucero {{ legOption.code }} zarpa los {{ legOption.weekday.endsWith('s') ? legOption.weekday : `${legOption.weekday}s` }}</small>
+      </p>
+      <Transition name="fade" mode="out-in">
+        <div v-if="legOption" :key="legOption.code" class="dates" role="radiogroup" aria-label="Fecha de inicio">
+          <button
+            v-for="d in legOption.dates"
+            :key="d.date"
+            type="button"
+            role="radio"
+            class="date-chip"
+            :class="{ 'date-chip--on': newStart === d.date, 'date-chip--busy': !d.free }"
+            :aria-checked="newStart === d.date"
+            :aria-disabled="!d.free"
+            @click="d.free ? (newStart = d.date) : d.conflict && showCruise(d.conflict._id)"
+          >
+            <strong>{{ shortDay(d.date) }}</strong>
+            <small v-if="d.free">hasta {{ shortDay(d.endDate) }}</small>
+            <small v-else class="date-busy"><i class="fa-solid fa-ship" aria-hidden="true" /> Ocupado · {{ d.conflict?.code || d.conflict?.name }}</small>
+          </button>
+        </div>
+        <p v-else class="plan-hint">Elige el tipo de crucero: aparecen solo sus días de zarpe.</p>
+      </Transition>
 
       <Transition name="fade" mode="out-in">
         <div v-if="plan" :key="`${plan.leg}-${newStart}`" class="plan" :class="{ 'plan--busy': planning }" aria-live="polite">
@@ -295,14 +384,7 @@ async function onPassengersSaved() {
               Se cruza con el crucero {{ plan.overlap.code || plan.overlap.name }}
               ({{ plan.overlap.status === 'abordo' ? 'en curso' : 'programado' }},
               {{ formatDate(plan.overlap.startDate) }}<template v-if="plan.overlap.endDate"> → {{ formatDate(plan.overlap.endDate) }}</template>).
-              Elige otra fecha de inicio.
-            </span>
-          </p>
-          <p v-else-if="!plan.weekday.ok" class="plan-alert plan-alert--warning">
-            <i class="fa-solid fa-calendar-day" aria-hidden="true" />
-            <span>
-              El crucero {{ plan.leg }} zarpa en {{ plan.weekday.expected }} y el {{ formatDayKey(newStart) }} es
-              {{ plan.weekday.actual }}. Se puede crear igual si es correcto.
+              <button type="button" class="link-btn" @click="showCruise(plan.overlap._id)">Ver {{ plan.overlap.code || 'crucero' }}</button>
             </span>
           </p>
         </div>
@@ -310,9 +392,6 @@ async function onPassengersSaved() {
           <i class="fa-solid fa-circle-exclamation" aria-hidden="true" /> <span>{{ planError }}</span>
         </p>
         <p v-else-if="planning" class="plan-hint"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true" /> Calculando…</p>
-        <p v-else class="plan-hint">
-          {{ newLeg ? 'Elige la fecha de inicio: la fecha de fin, la ruta y el código se completan solos.' : 'Elige el tipo de crucero y la fecha de inicio: el resto se completa solo.' }}
-        </p>
       </Transition>
 
       <button type="button" class="btn btn-primary btn-lg create-btn" :disabled="!canCreate" @click="createCruise()">
@@ -393,7 +472,13 @@ async function onPassengersSaved() {
     </div>
 
     <TransitionGroup v-else name="list" tag="div" class="cruises">
-      <article v-for="cruise in visible" :key="cruise._id" class="cruise" :class="`cruise--${cruise.status}`">
+      <article
+        v-for="cruise in visible"
+        :key="cruise._id"
+        class="cruise"
+        :class="[`cruise--${cruise.status}`, { 'cruise--highlight': highlighted === cruise._id }]"
+        :data-cruise="cruise._id"
+      >
         <header class="cruise-head">
           <div class="cruise-title">
             <h3>{{ label(cruise) }}</h3>
@@ -493,15 +578,148 @@ async function onPassengersSaved() {
   }
 
   .section-title {
-    margin-bottom: 1rem;
+    margin-bottom: 0;
+  }
+}
+
+.new-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.suggested {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 36px;
+  padding: 0 0.8rem;
+  border-radius: 999px;
+  background: var(--powder-100);
+  color: var(--navy-800);
+  font-size: 0.85rem;
+  font-weight: 600;
+
+  &--btn {
+    min-height: 44px;
+    border: 1.5px solid var(--navy-700);
+    background: var(--surface);
+    transition:
+      background 0.15s ease,
+      transform 0.12s ease;
+
+    &:hover {
+      background: var(--powder-100);
+    }
+
+    &:active {
+      transform: scale(0.97);
+    }
   }
 }
 
 .step {
-  margin: 0 0 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  margin: 0 0 0.6rem;
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--ink-600);
+
+  small {
+    font-weight: 500;
+    color: var(--ink-400);
+  }
+}
+
+.step-n {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--navy-800);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+// Fechas de zarpe del tipo elegido: solo días válidos; las ocupadas dicen por quién.
+.dates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 1.1rem;
+}
+
+.date-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  min-height: 56px;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid var(--cream-200);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  text-align: left;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    transform 0.12s ease;
+
+  strong {
+    font-weight: 700;
+    text-transform: capitalize;
+  }
+
+  small {
+    font-size: 0.78rem;
+    color: var(--ink-400);
+  }
+
+  &:hover:not(.date-chip--busy) {
+    border-color: var(--navy-600);
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
+
+  &--on {
+    border-color: var(--navy-800);
+    background: var(--navy-800);
+    color: #fff;
+
+    small {
+      color: var(--powder-300);
+    }
+  }
+
+  &--busy {
+    border-style: dashed;
+    background: var(--cream-100);
+    color: var(--ink-400);
+  }
+}
+
+.date-busy {
+  color: var(--danger) !important;
+  font-weight: 600;
+}
+
+.link-btn {
+  display: inline;
+  padding: 0;
+  font-weight: 700;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .leg-options {
@@ -607,11 +825,6 @@ async function onPassengersSaved() {
 .leg-option--on .leg-icon {
   background: var(--navy-800);
   color: #fff;
-}
-
-.start-field {
-  max-width: 360px;
-  margin-bottom: 1.1rem;
 }
 
 .plan {
@@ -837,6 +1050,16 @@ async function onPassengersSaved() {
 .cruise {
   min-width: 0;
   padding: 1rem;
+  transition:
+    box-shadow 0.3s ease,
+    border-color 0.3s ease;
+
+  // El crucero que ocupa una fecha, señalado desde Nuevo crucero.
+  &--highlight {
+    border-color: var(--navy-700);
+    box-shadow: 0 0 0 4px var(--powder-200);
+  }
+
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
