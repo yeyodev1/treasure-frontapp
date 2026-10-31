@@ -72,21 +72,26 @@ async function finish() {
 </script>
 
 <template>
-  <BaseModal :title="`Finalizar operación del crucero · ${label}`" @close="emit('close')">
+  <BaseModal
+    :title="`Finalizar operación del crucero · ${label}`"
+    subtitle="Saldo por cabina y envíos de las tabletas antes de cerrar el bar."
+    size="lg"
+    @close="emit('close')"
+  >
     <SkeletonList v-if="!check" variant="row" :rows="6" />
     <div v-else class="finish">
       <div class="totals">
         <div><span>Consumos</span><strong>{{ formatMoney(check.totals.consumed) }}</strong></div>
         <div><span>Pagado</span><strong>{{ formatMoney(check.totals.paid) }}</strong></div>
-        <div><span>Por cobrar</span><strong>{{ formatMoney(check.totals.due) }}</strong></div>
-        <div><span>Finanzas</span><strong class="finance" :class="`finance--${check.finance}`">{{ FINANCE_LABELS[check.finance] }}</strong></div>
+        <div :class="{ 'totals-due': check.totals.due > 0 }"><span>Por cobrar</span><strong>{{ formatMoney(check.totals.due) }}</strong></div>
+        <div><span>Finanzas</span><strong><span class="estado" :class="check.finance === 'liquidada' ? 'estado--ok' : 'estado--warn'">{{ FINANCE_LABELS[check.finance] }}</span></strong></div>
       </div>
 
       <ul class="cabins">
         <li v-for="c in check.cabins.filter((x) => x.passengers)" :key="c.number" class="cabin">
           <span class="cabin-name"><strong>Cabina {{ c.number }}</strong> {{ c.guestName }}</span>
           <span class="cabin-money">{{ formatMoney(c.consumed) }} · pagado {{ formatMoney(c.paid) }}</span>
-          <span class="cabin-status" :class="{ 'cabin-status--due': c.due > 0 }">
+          <span class="estado cabin-status" :class="c.due > 0 ? 'estado--warn' : c.accountStatus === 'cobrada' ? 'estado--ok' : ''">
             {{ c.due > 0 ? `Debe ${formatMoney(c.due)}` : ACCOUNT_LABELS[c.accountStatus] }}
           </span>
         </li>
@@ -95,14 +100,14 @@ async function finish() {
       <div class="devices">
         <p class="devices-title">
           <i class="fa-solid fa-tablet-screen-button" aria-hidden="true" /> Tabletas del bar
-          <button type="button" class="link" :disabled="refreshing" @click="load">
+          <button type="button" class="btn btn-text link" :disabled="refreshing" @click="load">
             <i class="fa-solid fa-rotate" :class="{ 'fa-spin': refreshing }" aria-hidden="true" /> Volver a revisar
           </button>
         </p>
         <p v-if="!check.devices.length" class="muted">Ninguna tableta reportó en este crucero.</p>
         <ul v-else>
           <li v-for="d in check.devices" :key="d.deviceId" :class="{ warn: d.pending > 0 || d.silent }">
-            <strong>{{ d.label }}</strong> · {{ d.userName }}
+            <strong>{{ d.label }}</strong>
             <span>
               {{ d.pending ? `${d.pending} sin confirmar` : 'Todo enviado' }} · última sincronización
               {{ d.lastSyncAt ? formatDateTime(d.lastSyncAt) : 'sin datos' }}<template v-if="d.silent"> · no responde</template>
@@ -131,11 +136,15 @@ async function finish() {
         con su pagador y su crucero. Finalizar no significa pagar. Un envío tardío queda retenido en este crucero para revisión.
       </p>
 
-      <button type="button" class="btn btn-primary" :disabled="finishing" @click="finish">
+    </div>
+
+    <template #footer>
+      <button type="button" class="btn btn-secondary" @click="emit('close')">Cancelar</button>
+      <button type="button" class="btn btn-primary btn-lg" :disabled="!check || finishing" @click="finish">
         <i class="fa-solid" :class="finishing ? 'fa-spinner fa-spin' : 'fa-anchor'" aria-hidden="true" />
         {{ finishing ? 'Finalizando…' : exceptional ? 'Finalizar operación con cierre excepcional' : 'Finalizar operación del crucero' }}
       </button>
-    </div>
+    </template>
   </BaseModal>
 </template>
 
@@ -143,42 +152,46 @@ async function finish() {
 .finish {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 1.1rem;
 }
 
 .totals {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 0.5rem;
 
-  div {
-    padding: 0.6rem 0.75rem;
+  > div {
+    display: grid;
+    gap: 0.15rem;
+    padding: 0.7rem 0.85rem;
     border-radius: var(--radius-sm);
     background: var(--cream-100);
-    display: grid;
   }
 
   span {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ink-400);
-    font-weight: 700;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--ink-600);
   }
 
   strong {
-    font-size: 1.1rem;
+    font-size: 1.25rem;
     font-variant-numeric: tabular-nums;
+    color: var(--ink-900);
+
+    .estado {
+      font-size: 0.9rem;
+    }
   }
-}
 
-.finance--liquidada {
-  color: var(--success);
-}
+  .totals-due {
+    background: var(--pill-warn-bg);
 
-.finance--por_cobrar,
-.finance--por_revisar {
-  color: var(--warning);
+    span,
+    strong {
+      color: var(--pill-warn-ink);
+    }
+  }
 }
 
 .cabins,
@@ -187,54 +200,66 @@ async function finish() {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 0.35rem;
+}
+
+.cabins {
+  border-top: 1px solid var(--rule);
 }
 
 .cabin {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 0.15rem 0.75rem;
-  padding: 0.5rem 0.7rem;
-  border: 1px solid var(--cream-200);
-  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.1rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.cabin-name {
+  font-size: 1rem;
+
+  strong {
+    margin-right: 0.35rem;
+  }
 }
 
 .cabin-money {
   grid-column: 1;
-  font-size: 0.82rem;
-  color: var(--ink-400);
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-600);
 }
 
 .cabin-status {
   grid-column: 2;
   grid-row: 1 / span 2;
   align-self: center;
-  font-weight: 700;
-  font-size: 0.85rem;
-
-  &--due {
-    color: var(--warning);
-  }
 }
 
 .devices {
   display: grid;
-  gap: 0.4rem;
+  gap: 0.5rem;
+
+  ul {
+    gap: 0.4rem;
+  }
 
   li {
     display: grid;
-    padding: 0.45rem 0.7rem;
+    gap: 0.1rem;
+    padding: 0.6rem 0.8rem;
     border-radius: var(--radius-sm);
     background: var(--cream-100);
-    font-size: 0.88rem;
+    font-size: 1rem;
 
     &.warn {
-      background: rgba(185, 128, 47, 0.12);
+      background: var(--pill-warn-bg);
+      color: var(--pill-warn-ink);
     }
 
     span {
-      color: var(--ink-400);
-      font-size: 0.8rem;
+      font-size: 0.92rem;
+      color: inherit;
+      opacity: 0.85;
     }
   }
 }
@@ -243,36 +268,29 @@ async function finish() {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  margin: 0;
   font-weight: 700;
+
+  > i {
+    color: var(--navy-600);
+  }
 }
 
 .link {
   margin-left: auto;
-  min-height: 44px;
-  font-weight: 700;
-  color: var(--navy-600);
 }
 
 .muted,
 .hint,
 .note {
-  font-size: 0.85rem;
-  color: var(--ink-400);
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--ink-600);
 }
 
-textarea {
-  width: 100%;
-  border: 1.5px solid var(--cream-200);
-  border-radius: var(--radius-sm);
-  padding: 0.6rem 0.75rem;
-  font: inherit;
+.field textarea {
   resize: vertical;
-  transition: border-color 0.15s ease;
-
-  &:focus {
-    outline: none;
-    border-color: var(--gold-500);
-  }
 }
 
 .fade-enter-active,
