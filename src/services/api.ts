@@ -473,6 +473,8 @@ export interface ConsumptionPayload {
   productId: string
   qty?: number
   courtesy?: boolean
+  /** Motivo de la cortesía registrada desde el bar. */
+  courtesyReason?: string
   idempotencyKey: string
   clientAt?: string
 }
@@ -496,8 +498,8 @@ export async function apiUndoConsumption(id: string, reason?: string) {
 }
 
 export async function apiBonifyConsumption(id: string, reason: string) {
-  const { data } = await http.post<{ order: Order }>(`/consumptions/${id}/bonify`, { reason })
-  return data.order
+  const { data } = await http.post<{ order: Order; summary?: CabinSummary }>(`/consumptions/${id}/bonify`, { reason })
+  return data
 }
 
 export async function apiReviewHeld(id: string, decision: 'aceptar' | 'rechazar', reason: string) {
@@ -575,6 +577,11 @@ export async function apiReceiveRequisition(
     lines,
     note,
   })
+  return data.requisition
+}
+
+export async function apiCancelRequisition(id: string, reason: string) {
+  const { data } = await http.post<{ requisition: Requisition }>(`/requisitions/${id}/cancel`, { reason })
   return data.requisition
 }
 
