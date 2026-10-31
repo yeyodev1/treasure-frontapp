@@ -551,6 +551,7 @@ function openHeld() {
 }
 
 .presets {
+  flex: 1 1 100%;
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
