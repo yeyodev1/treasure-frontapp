@@ -158,7 +158,12 @@ async function save() {
 </script>
 
 <template>
-  <BaseModal :title="editing ? `Editar · ${editing.name}` : 'Nuevo producto'" @close="emit('close')">
+  <BaseModal
+    :title="editing ? `Editar · ${editing.name}` : 'Nuevo producto'"
+    subtitle="Elige el tipo primero: define si lleva stock, receta o solo precio."
+    size="lg"
+    @close="emit('close')"
+  >
     <div class="editor">
       <div class="kinds" role="radiogroup" aria-label="Tipo de producto">
         <button
@@ -298,11 +303,14 @@ async function save() {
           </li>
         </ul>
       </details>
-
-      <button type="button" class="btn btn-gold" :disabled="saving" @click="save">
-        <i class="fa-solid fa-floppy-disk" aria-hidden="true" /> {{ saving ? 'Guardando…' : 'Guardar' }}
-      </button>
     </div>
+
+    <template #footer>
+      <button type="button" class="btn btn-secondary" :disabled="saving" @click="emit('close')">Cancelar</button>
+      <button type="button" class="btn btn-primary" :disabled="saving" @click="save">
+        <i class="fa-solid fa-floppy-disk" aria-hidden="true" /> {{ saving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear producto' }}
+      </button>
+    </template>
   </BaseModal>
 </template>
 
@@ -312,7 +320,7 @@ async function save() {
 .editor {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 1.1rem;
 }
 
 .kinds {
@@ -324,27 +332,42 @@ async function save() {
 .kind {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.25rem;
-  padding: 0.75rem 0.45rem;
-  border: 1.5px solid var(--cream-200);
+  min-height: 96px;
+  padding: 0.8rem 0.85rem;
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
-  text-align: center;
-  transition: all 0.15s ease;
+  text-align: left;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.12s var(--ease-out);
 
   i {
-    font-size: 1.15rem;
+    font-size: 1.2rem;
     color: var(--gold-500);
+    margin-bottom: 0.15rem;
   }
 
   strong {
-    font-size: 0.9rem;
+    font-size: 1rem;
+    font-weight: 600;
   }
 
   span {
-    font-size: 0.7rem;
-    color: var(--ink-400);
-    line-height: 1.25;
+    font-size: 0.86rem;
+    color: var(--ink-600);
+    line-height: 1.3;
+  }
+
+  &:hover:not(.on) {
+    border-color: var(--navy-600);
+  }
+
+  &:active {
+    transform: scale(0.98);
   }
 
   &.on {
@@ -372,11 +395,19 @@ async function save() {
 .suffix {
   display: flex;
   align-items: center;
-  border: 1.5px solid var(--cream-200);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   background: #fff;
   padding-right: 0.6rem;
   min-height: 48px;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+
+  &:focus-within {
+    border-color: var(--navy-600);
+    box-shadow: var(--focus-ring);
+  }
 
   input {
     flex: 1;
@@ -387,7 +418,7 @@ async function save() {
   }
 
   span {
-    font-size: 0.8rem;
+    font-size: 0.9rem;
     color: var(--ink-400);
   }
 }
@@ -395,8 +426,9 @@ async function save() {
 .check {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
-  font-size: 0.88rem;
+  gap: 0.6rem;
+  min-height: 44px;
+  font-size: 1rem;
   font-weight: 600;
 
   input {
@@ -408,7 +440,7 @@ async function save() {
 
 .help {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: 0.88rem;
   color: var(--ink-400);
 }
 
@@ -425,7 +457,7 @@ async function save() {
 
 .recipe-title {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.92rem;
   font-weight: 600;
   color: var(--ink-600);
 }
@@ -444,20 +476,32 @@ async function save() {
   border-radius: var(--radius-sm);
   background: var(--cream-100);
   color: var(--ink-600);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+
+  &:hover {
+    background: var(--pill-danger-bg);
+    color: var(--danger-ink);
+  }
 }
 
 .history {
   summary {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-height: 44px;
     cursor: pointer;
     font-weight: 600;
-    font-size: 0.86rem;
-    color: var(--ink-600);
+    font-size: 0.95rem;
+    color: var(--navy-700);
   }
 
   ul {
-    margin: 0.5rem 0 0;
+    margin: 0.25rem 0 0;
     padding-left: 1.1rem;
-    font-size: 0.84rem;
+    font-size: 0.95rem;
     color: var(--ink-600);
   }
 }
