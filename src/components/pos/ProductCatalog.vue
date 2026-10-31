@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, shallowRef } from 'vue'
-import type { Availability, Product, ProductCategory } from '@/types'
-import { CATEGORY_LABELS } from '@/stores/catalog'
+import type { Availability, Product, ProductCategory, WineStyle } from '@/types'
+import { CATEGORY_LABELS, DRINK_FORMAT_LABELS, WINE_STYLE_LABELS, drinkFormat, type DrinkFormat } from '@/stores/catalog'
 import ProductIcon from '@/components/ui/ProductIcon.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import { formatMoney } from '@/utils/format'
@@ -13,6 +13,9 @@ import { formatMoney } from '@/utils/format'
  * En celular (checklist 29-oct, 12) solo quedan Favoritos, Todas, Sin alcohol
  * y "Más" (resto de categorías y Editar favoritos) para que las bebidas se
  * vean sin desplazarse; las zonas táctiles no se achican.
+ * Licores se dividen en trago y botella; Vinos en tinto, blanco, rosado y
+ * espumante, y por copa, botella o botella pequeña (pedido del cliente,
+ * 31-oct-2026): cada división tiene su título y su filtro.
  */
 const props = withDefaults(
   defineProps<{
@@ -46,6 +49,87 @@ const showMore = shallowRef(false)
 
 const isCategory = computed(() => !['favoritos', 'todas', 'sin_alcohol'].includes(filter.value))
 
+// ---- Divisiones de Licores y Vinos ----
+type LiquorFormat = 'todos' | 'trago' | 'botella'
+type WineStyleFilter = 'todos' | WineStyle | 'sin_tipo'
+type WineFormat = 'todos' | 'copa' | 'botella' | 'botella_pequena'
+const liquorFormat = shallowRef<LiquorFormat>('todos')
+const wineStyle = shallowRef<WineStyleFilter>('todos')
+const wineFormat = shallowRef<WineFormat>('todos')
+
+const FORMAT_ORDER: DrinkFormat[] = ['trago', 'copa', 'botella', 'botella_pequena']
+const STYLE_ORDER: WineStyle[] = ['tinto', 'blanco', 'rosado', 'espumante']
+const STYLE_GROUP: Record<WineStyle | 'sin_tipo', string> = {
+  tinto: 'Tintos',
+  blanco: 'Blancos',
+  rosado: 'Rosados',
+  espumante: 'Espumantes',
+  sin_tipo: 'Sin tipo',
+}
+const FORMAT_GROUP: Record<DrinkFormat, string> = {
+  trago: 'Tragos',
+  copa: 'Por copa',
+  botella: 'Botellas',
+  botella_pequena: 'Botellas pequeñas',
+}
+
+function styleOf(p: Product): WineStyle | 'sin_tipo' {
+  return p.wineStyle || 'sin_tipo'
+}
+
+/** Tragos y copas primero, luego botellas; dentro, por nombre. */
+function byFormat(a: Product, b: Product) {
+  const fa = FORMAT_ORDER.indexOf(drinkFormat(a) ?? 'botella')
+  const fb = FORMAT_ORDER.indexOf(drinkFormat(b) ?? 'botella')
+  return fa - fb || a.name.localeCompare(b.name, 'es')
+}
+
+const liquors = computed(() => props.products.filter((p) => p.category === 'licor'))
+const wines = computed(() => props.products.filter((p) => p.category === 'vino'))
+
+const liquorOptions = computed(() => {
+  const count = (f: DrinkFormat) => liquors.value.filter((p) => drinkFormat(p) === f).length
+  return [
+    { value: 'todos' as LiquorFormat, label: 'Todos', count: liquors.value.length },
+    { value: 'trago' as LiquorFormat, label: 'Tragos', count: count('trago') },
+    { value: 'botella' as LiquorFormat, label: 'Botellas', count: count('botella') },
+  ].filter((o) => o.value === 'todos' || o.count)
+})
+
+const wineStyleOptions = computed(() => {
+  const inFormat = wines.value.filter((p) => wineFormat.value === 'todos' || drinkFormat(p) === wineFormat.value)
+  const opts: Array<{ value: WineStyleFilter; label: string; count: number }> = [
+    { value: 'todos', label: 'Todos', count: inFormat.length },
+    ...STYLE_ORDER.map((st) => ({ value: st, label: WINE_STYLE_LABELS[st], count: inFormat.filter((p) => p.wineStyle === st).length })),
+    { value: 'sin_tipo', label: 'Sin tipo', count: inFormat.filter((p) => !p.wineStyle).length },
+  ]
+  return opts.filter((o) => o.value === 'todos' || o.count || o.value === wineStyle.value)
+})
+
+const wineFormatOptions = computed(() => {
+  const inStyle = wines.value.filter((p) => wineStyle.value === 'todos' || styleOf(p) === wineStyle.value)
+  const opts: Array<{ value: WineFormat; label: string; count: number }> = [
+    { value: 'todos', label: 'Copa y botella', count: inStyle.length },
+    ...(['copa', 'botella', 'botella_pequena'] as const).map((f) => ({
+      value: f,
+      label: DRINK_FORMAT_LABELS[f],
+      count: inStyle.filter((p) => drinkFormat(p) === f).length,
+    })),
+  ]
+  return opts.filter((o) => o.value === 'todos' || o.count || o.value === wineFormat.value)
+})
+
+function passesSubFilter(p: Product): boolean {
+  if (filter.value === 'licor') return liquorFormat.value === 'todos' || drinkFormat(p) === liquorFormat.value
+  if (filter.value === 'vino') {
+    return (
+      (wineStyle.value === 'todos' || styleOf(p) === wineStyle.value) &&
+      (wineFormat.value === 'todos' || drinkFormat(p) === wineFormat.value)
+    )
+  }
+  return true
+}
+
 function pickMore(next: Filter) {
   filter.value = next
   showMore.value = false
@@ -73,7 +157,7 @@ const visible = computed(() => {
     if (filter.value === 'favoritos') return favs.has(p._id)
     if (filter.value === 'todas') return true
     if (filter.value === 'sin_alcohol') return NON_ALCOHOLIC.includes(p.category)
-    return p.category === filter.value
+    return p.category === filter.value && passesSubFilter(p)
   })
   if (filter.value === 'favoritos' && !q) {
     return list.sort((a, b) => props.favorites.indexOf(a._id) - props.favorites.indexOf(b._id))
@@ -86,10 +170,35 @@ const visible = computed(() => {
  * ubicar la bebida de un vistazo; buscando o en un filtro, una sola grilla.
  */
 const groups = computed(() => {
-  if (filter.value !== 'todas' || query.value.trim()) return [{ key: 'all', label: '', items: visible.value }]
-  return categories.value
-    .map((cat) => ({ key: cat, label: CATEGORY_LABELS[cat], items: visible.value.filter((p) => p.category === cat) }))
-    .filter((g) => g.items.length)
+  const single = [{ key: 'all', label: '', items: visible.value }]
+  if (query.value.trim()) return single
+  if (filter.value === 'todas') {
+    return categories.value
+      .map((cat) => {
+        const items = visible.value.filter((p) => p.category === cat)
+        return { key: cat, label: CATEGORY_LABELS[cat], items: cat === 'licor' || cat === 'vino' ? items.sort(byFormat) : items }
+      })
+      .filter((g) => g.items.length)
+  }
+  // Licores: Tragos y Botellas, cada uno con su título.
+  if (filter.value === 'licor' && liquorFormat.value === 'todos') {
+    return (['trago', 'botella'] as const)
+      .map((f) => ({ key: f, label: FORMAT_GROUP[f], items: visible.value.filter((p) => drinkFormat(p) === f) }))
+      .filter((g) => g.items.length)
+  }
+  // Vinos: por tipo (tintos, blancos…) y dentro copa antes que botella;
+  // con un tipo elegido, por copa, botella y botella pequeña.
+  if (filter.value === 'vino' && wineStyle.value === 'todos') {
+    return [...STYLE_ORDER, 'sin_tipo' as const]
+      .map((st) => ({ key: st, label: STYLE_GROUP[st], items: visible.value.filter((p) => styleOf(p) === st).sort(byFormat) }))
+      .filter((g) => g.items.length)
+  }
+  if (filter.value === 'vino' && wineFormat.value === 'todos') {
+    return (['copa', 'botella', 'botella_pequena'] as const)
+      .map((f) => ({ key: f, label: FORMAT_GROUP[f], items: visible.value.filter((p) => drinkFormat(p) === f) }))
+      .filter((g) => g.items.length)
+  }
+  return single
 })
 
 function isOff(p: Product) {
@@ -173,6 +282,48 @@ function onTap(p: Product) {
       >
         <i class="fa-solid" :class="editingFavorites ? 'fa-check' : 'fa-pen'" aria-hidden="true" />
         {{ editingFavorites ? 'Listo' : 'Editar favoritos' }}
+      </button>
+    </div>
+
+    <!-- Licores: trago o botella -->
+    <div v-if="filter === 'licor' && !query" class="subchips" role="group" aria-label="Licores por">
+      <button
+        v-for="opt in liquorOptions"
+        :key="opt.value"
+        type="button"
+        class="subchip"
+        :class="{ 'subchip--active': liquorFormat === opt.value }"
+        :aria-pressed="liquorFormat === opt.value"
+        @click="liquorFormat = opt.value"
+      >
+        {{ opt.label }} <span class="subchip-count">{{ opt.count }}</span>
+      </button>
+    </div>
+
+    <!-- Vinos: tipo y cómo se sirve -->
+    <div v-if="filter === 'vino' && !query" class="subchips" role="group" aria-label="Vinos por">
+      <button
+        v-for="opt in wineStyleOptions"
+        :key="opt.value"
+        type="button"
+        class="subchip"
+        :class="{ 'subchip--active': wineStyle === opt.value }"
+        :aria-pressed="wineStyle === opt.value"
+        @click="wineStyle = opt.value"
+      >
+        {{ opt.label }} <span class="subchip-count">{{ opt.count }}</span>
+      </button>
+      <span class="subchips-sep" aria-hidden="true" />
+      <button
+        v-for="opt in wineFormatOptions"
+        :key="opt.value"
+        type="button"
+        class="subchip"
+        :class="{ 'subchip--active': wineFormat === opt.value }"
+        :aria-pressed="wineFormat === opt.value"
+        @click="wineFormat = opt.value"
+      >
+        {{ opt.label }} <span class="subchip-count">{{ opt.count }}</span>
       </button>
     </div>
 
@@ -423,6 +574,66 @@ function onTap(p: Product) {
   @include tablet {
     padding: 0 1rem;
   }
+}
+
+// Divisiones de Licores y Vinos: más chicas que las categorías, misma fila deslizable.
+.subchips {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: -0.15rem -2px 0.6rem;
+  padding: 0 2px;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.subchips-sep {
+  flex: 0 0 1px;
+  align-self: stretch;
+  margin: 0.45rem 0.3rem;
+  background: var(--cream-200);
+}
+
+.subchip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  border: 1.5px solid transparent;
+  background: var(--cream-100);
+  font-weight: 600;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  color: var(--ink-600);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.12s ease;
+
+  &:active {
+    transform: scale(0.97);
+  }
+
+  &--active {
+    background: var(--powder-100);
+    border-color: var(--navy-700);
+    color: var(--navy-800);
+  }
+}
+
+.subchip-count {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-400);
+  font-variant-numeric: tabular-nums;
 }
 
 .edit-help {
