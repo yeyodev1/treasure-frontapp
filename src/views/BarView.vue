@@ -9,12 +9,8 @@ import { useUserStore } from '@/stores/user'
 import { useConfirmStore } from '@/stores/confirm'
 import { useSound } from '@/composables/useSound'
 import { useConsumptionQueue, type QueueOutcome } from '@/composables/useConsumptionQueue'
-import {
-  apiAvailability,
-  apiCabinSummary,
-  apiCreateRequisition,
-  apiUndoConsumption,
-} from '@/services/api'
+import { useConsumptionCorrections } from '@/composables/useConsumptionCorrections'
+import { apiAvailability, apiCabinSummary, apiCreateRequisition } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { TIMEZONE, formatMoney, formatTime } from '@/utils/format'
 import ProductCatalog, { type CatalogFilter } from '@/components/pos/ProductCatalog.vue'
@@ -22,7 +18,7 @@ import CocktailBuilder from '@/components/pos/CocktailBuilder.vue'
 import TapConfirmation, { type TapState } from '@/components/pos/TapConfirmation.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
-import type { Availability, CabinSummary, Product } from '@/types'
+import type { Availability, CabinConsumption, CabinSummary, Product } from '@/types'
 
 /**
  * Bar (guía auditada 27-oct-2026): elegir cabina y tocar la bebida registra
@@ -30,7 +26,9 @@ import type { Availability, CabinSummary, Product } from '@/types'
  * catálogo, una confirmación grande dice el resultado real (Enviando /
  * Producto agregado a la cuenta / sin conexión / no se agregó). Bajo las
  * cabinas, "Cargando a" nombra la cabina elegida con sus pasajeros y lo de
- * hoy y del viaje; la barra inferior conserva el último registro y Deshacer.
+ * hoy y del viaje; la barra inferior conserva el último registro, el modo
+ * Cortesía (la próxima bebida va como cortesía, con motivo) y Corregir:
+ * los consumos recientes de la cabina con Cortesía / Retirar consumo.
  */
 const catalogStore = useCatalogStore()
 const cruiseStore = useCruiseStore()
@@ -38,6 +36,7 @@ const toast = useToastStore()
 const userStore = useUserStore()
 const confirmStore = useConfirmStore()
 const { play } = useSound()
+const corrections = useConsumptionCorrections()
 
 const { sellable, physical } = storeToRefs(catalogStore)
 const { active: cruise, cabins } = storeToRefs(cruiseStore)
@@ -46,11 +45,13 @@ const loading = shallowRef(true)
 const selectedCabin = shallowRef<number | null>(null)
 const summaries = ref<Record<number, CabinSummary>>({})
 const availability = ref<Availability>({})
-const courtesyMode = shallowRef(false)
+/** Modo Cortesía: motivo de la próxima bebida (null = se cobra normal). */
+const courtesyMode = shallowRef<string | null>(null)
 const showBuilder = shallowRef(false)
 const showQueue = shallowRef(false)
 const showMenu = shallowRef(false)
-const undoing = shallowRef(false)
+const showRecent = shallowRef(false)
+const correcting = shallowRef('')
 /**
  * Último registro de la tableta: lo que muestra la barra inferior. Toques
  * seguidos de la misma bebida y cabina se suman (dos toques = dos
@@ -61,6 +62,7 @@ interface LastTap {
   cabin: number
   productId: string
   name: string
+  courtesy: boolean
   saved: string[]
   held: string[]
   rejected: string[]
@@ -227,7 +229,8 @@ function tap(product: Product) {
     productId: product._id,
     productName: product.name,
     price: product.price,
-    courtesy: courtesyMode.value && userStore.isLead,
+    courtesy: Boolean(courtesyMode.value),
+    courtesyReason: courtesyMode.value ?? undefined,
   })
   rememberUse(product._id)
   const prev = lastTap.value
@@ -236,18 +239,49 @@ function tap(product: Product) {
     prev &&
     prev.cabin === entry.cabinNumber &&
     prev.productId === product._id &&
+    prev.courtesy === entry.courtesy &&
     now - prev.at < STREAK_MS &&
     prev.rejected.length < prev.keys.length
   lastTap.value = sameStreak
     ? { ...prev!, keys: [...prev!.keys, entry.key], at: now }
-    : { keys: [entry.key], cabin: entry.cabinNumber, productId: product._id, name: product.name, saved: [], held: [], rejected: [], at: now }
+    : {
+        keys: [entry.key],
+        cabin: entry.cabinNumber,
+        productId: product._id,
+        name: product.name,
+        courtesy: entry.courtesy,
+        saved: [],
+        held: [],
+        rejected: [],
+        at: now,
+      }
   confirmAnchor.value = anchorFor(product._id)
   pulse.value = product._id
   setTimeout(() => {
     if (pulse.value === product._id) pulse.value = ''
   }, 380)
   play('tap')
-  if (courtesyMode.value) courtesyMode.value = false
+  if (courtesyMode.value) courtesyMode.value = null
+}
+
+/**
+ * Cortesía en el mismo pedido: se pide el motivo y la próxima bebida que se
+ * toque va como cortesía (no se cobra; el stock sí se descuenta). Tocar de
+ * nuevo lo desactiva.
+ */
+async function toggleCourtesy() {
+  if (courtesyMode.value) {
+    courtesyMode.value = null
+    return
+  }
+  const reason = await confirmStore.askReason({
+    title: 'La próxima bebida va como cortesía',
+    message: 'No se cobra a la cabina, pero se descuentan los ingredientes. Queda en el historial con el motivo.',
+    confirmLabel: 'Activar cortesía',
+    icon: 'fa-gift',
+    reason: { label: 'Motivo (obligatorio)', suggestions: corrections.COURTESY_REASONS },
+  })
+  if (reason) courtesyMode.value = reason
 }
 
 /**
@@ -346,35 +380,30 @@ function flashConfirmed(productId: string, cabinNumber: number) {
   })
 }
 
-/** Deshacer registro por error: solo lo propio y con la cuenta abierta; reverso auditable. */
-async function undoLast() {
-  const last = summary.value?.last
-  if (!last?.canUndo || undoing.value) return
-  const reason = await confirmStore.askReason({
-    title: `¿Deshacer ${last.qty} ${last.name} de cabina ${summary.value!.cabinNumber}?`,
-    message: 'Se quitará el cargo y se devolverán los ingredientes porque la bebida no se sirvió. Queda registrado quién y por qué. Si se sirvió y no se cobra, no lo deshagas: márcalo como cortesía en Cuentas.',
-    confirmLabel: 'Deshacer registro',
-    danger: true,
-    icon: 'fa-rotate-left',
-    reason: {
-      label: 'Motivo',
-      suggestions: ['Toqué otra bebida', 'Cabina equivocada', 'No se sirvió'],
-    },
-  })
-  if (!reason) return
-  undoing.value = true
+/** Consumos recientes de la cabina elegida, el más nuevo primero. */
+const recent = computed<CabinConsumption[]>(() => summary.value?.recent ?? (summary.value?.last ? [summary.value.last] : []))
+const recentCorrectable = computed(() => recent.value.some((c) => c.canUndo || c.canCourtesy))
+
+/** Cortesía o Retirar consumo sobre un consumo recién registrado. */
+async function correctRecent(item: CabinConsumption, kind: 'courtesy' | 'retire') {
+  if (correcting.value) return
+  const cabinNumber = summary.value?.cabinNumber
+  const line = { orderId: item.orderId, name: item.name, qty: item.qty, courtesy: item.courtesy }
+  correcting.value = item.orderId
   try {
-    const data = await apiUndoConsumption(last.orderId, reason)
-    summaries.value = { ...summaries.value, [data.summary.cabinNumber]: data.summary }
+    const result = kind === 'courtesy' ? await corrections.courtesy(line) : await corrections.retire(line)
+    if (!result) return
+    if (result.summary) summaries.value = { ...summaries.value, [result.summary.cabinNumber]: result.summary }
+    else if (cabinNumber) await loadSummary(cabinNumber)
     lastTap.value = null
     play('success')
-    toast.success('Registro deshecho: se quitó el cargo y los ingredientes volvieron al stock')
+    toast.success(result.message)
     void loadAvailability()
   } catch (err) {
     play('error')
     toast.error(apiErrorMessage(err))
   } finally {
-    undoing.value = false
+    correcting.value = ''
   }
 }
 
@@ -470,7 +499,7 @@ function onEmptyCabin(number: number) {
 const statusText = computed(() => {
   const t = lastTap.value
   if (!t || !tapState.value) return ''
-  const what = `Cabina ${t.cabin} · ${tapState.value === 'rechazado' ? t.keys.length : tapUnits.value} ${t.name}`
+  const what = `Cabina ${t.cabin} · ${tapState.value === 'rechazado' ? t.keys.length : tapUnits.value} ${t.name}${t.courtesy ? ' (cortesía)' : ''}`
   switch (tapState.value) {
     case 'enviando':
       return `Enviando consumo… · ${what}`
@@ -606,8 +635,12 @@ const statusText = computed(() => {
 
     <!-- Abajo: resultado y corrección, siempre visibles (la confirmación grande es la región viva) -->
     <footer class="result">
-      <div class="result-status" :class="tapState ? `result-status--${tapState}` : ''">
-        <template v-if="lastTap && tapState">
+      <div class="result-status" :class="courtesyMode ? 'result-status--courtesy' : tapState ? `result-status--${tapState}` : ''">
+        <template v-if="courtesyMode">
+          <i class="fa-solid fa-gift" aria-hidden="true" />
+          <span>Cortesía activa: la próxima bebida no se cobra · {{ courtesyMode }}</span>
+        </template>
+        <template v-else-if="lastTap && tapState">
           <i
             class="fa-solid"
             :class="{
@@ -644,25 +677,19 @@ const statusText = computed(() => {
           {{ queue.pending.value }} sin confirmar
         </button>
         <button
-          v-if="userStore.isLead"
           type="button"
           class="courtesy-btn"
           :class="{ 'courtesy-btn--on': courtesyMode }"
-          :aria-pressed="courtesyMode"
-          @click="courtesyMode = !courtesyMode"
+          :aria-pressed="Boolean(courtesyMode)"
+          @click="toggleCourtesy"
         >
-          <i class="fa-solid fa-gift" aria-hidden="true" /> Cortesía
+          <i class="fa-solid" :class="courtesyMode ? 'fa-xmark' : 'fa-gift'" aria-hidden="true" />
+          {{ courtesyMode ? 'Quitar cortesía' : 'Cortesía' }}
         </button>
-        <button
-          type="button"
-          class="undo-btn"
-          :disabled="!summary?.last?.canUndo || undoing || queue.pending.value > 0"
-          :title="summary?.last && !summary.last.canUndo ? 'Solo lo que registraste tú y con la cuenta abierta; si no, lo revisa Dirección de crucero' : undefined"
-          @click="undoLast"
-        >
-          <i class="fa-solid fa-rotate-left" aria-hidden="true" />
-          <span class="undo-long">Deshacer registro por error</span>
-          <span class="undo-short">Deshacer</span>
+        <button type="button" class="undo-btn" :disabled="!recent.length" @click="showRecent = true">
+          <i class="fa-solid fa-pen-to-square" aria-hidden="true" />
+          <span class="undo-long">Corregir consumo</span>
+          <span class="undo-short">Corregir</span>
         </button>
       </div>
     </footer>
@@ -693,6 +720,54 @@ const statusText = computed(() => {
       <button type="button" class="btn btn-primary" @click="queue.run()">
         <i class="fa-solid fa-rotate" aria-hidden="true" /> Reintentar ahora
       </button>
+    </BaseModal>
+
+    <!-- Corregir: consumos recientes de la cabina con Cortesía / Retirar consumo -->
+    <BaseModal v-if="showRecent && summary" :title="`Corregir consumos · Cabina ${summary.cabinNumber}`" @close="showRecent = false">
+      <p class="queue-help">
+        Cortesía: se sirvió y no se cobra. Retirar consumo: no se sirvió o fue a otra cabina. El total se actualiza y
+        queda en el historial.
+      </p>
+      <p v-if="!recentCorrectable && summary.accountStatus === 'aprobada'" class="recent-note">
+        <i class="fa-solid fa-circle-info" aria-hidden="true" />
+        Cuenta aprobada: las correcciones las hace Dirección de crucero o Gerencia.
+      </p>
+      <p v-else-if="!recentCorrectable && summary.accountStatus === 'cobrada'" class="recent-note">
+        <i class="fa-solid fa-circle-info" aria-hidden="true" />
+        Cuenta pagada: ya no se corrige aquí.
+      </p>
+      <ul v-if="recent.length" class="recent-list">
+        <li v-for="c in recent" :key="c.orderId" class="recent-item">
+          <div class="recent-main">
+            <strong>{{ c.qty }} × {{ c.name }}</strong>
+            <span class="recent-meta">
+              {{ formatTime(c.at) }} · {{ formatMoney(c.total) }}
+              <span v-if="c.courtesy" class="estado estado--ok">Cortesía</span>
+            </span>
+          </div>
+          <div v-if="c.canUndo || c.canCourtesy" class="recent-actions">
+            <button
+              v-if="c.canCourtesy"
+              type="button"
+              class="recent-link"
+              :disabled="Boolean(correcting)"
+              @click="correctRecent(c, 'courtesy')"
+            >
+              <i class="fa-solid fa-gift" aria-hidden="true" /> Cortesía
+            </button>
+            <button
+              v-if="c.canUndo"
+              type="button"
+              class="recent-link recent-link--danger"
+              :disabled="Boolean(correcting)"
+              @click="correctRecent(c, 'retire')"
+            >
+              <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Retirar consumo
+            </button>
+          </div>
+        </li>
+      </ul>
+      <p v-else class="queue-help">Sin consumos en esta cabina.</p>
     </BaseModal>
 
     <!-- Menú del bar: abastecimiento -->
@@ -1132,6 +1207,10 @@ const statusText = computed(() => {
   &--rechazado {
     color: var(--danger);
   }
+
+  &--courtesy {
+    color: var(--navy-800);
+  }
 }
 
 .result-actions {
@@ -1183,14 +1262,111 @@ const statusText = computed(() => {
 }
 
 .undo-btn:not(:disabled) {
-  border-color: var(--danger);
-  color: var(--danger);
+  border-color: var(--navy-700);
+  color: var(--navy-800);
 }
 
 .courtesy-btn--on {
-  background: var(--gold-500);
-  border-color: var(--gold-500);
+  background: var(--navy-800);
+  border-color: var(--navy-800);
   color: #fff;
+}
+
+// Corregir: lista de consumos recientes
+.recent-note {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0 0 0.8rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--radius-sm);
+  background: var(--pill-info-bg);
+  color: var(--pill-info-ink);
+  font-size: 0.9rem;
+
+  i {
+    margin-top: 0.2rem;
+  }
+}
+
+.recent-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.recent-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.65rem 0.2rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+
+  &:first-child {
+    border-top: 1px solid var(--line);
+  }
+}
+
+.recent-main {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.2rem 0.75rem;
+
+  strong {
+    font-weight: 600;
+  }
+}
+
+.recent-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--ink-400);
+  font-variant-numeric: tabular-nums;
+}
+
+.recent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  margin-left: -0.6rem;
+}
+
+// Acción pequeña de texto con ícono, zona táctil de 44 px.
+.recent-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0 0.6rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--navy-700);
+  transition:
+    background 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.12s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--powder-100);
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+  }
+
+  &--danger {
+    color: var(--danger);
+  }
 }
 
 .queue-btn {
