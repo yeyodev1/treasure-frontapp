@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, shallowRef, useTemplateRef } from 'vue'
-import type { AccountSummary, Cabin, Order, PaymentMethod } from '@/types'
+import { computed, nextTick, onMounted, ref, shallowRef, useTemplateRef } from 'vue'
+import type { AccountSummary, Cabin, Order } from '@/types'
 import BaseModal from '@/components/ui/BaseModal.vue'
-import BaseSelect from '@/components/ui/BaseSelect.vue'
+import PayerForm from '@/components/accounts/PayerForm.vue'
+import PaymentLines from '@/components/accounts/PaymentLines.vue'
 import QrCanvas from '@/components/ui/QrCanvas.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import { useUserStore } from '@/stores/user'
@@ -20,7 +21,17 @@ import {
   apiReviewAnnulment,
 } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
-import { COUNTRY_OPTIONS } from '@/utils/countries'
+import {
+  METHOD_OPTIONS,
+  billingError,
+  emptyBilling,
+  linesState,
+  methodsLabel,
+  newLine,
+  toPayload,
+  type Billing,
+  type PayLine,
+} from '@/components/accounts/payLines'
 import { dayKeyOf, formatDateTime, formatDayHeading, formatHour, formatMoney } from '@/utils/format'
 
 const props = defineProps<{ cruiseId: string; cabin: Cabin }>()
@@ -53,13 +64,6 @@ const ACTION_LABEL: Record<string, string> = {
   correo_no_enviado: 'Correo no enviado',
 }
 
-const METHOD_OPTIONS = [
-  { value: 'efectivo', label: 'Efectivo', icon: 'fa-money-bill-wave' },
-  { value: 'tarjeta', label: 'Tarjeta', icon: 'fa-credit-card' },
-  { value: 'transferencia', label: 'Transferencia', icon: 'fa-building-columns' },
-  { value: 'online', label: 'Pago en línea', icon: 'fa-globe' },
-]
-
 /**
  * Recorrido de la cuenta en tres pasos: Consumos (abierta; "en revisión" es
  * un estado heredado y se trata igual) → Aprobada → Pagada. Solo informa;
@@ -79,36 +83,95 @@ const payer = computed(
   () => props.cabin.passengers.find((p) => p.isPayer) ?? props.cabin.passengers[0] ?? null,
 )
 
-const billing = reactive({ idNumber: '', email: '', country: '', name: '' })
-const method = shallowRef('efectivo')
-const cashConfirmed = shallowRef(false)
-/** Voucher, número de transferencia… (obligatorio en transferencias). */
-const reference = shallowRef('')
-/** Monto de este pago: por defecto el saldo; menor = pago parcial (P05). */
-const amount = shallowRef('')
-const amountValue = computed(() => Number(amount.value.replace(',', '.')))
-const amountError = computed(() => {
-  const due = account.value?.due ?? 0
-  const value = amountValue.value
-  if (!amount.value.trim() || !Number.isFinite(value) || Math.round(value * 100) <= 0) {
-    return 'Introduce una cantidad mayor que cero.'
-  }
-  if (Math.round(value * 100) > Math.round(due * 100)) {
-    return `No puede ser mayor que el saldo (${formatMoney(due)}).`
-  }
-  return ''
-})
-const isPartial = computed(
-  () => !amountError.value && Math.round(amountValue.value * 100) < Math.round((account.value?.due ?? 0) * 100),
+// ---- Cobro (pedido del cliente, 31-oct-2026) ----
+// Una persona paga todo, o se divide: por consumos (cada uno paga lo suyo)
+// o por porcentaje. Cada parte con su factura y su pagador; cada cobro con
+// una o varias formas de pago ($10 efectivo + el resto con tarjeta).
+type SplitMode = 'una' | 'consumos' | 'porcentaje'
+const splitMode = shallowRef<SplitMode>('una')
+const payerBilling = ref<Billing>(emptyBilling())
+const payLines = ref<PayLine[]>([newLine()])
+/** Consumos que paga la persona elegida (modo por consumos). */
+const selected = ref<Set<string>>(new Set())
+const percentText = shallowRef('50')
+
+function billingOf(p: Cabin['passengers'][number] | null): Billing {
+  return p
+    ? { passengerId: p._id ?? '', name: p.name, idNumber: p.idNumber ?? '', email: p.email ?? '', country: p.country ?? '' }
+    : emptyBilling()
+}
+
+/** Pagos parciales sin factura propia: impiden dividir (se cobra el saldo). */
+const hasAbonos = computed(() => (account.value?.payments ?? []).some((p) => !p.settled && !p.part))
+const hasParts = computed(() => (account.value?.payments ?? []).some((p) => !p.settled && p.part))
+/** Quienes ya pagaron su parte en esta cuenta abierta. */
+const paidNames = computed(() =>
+  (account.value?.payments ?? []).filter((p) => p.head !== false && p.payer && (p.part || p.settled)).map((p) => p.payer!),
 )
 
-/** Solo se piden los datos que el pagador no tiene registrados. */
-const missing = computed(() => ({
-  name: !payer.value?.name,
-  idNumber: !payer.value?.idNumber,
-  email: !payer.value?.email,
-  country: !payer.value?.country,
-}))
+/** Consumos por cobrar que se pueden asignar (con importe). */
+const openOrders = computed(() =>
+  (account.value?.orders ?? [])
+    .filter((o) => o.total > 0)
+    .map((o) => ({
+      id: o.id,
+      at: o.createdAt,
+      label: o.items.map((i) => `${i.chargeableQty} × ${i.name}`).join(', '),
+      total: o.total,
+    })),
+)
+
+function toggleOrder(id: string) {
+  const next = new Set(selected.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selected.value = next
+}
+
+const percentValue = computed(() => Number(percentText.value.replace(',', '.')))
+const percentOk = computed(() => percentValue.value > 0 && percentValue.value <= 100)
+
+/** Lo que cubre este cobro según cómo se divide. */
+const target = computed(() => {
+  const acc = account.value
+  if (!acc) return 0
+  if (splitMode.value === 'consumos') {
+    return Math.round(openOrders.value.filter((o) => selected.value.has(o.id)).reduce((s, o) => s + o.total, 0) * 100) / 100
+  }
+  if (splitMode.value === 'porcentaje') {
+    if (!percentOk.value) return 0
+    const share = Math.round(acc.total * percentValue.value) / 100
+    return share >= acc.due - 0.01 ? acc.due : share
+  }
+  return acc.due
+})
+
+const payState = computed(() => linesState(payLines.value, target.value, splitMode.value === 'una'))
+const payerError = computed(() => billingError(payerBilling.value))
+
+const collectBlocked = computed(() => {
+  if (!account.value?.readyToCollect) return 'Aprueba la cuenta para cobrar.'
+  if (splitMode.value === 'consumos' && !selected.value.size) return 'Marca los consumos que paga esta persona.'
+  if (splitMode.value === 'porcentaje' && !percentOk.value) return 'El porcentaje va de 1 a 100.'
+  if (target.value <= 0) return 'No hay importe para cobrar.'
+  return payerError.value || payState.value.error
+})
+
+function setMode(mode: SplitMode) {
+  splitMode.value = mode
+  selected.value = new Set()
+  payLines.value = [newLine()]
+}
+
+/** Siguiente persona sin pagar (al dividir) o el titular de la cabina. */
+function suggestPayer() {
+  const pax = props.cabin.passengers
+  const next =
+    splitMode.value === 'una'
+      ? (pax.find((p) => p.isPayer) ?? pax[0] ?? null)
+      : (pax.find((p) => !paidNames.value.includes(p.name)) ?? pax[0] ?? null)
+  payerBilling.value = billingOf(next)
+}
 
 function linesOf(orders: AccountSummary['orders']) {
   return orders.flatMap((order) =>
@@ -163,14 +226,11 @@ const INVOICE_LABEL: Record<string, string> = {
 }
 
 function invoiceLabel(p: AccountSummary['payments'][number]) {
+  if (p.invoiceStatus === 'parcial' && p.group && p.head === false && p.settled) return 'En la factura de este cobro'
   if (p.invoiceStatus === 'parcial') return p.settled ? 'Incluido en la factura del pago final' : INVOICE_LABEL.parcial
   return INVOICE_LABEL[p.invoiceStatus] ?? p.invoiceStatus
 }
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
-const emailError = computed(() =>
-  billing.email.trim() && !EMAIL.test(billing.email.trim()) ? 'Revisa el correo. Ejemplo: nombre@dominio.com.' : '',
-)
 
 const publicUrl = computed(() => `${window.location.origin}/cuenta/${props.cabin.accountToken}`)
 
@@ -191,16 +251,6 @@ const canApprove = computed(() => isApprover.value && hasOpenCharges.value && is
  */
 const canCorrect = computed(() => (isApprover.value && (isOpen.value || isApproved.value)) || (isBar.value && isOpen.value))
 const collectSection = useTemplateRef<HTMLElement>('collectSection')
-const collectReady = computed(
-  () =>
-    Boolean(account.value?.readyToCollect) &&
-    (!missing.value.idNumber || billing.idNumber.trim()) &&
-    (!missing.value.name || billing.name.trim()) &&
-    !emailError.value &&
-    !amountError.value &&
-    (method.value !== 'efectivo' || cashConfirmed.value) &&
-    (method.value !== 'transferencia' || reference.value.trim()),
-)
 
 
 async function load() {
@@ -210,7 +260,9 @@ async function load() {
       apiOrders({ cruiseId: props.cruiseId, cabinNumber: props.cabin.number, annulment: 'pendiente' }),
     ])
     account.value = acc
-    amount.value = acc.due > 0 ? acc.due.toFixed(2) : ''
+    // Con partes ya cobradas se sigue dividiendo como se empezó.
+    if (acc.payments.some((p) => !p.settled && p.part) && splitMode.value === 'una') splitMode.value = 'porcentaje'
+    suggestPayer()
     annulmentOrders.value = ann.orders
   } catch (err) {
     toast.error(apiErrorMessage(err))
@@ -333,41 +385,52 @@ async function correct(action: () => Promise<{ message: string } | null>) {
 }
 
 async function collect() {
-  if (!account.value || amountError.value) return
-  const charge = Math.round(amountValue.value * 100) / 100
-  const due = account.value.due
-  const methodLabel = METHOD_OPTIONS.find((m) => m.value === method.value)?.label
+  const acc = account.value
+  if (!acc || collectBlocked.value) return
+  const amount = payState.value.total
+  const who = payerBilling.value.name.trim()
+  const how = methodsLabel(payLines.value, payState.value, formatMoney)
+  const what =
+    splitMode.value === 'consumos'
+      ? `${selected.value.size} consumo(s) de ${who}`
+      : splitMode.value === 'porcentaje'
+        ? `${percentValue.value}% de la cuenta (${who})`
+        : `cabina ${props.cabin.number}`
   const ok = await confirmStore.ask({
-    title: `¿Cobrar ${formatMoney(charge)} a cabina ${props.cabin.number}?`,
-    message: isPartial.value
-      ? `Pago parcial con ${methodLabel}. Queda un saldo de ${formatMoney(due - charge)}: la cuenta se marca Pagada cuando llegue a cero.`
-      : `Método: ${methodLabel}. Factura a nombre de ${billing.name || payer.value?.name}.`,
+    title: `¿Cobrar ${formatMoney(amount)}?`,
+    message: payState.value.partial
+      ? `Pago parcial de ${what}: ${how}. Queda un saldo de ${formatMoney(acc.due - amount)}; la cuenta se marca Pagada cuando llegue a cero.`
+      : `${what[0]!.toUpperCase()}${what.slice(1)}: ${how}. Factura a nombre de ${who}.`,
     confirmLabel: 'Cobrar',
     icon: 'fa-cash-register',
   })
   if (!ok) return
   await run(async () => {
+    const b = payerBilling.value
     const result = await apiCollectCabin({
       cruiseId: props.cruiseId,
       cabinNumber: props.cabin.number,
-      method: method.value as PaymentMethod,
-      cashConfirmed: cashConfirmed.value,
-      reference: reference.value.trim() || undefined,
-      amount: charge,
-      expectedDue: due,
+      lines: toPayload(payLines.value, payState.value),
+      orderIds: splitMode.value === 'consumos' ? [...selected.value] : undefined,
+      percent: splitMode.value === 'porcentaje' ? percentValue.value : undefined,
+      expectedDue: acc.due,
       billing: {
-        name: billing.name || undefined,
-        idNumber: billing.idNumber || undefined,
-        email: billing.email || undefined,
-        country: billing.country || undefined,
+        passengerId: b.passengerId || undefined,
+        name: b.name.trim(),
+        idNumber: b.idNumber.trim(),
+        email: b.email.trim() || undefined,
+        country: b.country || undefined,
       },
     })
     const payment = result.payment
-    // Otro medio para el siguiente pago: se limpia lo del anterior.
-    cashConfirmed.value = false
-    reference.value = ''
+    payLines.value = [newLine()]
+    selected.value = new Set()
     if (!result.settled) {
-      toast.success(`Pago parcial registrado. Saldo ${formatMoney(result.due)}`)
+      toast.success(
+        splitMode.value === 'una'
+          ? `Pago parcial registrado. Saldo ${formatMoney(result.due)}`
+          : `${who} pagó ${formatMoney(amount)}. Falta ${formatMoney(result.due)}`,
+      )
       return
     }
     // Pago y factura son estados separados: nunca se afirma una emisión pendiente (L03).
@@ -443,7 +506,7 @@ async function openProforma(download: boolean) {
 </script>
 
 <template>
-  <BaseModal :title="`Cabina ${cabin.number}`" @close="emit('close')">
+  <BaseModal :title="`Cabina ${cabin.number}`" size="lg" @close="emit('close')">
     <SkeletonList v-if="loading" variant="row" :rows="5" />
 
     <div v-else-if="account" class="acc-sheet">
@@ -491,14 +554,10 @@ async function openProforma(download: boolean) {
 
         <p class="payer">
           <template v-if="payer">
-            <i class="fa-solid fa-user" aria-hidden="true" />
+            <i class="fa-solid fa-users" aria-hidden="true" />
             <span>
-              Paga <strong>{{ payer.name }}</strong>
-              <small>
-                {{ payer.country ? payer.country : 'Sin país' }} ·
-                {{ payer.email ? payer.email : 'sin correo' }} ·
-                {{ payer.idNumber ? 'identificación registrada' : 'falta identificación' }}
-              </small>
+              <strong>{{ cabin.passengers.map((p) => p.name).join(' · ') }}</strong>
+              <small>Quién paga (o si dividen la cuenta) se elige al cobrar.</small>
             </span>
           </template>
           <template v-else>
@@ -541,7 +600,9 @@ async function openProforma(download: boolean) {
               </span>
               <span class="line-meta">
                 {{ formatHour(line.at) }} · {{ line.by }}
-                <em v-if="line.courtesy" class="tag tag--courtesy">Cortesía</em>
+                <em v-if="line.courtesy" class="tag tag--courtesy" :class="{ 'tag--agency': line.courtesyKind === 'agencia' }">
+                  {{ line.courtesyKind === 'agencia' ? 'Cortesía agencia' : 'Cortesía casa' }}
+                </em>
                 <em v-if="line.paid" class="tag tag--paid">Cobrado</em>
                 <em v-if="line.pendingQty" class="tag tag--pending">{{ line.pendingQty }} por entregar</em>
               </span>
@@ -582,12 +643,16 @@ async function openProforma(download: boolean) {
             <div class="payment-main">
               <span class="payment-name">
                 {{ METHOD_OPTIONS.find((m) => m.value === p.method)?.label ?? p.method }}
-                <span class="payment-when">{{ formatDateTime(p.createdAt) }}</span>
+                <span class="payment-when">
+                  {{ formatDateTime(p.createdAt) }}<template v-if="p.payer"> · {{ p.payer }}</template>
+                  <template v-if="p.cabins && p.cabins.length > 1"> · cabinas {{ p.cabins.join(', ') }} juntas</template>
+                  <template v-if="p.part"> · parte de la cuenta</template>
+                </span>
               </span>
               <span class="payment-states">
                 <span class="state state--paid">
                   <i class="fa-solid fa-check" aria-hidden="true" />
-                  {{ p.invoiceStatus === 'parcial' ? 'Pago parcial' : 'Pago registrado' }}
+                  {{ p.invoiceStatus === 'parcial' && !p.settled ? 'Pago parcial' : 'Pago registrado' }}
                 </span>
                 <span class="state" :class="`state--invoice-${p.invoiceStatus}`">
                   <i class="fa-regular fa-file-lines" aria-hidden="true" />
@@ -678,105 +743,130 @@ async function openProforma(download: boolean) {
         </h4>
 
         <template v-if="account.readyToCollect && userStore.canCollect">
-          <div v-if="missing.name" class="field">
-            <label for="bill-name">Nombre para la factura</label>
-            <input id="bill-name" v-model="billing.name" type="text" />
+          <!-- ¿Cómo pagan? Una persona, o cada uno lo suyo -->
+          <div class="split" role="radiogroup" aria-label="Cómo pagan">
+            <button
+              type="button"
+              role="radio"
+              class="split-opt"
+              :class="{ 'split-opt--on': splitMode === 'una' }"
+              :aria-checked="splitMode === 'una'"
+              :disabled="hasParts"
+              @click="setMode('una')"
+            >
+              <i class="fa-solid fa-user" aria-hidden="true" />
+              <strong>Paga una persona</strong>
+              <small>Toda la cuenta</small>
+            </button>
+            <button
+              type="button"
+              role="radio"
+              class="split-opt"
+              :class="{ 'split-opt--on': splitMode === 'consumos' }"
+              :aria-checked="splitMode === 'consumos'"
+              :disabled="hasAbonos || hasParts"
+              @click="setMode('consumos')"
+            >
+              <i class="fa-solid fa-list-check" aria-hidden="true" />
+              <strong>Cada uno lo suyo</strong>
+              <small>Asignar consumos a cada persona</small>
+            </button>
+            <button
+              type="button"
+              role="radio"
+              class="split-opt"
+              :class="{ 'split-opt--on': splitMode === 'porcentaje' }"
+              :aria-checked="splitMode === 'porcentaje'"
+              :disabled="hasAbonos"
+              @click="setMode('porcentaje')"
+            >
+              <i class="fa-solid fa-percent" aria-hidden="true" />
+              <strong>Dividir en porcentaje</strong>
+              <small>Ej. 50 % cada uno</small>
+            </button>
           </div>
-          <div v-if="missing.idNumber" class="field">
-            <label for="bill-id">Cédula / pasaporte / RUC del pagador</label>
-            <input id="bill-id" v-model="billing.idNumber" type="text" />
-          </div>
-          <div v-if="missing.email" class="field">
-            <label for="bill-email">Correo para la factura (opcional)</label>
-            <input
-              id="bill-email"
-              v-model="billing.email"
-              type="email"
-              :aria-invalid="Boolean(emailError)"
-              aria-describedby="bill-email-error"
+          <p v-if="hasAbonos" class="muted">Hay un pago parcial: cobra el saldo completo para dividir de nuevo.</p>
+
+          <div class="collect-step">
+            <p class="collect-label"><span class="collect-n">1</span> ¿Quién paga?</p>
+            <PayerForm
+              v-model="payerBilling"
+              :passengers="cabin.passengers"
+              :paid-names="splitMode === 'una' ? [] : paidNames"
+              id-prefix="bill"
             />
-            <Transition name="fade">
-              <small v-if="emailError" id="bill-email-error" class="field-error">{{ emailError }}</small>
-            </Transition>
-          </div>
-          <div v-if="missing.country" class="field">
-            <label>País (opcional)</label>
-            <BaseSelect v-model="billing.country" :options="COUNTRY_OPTIONS" searchable placeholder="Buscar país…" />
           </div>
 
-          <div class="field">
-            <label for="pay-amount">Monto a cobrar</label>
-            <div class="amount-row">
-              <div class="amount-input">
-                <span class="amount-prefix" aria-hidden="true">$</span>
-                <input
-                  id="pay-amount"
-                  v-model="amount"
-                  type="text"
-                  inputmode="decimal"
-                  autocomplete="off"
-                  :aria-invalid="Boolean(amountError)"
-                  aria-describedby="pay-amount-help"
-                />
-              </div>
-              <Transition name="fade">
-                <button
-                  v-if="Math.round(amountValue * 100) !== Math.round(account.due * 100)"
-                  type="button"
-                  class="tool"
-                  @click="amount = account.due.toFixed(2)"
-                >
-                  Saldo completo
-                </button>
-              </Transition>
-            </div>
-            <Transition name="fade" mode="out-in">
-              <small v-if="amountError" id="pay-amount-help" key="err" class="field-error">{{ amountError }}</small>
-              <small v-else-if="isPartial" id="pay-amount-help" key="partial" class="field-help">
-                Pago parcial: quedará un saldo de {{ formatMoney(account.due - amountValue) }}.
-              </small>
-              <small v-else id="pay-amount-help" key="full" class="field-help">
-                Saldo completo: la cuenta queda Pagada.<template v-if="account.partialPaid > 0">
-                  Ya se cobró {{ formatMoney(account.partialPaid) }} antes.</template
-                >
-              </small>
-            </Transition>
-          </div>
-
-          <fieldset class="methods">
-            <legend>Método de pago</legend>
-            <div class="method-grid" role="radiogroup" aria-label="Método de pago">
-              <button
-                v-for="m in METHOD_OPTIONS"
-                :key="m.value"
-                type="button"
-                role="radio"
-                class="method"
-                :class="{ 'method--on': method === m.value }"
-                :aria-checked="method === m.value"
-                @click="method = m.value"
-              >
-                <i class="fa-solid" :class="m.icon" aria-hidden="true" />
-                {{ m.label }}
-              </button>
-            </div>
-          </fieldset>
-
+          <!-- Por consumos: marcar lo de esta persona -->
           <Transition name="fade" mode="out-in">
-            <div v-if="method !== 'efectivo'" key="ref" class="field">
-              <label for="pay-ref">Referencia {{ method === 'transferencia' ? '(obligatoria)' : '(voucher, opcional)' }}</label>
-              <input id="pay-ref" v-model="reference" type="text" maxlength="40" placeholder="Número de transferencia o voucher" />
+            <div v-if="splitMode === 'consumos'" key="consumos" class="collect-step">
+              <p class="collect-label">
+                <span class="collect-n">2</span> Consumos de {{ payerBilling.name || 'esta persona' }}
+                <button
+                  type="button"
+                  class="tool tool--sm"
+                  @click="selected = selected.size === openOrders.length ? new Set() : new Set(openOrders.map((o) => o.id))"
+                >
+                  {{ selected.size === openOrders.length ? 'Ninguno' : 'Todos' }}
+                </button>
+              </p>
+              <ul class="assign">
+                <li v-for="o in openOrders" :key="o.id">
+                  <label class="assign-row" :class="{ 'assign-row--on': selected.has(o.id) }">
+                    <input type="checkbox" :checked="selected.has(o.id)" @change="toggleOrder(o.id)" />
+                    <span class="assign-name">{{ o.label }}<small>{{ formatHour(o.at) }}</small></span>
+                    <strong>{{ formatMoney(o.total) }}</strong>
+                  </label>
+                </li>
+              </ul>
+              <p class="muted">Lo que no marques queda en la cuenta para la otra persona.</p>
             </div>
-            <label v-else key="cash" class="cash-check" :class="{ 'cash-check--on': cashConfirmed }">
-              <input v-model="cashConfirmed" type="checkbox" />
-              Confirmo que el efectivo ingresó a caja
-            </label>
+            <div v-else-if="splitMode === 'porcentaje'" key="pct" class="collect-step">
+              <p class="collect-label"><span class="collect-n">2</span> Porcentaje que paga {{ payerBilling.name || 'esta persona' }}</p>
+              <div class="pct-row">
+                <button
+                  v-for="pct in [50, 33.33, 25]"
+                  :key="pct"
+                  type="button"
+                  class="pct-chip"
+                  :class="{ 'pct-chip--on': percentValue === pct }"
+                  @click="percentText = String(pct)"
+                >
+                  {{ String(pct).replace('.', ',') }} %
+                </button>
+                <label class="pct-input">
+                  <input v-model="percentText" type="text" inputmode="decimal" aria-label="Porcentaje" />
+                  <span>%</span>
+                </label>
+              </div>
+              <p class="muted">
+                {{ percentOk ? `${String(percentValue).replace('.', ',')} % de ${formatMoney(account.total)} = ${formatMoney(target)}` : 'Escribe un porcentaje de 1 a 100.' }}
+                <template v-if="account.partialPaid > 0"> · ya se cobró {{ formatMoney(account.partialPaid) }}</template>
+              </p>
+            </div>
           </Transition>
 
-          <button type="button" class="btn btn-gold btn-wide btn-collect" :disabled="!collectReady || busy" @click="collect">
+          <div class="collect-step">
+            <p class="collect-label">
+              <span class="collect-n">{{ splitMode === 'una' ? 2 : 3 }}</span> Forma de pago
+              <span class="collect-target">{{ formatMoney(target) }}</span>
+            </p>
+            <PaymentLines v-model="payLines" :target="target" :allow-partial="splitMode === 'una'" id-prefix="pay" />
+          </div>
+
+          <button
+            type="button"
+            class="btn btn-gold btn-wide btn-collect"
+            :disabled="Boolean(collectBlocked) || busy"
+            @click="collect"
+          >
             <i class="fa-solid fa-cash-register" aria-hidden="true" />
-            Cobrar {{ amountError ? '' : formatMoney(amountValue) }}
+            Cobrar {{ payState.valid && target > 0 ? formatMoney(payState.total) : '' }}
+            <template v-if="splitMode !== 'una' && payerBilling.name"> a {{ payerBilling.name }}</template>
           </button>
+          <Transition name="fade">
+            <p v-if="collectBlocked && !payState.error" class="muted collect-why">{{ collectBlocked }}</p>
+          </Transition>
         </template>
         <p v-else-if="account.readyToCollect" class="muted">Aprobada. Lista para cobrar.</p>
         <p v-else class="muted">Revisa los consumos con el pasajero y aprueba la cuenta para registrar el pago.</p>
@@ -1428,8 +1518,7 @@ async function openProforma(download: boolean) {
     }
   }
 
-  .field label,
-  .methods legend {
+  .field label {
     font-size: 0.9375rem;
     font-weight: 500;
     color: var(--ink-900);
@@ -1451,124 +1540,221 @@ async function openProforma(download: boolean) {
   color: var(--muted);
 }
 
-.amount-row {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.amount-input {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-
-  input {
-    padding-left: 2rem !important;
-    font-size: 1.25rem !important;
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-  }
-}
-
-.amount-prefix {
-  position: absolute;
-  left: 0.85rem;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 1.25rem;
-  color: var(--muted);
-  pointer-events: none;
-}
-
-.methods {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  min-width: 0;
-
-  legend {
-    padding: 0;
-    margin-bottom: 0.4rem;
-  }
-}
-
-.method-grid {
+// ¿Cómo pagan?
+.split {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem;
+  grid-template-columns: 1fr;
+  gap: 0.45rem;
+
+  @include tablet {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
-.method {
-  @include touch-target;
-  display: flex;
+.split-opt {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 0.5rem;
   align-items: center;
-  justify-content: flex-start;
-  gap: 0.6rem;
-  padding: 0.5rem 1rem;
+  min-height: 60px;
+  padding: 0.55rem 0.75rem;
+  border: 2px solid var(--cream-200);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--line-strong);
   background: var(--surface);
-  font-size: 0.9375rem;
-  font-weight: 500;
-  color: var(--ink-900);
-  text-align: center;
+  text-align: left;
   transition:
-    background 0.18s ease,
-    border-color 0.18s ease,
-    color 0.18s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    opacity 0.15s ease,
     transform 0.12s ease;
 
   i {
+    grid-row: span 2;
     color: var(--navy-600);
-    transition: color 0.18s ease;
+    font-size: 1.05rem;
   }
 
-  &:hover:not(.method--on) {
+  strong {
+    font-size: 0.92rem;
+  }
+
+  small {
+    font-size: 0.78rem;
+    color: var(--ink-400);
+  }
+
+  &:hover:not(:disabled):not(.split-opt--on) {
     border-color: var(--navy-600);
   }
 
-  &:active {
-    transform: scale(0.97);
+  &:active:not(:disabled) {
+    transform: scale(0.98);
   }
+
+  &:disabled {
+    opacity: 0.45;
+  }
+
+  &--on {
+    border-color: var(--navy-800);
+    background: var(--powder-100);
+  }
+}
+
+.collect-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.collect-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-weight: 700;
+  color: var(--ink-900);
+}
+
+.collect-n {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--navy-800);
+  color: #fff;
+  font-size: 0.78rem;
+}
+
+.collect-target {
+  margin-left: auto;
+  font-family: var(--font-serif);
+  font-size: 1.3rem;
+  color: var(--navy-800);
+  font-variant-numeric: tabular-nums;
+}
+
+.collect-why {
+  margin: -0.4rem 0 0;
+  text-align: center;
+}
+
+// Por consumos: lo que paga esta persona
+.assign {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.assign-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 48px;
+  padding: 0.4rem 0.75rem;
+  border: 1.5px solid var(--cream-200);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+
+  input {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--navy-800);
+    flex-shrink: 0;
+  }
+
+  strong {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &--on {
+    border-color: var(--navy-700);
+    background: var(--powder-100);
+  }
+}
+
+.assign-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-weight: 600;
+
+  small {
+    font-weight: 500;
+    color: var(--ink-400);
+  }
+}
+
+// Por porcentaje
+.pct-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.pct-chip {
+  min-height: 44px;
+  padding: 0 1rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--cream-200);
+  background: var(--surface);
+  font-weight: 700;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 
   &--on {
     background: var(--navy-800);
     border-color: var(--navy-800);
     color: #fff;
-
-    i {
-      color: #fff;
-    }
   }
 }
 
-.cash-check {
-  display: flex;
+.pct-input {
+  display: inline-flex;
   align-items: center;
-  gap: 0.75rem;
-  min-height: 52px;
-  padding: 0.5rem 0.9rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid #ead7b8;
-  background: #fbf5ec;
-  font-size: 1rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background 0.18s ease,
-    border-color 0.18s ease;
+  gap: 0.3rem;
+  min-height: 44px;
+  padding: 0 0.75rem;
+  border: 1.5px solid var(--cream-200);
+  border-radius: 999px;
+  background: #fff;
 
   input {
-    flex: none;
-    width: 1.4rem;
-    height: 1.4rem;
-    accent-color: var(--navy-800);
+    width: 4.5rem;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-weight: 700;
+    font-size: 1rem;
+    text-align: right;
   }
+}
 
-  &--on {
-    background: #e2efe6;
-    border-color: #b9d6c3;
-  }
+.tool--sm {
+  min-height: 36px;
+  padding: 0 0.7rem;
+  font-size: 0.82rem;
+}
+
+.tag--agency {
+  background: var(--pill-warn-bg) !important;
+  color: var(--pill-warn-ink) !important;
 }
 
 .btn-collect {
