@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
-import type { Product, ProductCategory } from '@/types'
+import type { Product, ProductCategory, WineStyle } from '@/types'
 import { apiProducts } from '@/services/api'
 
 export const CATEGORY_LABELS: Record<ProductCategory, string> = {
@@ -15,6 +15,40 @@ export const CATEGORY_LABELS: Record<ProductCategory, string> = {
   insumo: 'Insumos',
   servicio: 'Servicios',
   otro: 'Otros',
+}
+
+export const WINE_STYLE_LABELS: Record<WineStyle, string> = {
+  tinto: 'Tinto',
+  blanco: 'Blanco',
+  rosado: 'Rosado',
+  espumante: 'Espumante',
+}
+
+/**
+ * Cómo se sirve una bebida de la carta (pedido del cliente, 31-oct-2026):
+ * licores por trago o botella; vinos por copa, botella o botella pequeña.
+ * Se deduce del producto: la receta es el trago o la copa; el físico es la
+ * botella cerrada, pequeña si trae menos de 750 ml.
+ */
+export type DrinkFormat = 'trago' | 'copa' | 'botella' | 'botella_pequena'
+
+export const DRINK_FORMAT_LABELS: Record<DrinkFormat, string> = {
+  trago: 'Trago',
+  copa: 'Copa',
+  botella: 'Botella',
+  botella_pequena: 'Botella pequeña',
+}
+
+const FULL_BOTTLE_ML = 750
+
+export function drinkFormat(p: Product): DrinkFormat | null {
+  if (p.category === 'licor') return p.kind === 'receta' ? 'trago' : p.kind === 'fisico' ? 'botella' : null
+  if (p.category === 'vino') {
+    if (p.kind === 'receta') return 'copa'
+    if (p.kind !== 'fisico') return null
+    return p.stockUnit === 'ml' && p.containerSize > 0 && p.containerSize < FULL_BOTTLE_ML ? 'botella_pequena' : 'botella'
+  }
+  return null
 }
 
 /** Lo que se puede vender en el bar (las botellas-insumo no aparecen). */
@@ -41,5 +75,9 @@ export const useCatalogStore = defineStore('catalog', () => {
     else products.value.push(product)
   }
 
-  return { products, sellable, physical, loaded, load, upsert }
+  function remove(id: string) {
+    products.value = products.value.filter((p) => p._id !== id)
+  }
+
+  return { products, sellable, physical, loaded, load, upsert, remove }
 })
