@@ -19,7 +19,7 @@ import CabinAccount from '@/components/pos/CabinAccount.vue'
 import TapConfirmation, { type TapState } from '@/components/pos/TapConfirmation.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
-import type { Availability, CabinConsumption, CabinSummary, Product } from '@/types'
+import type { Availability, CabinConsumption, CabinSummary, CourtesyKind, Product } from '@/types'
 
 /**
  * Bar (guía auditada 27-oct-2026): elegir cabina y tocar la bebida registra
@@ -47,7 +47,13 @@ const selectedCabin = shallowRef<number | null>(null)
 const summaries = ref<Record<number, CabinSummary>>({})
 const availability = ref<Availability>({})
 /** Modo Cortesía: motivo de la próxima bebida (null = se cobra normal). */
-const courtesyMode = shallowRef<string | null>(null)
+const courtesyMode = shallowRef<{ reason: string; kind: CourtesyKind } | null>(null)
+/** Lo que muestra la cuenta mientras la cortesía está activa. */
+const courtesyText = computed(() =>
+  courtesyMode.value
+    ? `${courtesyMode.value.kind === 'agencia' ? 'Agencia' : 'Casa'} · ${courtesyMode.value.reason}`
+    : null,
+)
 const showBuilder = shallowRef(false)
 const showQueue = shallowRef(false)
 const showMenu = shallowRef(false)
@@ -235,7 +241,8 @@ function tap(product: Product) {
     productName: product.name,
     price: product.price,
     courtesy: Boolean(courtesyMode.value),
-    courtesyReason: courtesyMode.value ?? undefined,
+    courtesyReason: courtesyMode.value?.reason,
+    courtesyKind: courtesyMode.value?.kind,
   })
   rememberUse(product._id)
   const prev = lastTap.value
@@ -279,14 +286,15 @@ async function toggleCourtesy() {
     courtesyMode.value = null
     return
   }
-  const reason = await confirmStore.askReason({
+  const answer = await confirmStore.askChoice({
     title: 'La próxima bebida va como cortesía',
-    message: 'No se cobra a la cabina, pero se descuentan los ingredientes. Queda en el historial con el motivo.',
+    message: 'No se cobra a la cabina, pero se descuentan los ingredientes. La de agencia va a la cuenta de la agencia.',
     confirmLabel: 'Activar cortesía',
     icon: 'fa-gift',
+    choice: corrections.COURTESY_CHOICE,
     reason: { label: 'Motivo (obligatorio)', suggestions: corrections.COURTESY_REASONS },
   })
-  if (reason) courtesyMode.value = reason
+  if (answer) courtesyMode.value = { reason: answer.reason, kind: answer.choice as CourtesyKind }
 }
 
 /**
@@ -619,7 +627,7 @@ function onEmptyCabin(number: number) {
               :summary="summary"
               :queued="queuedForCabin"
               :can-add="canAdd"
-              :courtesy-mode="courtesyMode"
+              :courtesy-mode="courtesyText"
               :correcting="correcting"
               @add="addById"
               @retire="(item) => correctRecent(item, 'retire')"
