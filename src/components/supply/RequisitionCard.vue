@@ -33,6 +33,7 @@ function receiptText(receipt: Requisition['receipts'][number]): string {
 }
 
 const reviewVerb = computed(() => {
+  if (r.value.status === 'cancelado') return 'Canceló'
   if (isRevision.value) return 'Atendió'
   return r.value.status === 'rechazado' ? 'Rechazó' : 'Aprobó'
 })
@@ -62,7 +63,7 @@ const reviewVerb = computed(() => {
       <li v-if="r.reviewedAt">
         <i
           class="fa-solid"
-          :class="r.status === 'rechazado' ? 'fa-ban' : 'fa-thumbs-up'"
+          :class="r.status === 'rechazado' || r.status === 'cancelado' ? 'fa-ban' : 'fa-thumbs-up'"
           aria-hidden="true"
         />
         <span>
