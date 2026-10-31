@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
 import type { ContificoProduct, Product, ProductKind, RecipeIngredient } from '@/types'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
-import { CATEGORY_LABELS } from '@/stores/catalog'
+import { CATEGORY_LABELS, WINE_STYLE_LABELS } from '@/stores/catalog'
 import { useUserStore } from '@/stores/user'
 import { useToastStore } from '@/stores/toast'
 import { useSound } from '@/composables/useSound'
@@ -57,6 +57,7 @@ const form = reactive({
   servingSize: editing?.servingSize ?? 60,
   servingPrice: editing?.servingPrice ?? 0,
   contificoId: editing?.contificoId ?? '',
+  wineStyle: (editing?.wineStyle ?? '') as string,
 })
 
 const recipe = ref(
@@ -98,6 +99,11 @@ const contificoOptions = computed(() => [
 ])
 
 const categoryOptions = Object.entries(CATEGORY_LABELS).map(([value, label]) => ({ value, label }))
+/** Divide Vinos en la carta del bar (tinto, blanco, rosado, espumante). */
+const wineStyleOptions = [
+  { value: '', label: 'Sin tipo' },
+  ...Object.entries(WINE_STYLE_LABELS).map(([value, label]) => ({ value, label })),
+]
 const iconOptions = Object.entries(ICONS).map(([value, label]) => ({ value, label }))
 
 const byId = computed(() => new Map(props.physical.map((p) => [p._id, p])))
@@ -117,6 +123,7 @@ async function save() {
     kind: form.kind,
     category: form.category,
     icon: form.icon,
+    wineStyle: form.category === 'vino' ? form.wineStyle : '',
   }
   if (isAdmin.value) payload.price = form.price
   if (isAdmin.value && contificoReady.value) payload.contificoId = form.contificoId
@@ -197,6 +204,14 @@ async function save() {
           <BaseSelect v-model="form.icon" :options="iconOptions" />
         </div>
       </div>
+
+      <Transition name="fade">
+        <div v-if="form.category === 'vino'" class="field">
+          <label>Tipo de vino</label>
+          <BaseSelect v-model="form.wineStyle" :options="wineStyleOptions" />
+          <small class="help">Divide Vinos en la carta del bar: tinto, blanco, rosado o espumante.</small>
+        </div>
+      </Transition>
 
       <!-- Físico -->
       <template v-if="form.kind === 'fisico'">
@@ -504,5 +519,15 @@ async function save() {
     font-size: 0.95rem;
     color: var(--ink-600);
   }
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>
