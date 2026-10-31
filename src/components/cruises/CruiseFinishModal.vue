@@ -31,7 +31,8 @@ const exceptional = computed(() => Boolean(check.value?.issues.length))
 const FINANCE_LABELS = { por_revisar: 'Por revisar', por_cobrar: 'Por cobrar', liquidada: 'Liquidada' } as const
 const ACCOUNT_LABELS: Record<string, string> = {
   abierta: 'Abierta',
-  en_revision: 'En revisión',
+  // Ya no hay paso de revisión: una cuenta en_revision se muestra abierta.
+  en_revision: 'Abierta',
   aprobada: 'Aprobada',
   cobrada: 'Pagada',
   sin_consumos: 'Sin consumos',
