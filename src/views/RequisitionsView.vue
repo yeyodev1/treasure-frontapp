@@ -11,6 +11,7 @@ import { useConfirmStore } from '@/stores/confirm'
 import { useToastStore } from '@/stores/toast'
 import { useSound } from '@/composables/useSound'
 import {
+  apiCancelRequisition,
   apiCounts,
   apiRequisitions,
   apiResolveRequisition,
@@ -226,6 +227,42 @@ async function reject(r: Requisition) {
   }
 }
 
+/** Quien pidió cancela su solicitud mientras sigue pendiente de aprobación. */
+function canCancel(r: Requisition) {
+  if (r.status !== 'solicitado') return false
+  const id = typeof r.requestedBy === 'string' ? r.requestedBy : r.requestedBy?._id
+  return Boolean(id) && id === userStore.user?.id
+}
+
+async function cancelOwn(r: Requisition) {
+  const reason = await confirmStore.askReason({
+    title: `¿Cancelar ${r.code}?`,
+    message: 'La solicitud deja de estar pendiente y no llega a aprobación. Queda en el historial con el motivo.',
+    confirmLabel: 'Cancelar solicitud',
+    cancelLabel: 'Volver',
+    danger: true,
+    icon: 'fa-ban',
+    reason: {
+      label: 'Motivo (obligatorio)',
+      suggestions: ['Ya no hace falta', 'Me equivoqué de producto o cantidad', 'Ya llegó en la carga'],
+    },
+  })
+  if (!reason) return
+  busyId.value = r._id
+  try {
+    const updated = await apiCancelRequisition(r._id, reason)
+    play('success')
+    toast.success(`Solicitud ${updated.code} cancelada`)
+    replaceRow(updated)
+    void loadBadges()
+  } catch (err) {
+    play('error')
+    toast.error(apiErrorMessage(err))
+  } finally {
+    busyId.value = null
+  }
+}
+
 async function resolve(r: Requisition) {
   let suggestions: string[] = []
   try {
@@ -272,6 +309,7 @@ const HISTORY_FILTERS: Array<{ value: RequisitionStatus | ''; label: string }> =
   { value: 'recibido_parcial', label: 'Recibida parcial' },
   { value: 'recibido', label: 'Recibida' },
   { value: 'atendido', label: 'Atendida' },
+  { value: 'cancelado', label: 'Cancelada' },
 ]
 
 const emptyText = computed(
@@ -386,6 +424,11 @@ const emptyText = computed(
                 <RouterLink class="btn btn-secondary" :to="{ path: '/bodega', query: { flujo: 'conteo' } }">
                   <i class="fa-solid fa-clipboard-list" aria-hidden="true" /> Abrir conteo físico
                 </RouterLink>
+              </template>
+              <template v-else-if="tab === 'mios' && canCancel(r)">
+                <button type="button" class="btn btn-secondary reject" :disabled="busyId === r._id" @click="cancelOwn(r)">
+                  <i class="fa-solid fa-ban" aria-hidden="true" /> Cancelar solicitud
+                </button>
               </template>
             </RequisitionCard>
           </TransitionGroup>
