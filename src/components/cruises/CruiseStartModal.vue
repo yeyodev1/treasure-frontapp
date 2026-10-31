@@ -54,7 +54,11 @@ async function start() {
 </script>
 
 <template>
-  <BaseModal :title="`Iniciar crucero · ${label}`" @close="emit('close')">
+  <BaseModal
+    :title="`Iniciar crucero · ${label}`"
+    subtitle="Revisa ruta, fechas y cabinas antes de abrir el bar."
+    @close="emit('close')"
+  >
     <SkeletonList v-if="!check" variant="row" :rows="4" />
     <div v-else class="start">
       <dl class="facts">
@@ -101,12 +105,20 @@ async function start() {
       </div>
 
       <p class="note">Iniciar no crea compras ni mueve stock. Queda registrado quién y a qué hora.</p>
+    </div>
 
-      <button type="button" class="btn btn-primary start-btn" :disabled="starting || check.blockers.length > 0" @click="start">
+    <template #footer>
+      <button type="button" class="btn btn-secondary" @click="emit('close')">Cancelar</button>
+      <button
+        type="button"
+        class="btn btn-primary btn-lg start-btn"
+        :disabled="!check || starting || check.blockers.length > 0"
+        @click="start"
+      >
         <i class="fa-solid" :class="starting ? 'fa-spinner fa-spin' : 'fa-ship'" aria-hidden="true" />
         {{ starting ? 'Iniciando…' : 'Iniciar crucero' }}
       </button>
-    </div>
+    </template>
   </BaseModal>
 </template>
 
@@ -114,64 +126,84 @@ async function start() {
 .start {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 1rem;
 }
 
 .facts {
   display: grid;
-  gap: 0.5rem;
+  gap: 0;
   margin: 0;
 
   div {
     display: grid;
-    grid-template-columns: 130px 1fr;
-    gap: 0.6rem;
+    grid-template-columns: 170px 1fr;
+    gap: 0.75rem;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid var(--rule);
+
+    &:first-child {
+      padding-top: 0;
+    }
   }
 
   dt {
-    font-size: 0.8rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ink-400);
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--ink-600);
   }
 
   dd {
     margin: 0;
+    font-size: 1rem;
     font-weight: 600;
+    color: var(--ink-900);
+  }
+
+  @media (max-width: 520px) {
+    div {
+      grid-template-columns: 1fr;
+      gap: 0.15rem;
+    }
   }
 }
 
 .box {
   border-radius: var(--radius-sm);
-  padding: 0.75rem 0.9rem;
+  padding: 0.8rem 1rem;
+  font-size: 1rem;
+  line-height: 1.45;
 
   ul {
     margin: 0.4rem 0 0;
-    padding-left: 1.1rem;
+    padding-left: 1.2rem;
   }
 
   &--danger {
-    background: rgba(180, 72, 59, 0.08);
-    color: var(--danger);
+    background: var(--pill-danger-bg);
+    color: var(--pill-danger-ink);
   }
 
   &--warning {
-    background: rgba(185, 128, 47, 0.1);
-    color: #7a5419;
+    padding-block: 0.3rem;
+    background: var(--pill-warn-bg);
+    color: var(--pill-warn-ink);
   }
 }
 
 .box-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0;
   font-weight: 700;
 }
 
 .box-toggle {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.55rem;
   width: 100%;
-  min-height: 44px;
+  min-height: 48px;
   font-weight: 700;
   text-align: left;
   color: inherit;
@@ -179,7 +211,7 @@ async function start() {
 
 .chevron {
   margin-left: auto;
-  transition: transform 0.2s ease;
+  transition: transform 0.22s var(--ease-out);
 
   &.open {
     transform: rotate(180deg);
@@ -188,19 +220,26 @@ async function start() {
 
 .box-body {
   display: grid;
-  gap: 0.4rem;
-  font-size: 0.88rem;
-  line-height: 1.4;
+  gap: 0.45rem;
+  padding-bottom: 0.6rem;
+  font-size: 0.98rem;
+  line-height: 1.45;
+
+  p {
+    margin: 0;
+  }
 }
 
 .hint,
 .note {
-  font-size: 0.85rem;
-  color: var(--ink-400);
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--ink-600);
 }
 
 .start-btn {
-  min-height: 52px;
+  min-width: 220px;
 }
 
 .fade-enter-active,
