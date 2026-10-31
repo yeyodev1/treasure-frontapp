@@ -29,7 +29,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Operar',
     items: [
       { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: ['duena', 'direccion', 'bartender'] },
-      { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: ['duena', 'direccion', 'bartender'] },
+      { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: ['duena', 'direccion'] },
       { to: '/abastecimiento', label: 'Abastecimiento', icon: 'fa-dolly', roles: ['duena', 'admin', 'direccion', 'bartender', 'bodega'] },
       { to: '/bodega', label: 'Bodega', icon: 'fa-warehouse', roles: ['duena', 'admin', 'bodega', 'direccion'] },
     ],
