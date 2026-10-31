@@ -21,6 +21,7 @@ export interface QueueEntry {
   productName: string
   price: number
   courtesy: boolean
+  courtesyReason?: string
   clientAt: string
   state: QueueState
   attempts: number
@@ -132,6 +133,7 @@ export function useConsumptionQueue(options: {
             cabinNumber: entry.cabinNumber,
             productId: entry.productId,
             courtesy: entry.courtesy,
+            courtesyReason: entry.courtesyReason,
             idempotencyKey: entry.key,
             clientAt: entry.clientAt,
           })
