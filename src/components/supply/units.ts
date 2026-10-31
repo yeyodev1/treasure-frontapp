@@ -103,6 +103,7 @@ export const REQUISITION_STATUS: Record<RequisitionStatus, string> = {
   recibido_parcial: 'Recibida parcial',
   recibido: 'Recibida',
   atendido: 'Atendida',
+  cancelado: 'Cancelada',
 }
 
 export const LOCATION_LABEL = { bodega: 'Bodega', abordo: 'A bordo' } as const
