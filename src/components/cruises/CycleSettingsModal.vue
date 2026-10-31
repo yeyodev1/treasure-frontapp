@@ -34,10 +34,15 @@ async function save() {
 </script>
 
 <template>
-  <BaseModal title="Configurar ciclo de salidas" @close="emit('close')">
+  <BaseModal
+    title="Configurar ciclo de cruceros"
+    subtitle="Ruta, duración y hora de zarpe de cada tipo. Aplica a los cruceros que se creen desde ahora."
+    size="lg"
+    @close="emit('close')"
+  >
     <div class="cfg">
       <article v-for="leg in legs" :key="leg.code" class="leg">
-        <h4><span class="leg-code">{{ leg.code }}</span> {{ leg.label }}</h4>
+        <h4><span class="leg-code">{{ leg.code }}</span> Crucero {{ leg.code }} · {{ leg.label }}</h4>
         <div class="grid">
           <div class="field">
             <label :for="`from-${leg.code}`">Zarpa desde</label>
@@ -58,15 +63,20 @@ async function save() {
         </div>
       </article>
 
-      <div class="field">
+      <div class="field cabins-field">
         <label for="cabin-count">Cabinas por crucero</label>
         <input id="cabin-count" v-model.number="cabinCount" type="number" min="1" max="30" />
       </div>
 
-      <button type="button" class="btn btn-gold" :disabled="saving" @click="save">
-        <i class="fa-solid fa-floppy-disk" aria-hidden="true" /> {{ saving ? 'Guardando…' : 'Guardar ciclo' }}
-      </button>
     </div>
+
+    <template #footer>
+      <button type="button" class="btn btn-secondary" @click="emit('close')">Cancelar</button>
+      <button type="button" class="btn btn-primary btn-lg" :disabled="saving" @click="save">
+        <i class="fa-solid" :class="saving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'" aria-hidden="true" />
+        {{ saving ? 'Guardando…' : 'Guardar ciclo' }}
+      </button>
+    </template>
   </BaseModal>
 </template>
 
@@ -79,29 +89,44 @@ async function save() {
   gap: 1rem;
 }
 
+.leg {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--rule);
+}
+
 .leg h4 {
-  margin: 0 0 0.6rem;
-  font-size: 1rem;
+  margin: 0 0 0.7rem;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  font-weight: 700;
 }
 
 .leg-code {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
   border-radius: 50%;
   background: var(--navy-800);
   color: #fff;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-family: var(--font-sans);
 }
 
 .grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.6rem;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+
+  @include tablet {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.cabins-field {
+  max-width: 240px;
 }
 </style>
