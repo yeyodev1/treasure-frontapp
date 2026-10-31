@@ -267,21 +267,27 @@ export interface Order {
 }
 
 /** Barra inferior del bar: último consumo y totales de la cabina. */
+/** Consumo de la barra del bar; canUndo = se puede retirar, canCourtesy = marcar cortesía. */
+export interface CabinConsumption {
+  orderId: string
+  name: string
+  qty: number
+  courtesy: boolean
+  total: number
+  at: string
+  by: string
+  canUndo: boolean
+  canCourtesy?: boolean
+}
+
 export interface CabinSummary {
   cabinNumber: number
   tripTotal: number
   todayTotal: number
   accountStatus: AccountStatus
-  last: {
-    orderId: string
-    name: string
-    qty: number
-    courtesy: boolean
-    total: number
-    at: string
-    by: string
-    canUndo: boolean
-  } | null
+  last: CabinConsumption | null
+  /** Consumos recientes de la cabina (el más nuevo primero). */
+  recent?: CabinConsumption[]
 }
 
 export type Availability = Record<string, { available: boolean; missing: string }>
@@ -290,6 +296,7 @@ export type RequisitionStatus =
   | 'solicitado'
   | 'aprobado'
   | 'rechazado'
+  | 'cancelado'
   | 'recibido_parcial'
   | 'recibido'
   | 'atendido'
