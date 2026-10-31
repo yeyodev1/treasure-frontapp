@@ -27,7 +27,9 @@ const routes: Array<RouteRecordRaw> = [
     path: '/cuentas',
     name: 'Accounts',
     component: () => import('@/views/AccountsView.vue'),
-    meta: { title: 'Cuentas', roles: ['direccion', 'bartender'] },
+    // El bar ve la cuenta de cada cabina en la pantalla del Bar (31-oct-2026);
+    // Cuentas queda para Dirección: aprobar la prefactura y cobrar.
+    meta: { title: 'Cuentas', roles: ['direccion'] },
   },
   {
     // Requerimientos: el bar pide, la directora aprueba, bodega recibe.
