@@ -83,6 +83,12 @@ export async function apiCreateCustomCocktail(
   return data.product
 }
 
+/** Quita de la carta un cóctel creado en el bar (lo vendido queda en el historial). */
+export async function apiRemoveCustomCocktail(id: string) {
+  const { data } = await http.post<{ product: Product }>(`/products/${id}/remove-custom`)
+  return data.product
+}
+
 // Salidas y pasajeros
 export async function apiCruises(status?: string) {
   const { data } = await http.get<{ cruises: Cruise[] }>('/cruises', {
