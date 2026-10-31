@@ -1,6 +1,8 @@
 import { http } from './httpBase'
 import type {
   AccountSummary,
+  AgencyCourtesy,
+  CourtesyKind,
   Availability,
   CabinAccountRow,
   CabinSummary,
@@ -15,6 +17,7 @@ import type {
   PurchaseStatus,
   StartCheck,
   CycleSettings,
+  NewCruiseOptions,
   NewCruisePlan,
   LivePulse,
   Order,
@@ -126,8 +129,14 @@ export async function apiPlanCruise(leg: string, startDate: string) {
   return data.plan
 }
 
-export async function apiCreatePlannedCruise(leg: string, startDate: string, acceptWeekday: boolean) {
-  const { data } = await http.post<{ cruise: Cruise }>('/cruises/plan', { leg, startDate, acceptWeekday })
+/** Fechas válidas de cada tipo (solo su día de zarpe) y el crucero sugerido. */
+export async function apiNewCruiseOptions() {
+  const { data } = await http.get<NewCruiseOptions>('/cruises/plan/options')
+  return data
+}
+
+export async function apiCreatePlannedCruise(leg: string, startDate: string) {
+  const { data } = await http.post<{ cruise: Cruise }>('/cruises/plan', { leg, startDate })
   return data.cruise
 }
 
@@ -253,24 +262,47 @@ export async function apiProforma(cruiseId: string, cabinNumber: number, downloa
 }
 
 // Cobros
+/** Una forma de pago del cobro. Sin monto = lo que falta. */
+export interface CollectLine {
+  method: PaymentMethod
+  amount?: number
+  reference?: string
+  cashConfirmed?: boolean
+}
+
 export async function apiCollectCabin(payload: {
   cruiseId: string
   cabinNumber: number
-  method: PaymentMethod
+  /** Varias cabinas a un mismo pagador (una factura). */
+  cabins?: number[]
+  /** Solo estos consumos (lo de una persona). */
+  orderIds?: string[]
+  /** Porcentaje de la cuenta que paga esta persona (su propia factura). */
+  percent?: number
+  /** Formas de pago del cobro ($10 efectivo + el resto con tarjeta). */
+  lines?: CollectLine[]
+  method?: PaymentMethod
   cashConfirmed?: boolean
   reference?: string
   /** Monto de este pago (parcial o el saldo completo). */
   amount?: number
   /** Saldo que vio quien cobra: si cambió, el servidor rechaza (doble clic). */
   expectedDue?: number
-  billing: { name?: string; idNumber?: string; email?: string; country?: string }
+  billing: { name?: string; idNumber?: string; email?: string; country?: string; passengerId?: string }
 }) {
   const { data } = await http.post<{
     payment: Payment
+    payments: Payment[]
     settled: boolean
     due: number
     email: { status: 'enviado' | 'error' | 'omitido'; to: string; error: string } | null
   }>('/payments/collect', payload)
+  return data
+}
+
+/** Cortesías de agencia del crucero (se le facturan a la agencia al final). */
+export async function apiAgencyCourtesies(cruiseId: string) {
+  const { data } = await http.get<{ items: AgencyCourtesy[]; total: number }>(`/accounts/${cruiseId}/agency-courtesies`)
   return data
 }
 
@@ -481,6 +513,8 @@ export interface ConsumptionPayload {
   courtesy?: boolean
   /** Motivo de la cortesía registrada desde el bar. */
   courtesyReason?: string
+  /** Quién paga la cortesía: la casa o la agencia. */
+  courtesyKind?: CourtesyKind
   idempotencyKey: string
   clientAt?: string
 }
@@ -503,8 +537,8 @@ export async function apiUndoConsumption(id: string, reason?: string) {
   return data
 }
 
-export async function apiBonifyConsumption(id: string, reason: string) {
-  const { data } = await http.post<{ order: Order; summary?: CabinSummary }>(`/consumptions/${id}/bonify`, { reason })
+export async function apiBonifyConsumption(id: string, reason: string, kind: CourtesyKind = 'casa') {
+  const { data } = await http.post<{ order: Order; summary?: CabinSummary }>(`/consumptions/${id}/bonify`, { reason, kind })
   return data
 }
 
