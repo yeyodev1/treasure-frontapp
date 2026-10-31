@@ -1,6 +1,6 @@
 import { useConfirmStore } from '@/stores/confirm'
 import { apiBonifyConsumption, apiUndoConsumption } from '@/services/api'
-import type { CabinSummary } from '@/types'
+import type { CabinSummary, CourtesyKind } from '@/types'
 
 /**
  * Correcciones de un consumo, iguales en Cuentas y en el Bar (pedido del
@@ -22,7 +22,20 @@ export interface CorrectionResult {
   summary?: CabinSummary
 }
 
-const COURTESY_REASONS = ['Cortesía de la casa', 'Compensación al pasajero']
+const COURTESY_REASONS = ['Cumpleaños o aniversario', 'Compensación al pasajero', 'Pedido de la agencia']
+
+/**
+ * Dos tipos de cortesía (pedido del cliente, 31-oct-2026): la de la casa la
+ * paga Treasure; la de la agencia va a la cuenta de la agencia y se le
+ * factura al final del crucero.
+ */
+export const COURTESY_CHOICE = {
+  label: '¿Quién paga la cortesía?',
+  options: [
+    { value: 'casa', label: 'La casa', hint: 'La absorbe Treasure' },
+    { value: 'agencia', label: 'La agencia', hint: 'Se le factura al final del crucero' },
+  ],
+}
 const APPROVED_NOTE = ' La cuenta está aprobada: este cambio anula la aprobación y habrá que volver a aprobarla.'
 
 export function useConsumptionCorrections() {
@@ -30,16 +43,18 @@ export function useConsumptionCorrections() {
 
   /** Pregunta el motivo y marca la cortesía. null si se cancela. */
   async function courtesy(line: CorrectableLine, opts: { approved?: boolean } = {}): Promise<CorrectionResult | null> {
-    const reason = await confirmStore.askReason({
+    const answer = await confirmStore.askChoice({
       title: `¿Marcar ${line.qty} ${line.name} como cortesía?`,
-      message: `Deja de cobrarse, pero se sirvió: los ingredientes siguen descontados. Queda en el historial.${opts.approved ? APPROVED_NOTE : ''}`,
+      message: `Deja de cobrarse a la cabina, pero se sirvió: los ingredientes siguen descontados. Queda en el historial.${opts.approved ? APPROVED_NOTE : ''}`,
       confirmLabel: 'Marcar como cortesía',
       icon: 'fa-gift',
+      choice: COURTESY_CHOICE,
       reason: { label: 'Motivo (obligatorio)', suggestions: COURTESY_REASONS },
     })
-    if (!reason) return null
-    const data = await apiBonifyConsumption(line.orderId, reason)
-    return { message: 'Marcada como cortesía', summary: data.summary }
+    if (!answer) return null
+    const kind = answer.choice as CourtesyKind
+    const data = await apiBonifyConsumption(line.orderId, answer.reason, kind)
+    return { message: kind === 'agencia' ? 'Cortesía de agencia: va a la cuenta de la agencia' : 'Cortesía de la casa', summary: data.summary }
   }
 
   /**
@@ -87,5 +102,5 @@ export function useConsumptionCorrections() {
     return { message: 'Consumo retirado como cortesía', summary: data.summary }
   }
 
-  return { courtesy, retire, COURTESY_REASONS }
+  return { courtesy, retire, COURTESY_REASONS, COURTESY_CHOICE }
 }
