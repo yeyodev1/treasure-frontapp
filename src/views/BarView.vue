@@ -15,6 +15,7 @@ import { apiErrorMessage } from '@/services/httpBase'
 import { TIMEZONE, formatMoney, formatTime } from '@/utils/format'
 import ProductCatalog, { type CatalogFilter } from '@/components/pos/ProductCatalog.vue'
 import CocktailBuilder from '@/components/pos/CocktailBuilder.vue'
+import CabinAccount from '@/components/pos/CabinAccount.vue'
 import TapConfirmation, { type TapState } from '@/components/pos/TapConfirmation.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
@@ -24,11 +25,11 @@ import type { Availability, CabinConsumption, CabinSummary, Product } from '@/ty
  * Bar (guía auditada 27-oct-2026): elegir cabina y tocar la bebida registra
  * lo servido. Sin comanda, sin "Registrar" ni "Entregar" después. Sobre el
  * catálogo, una confirmación grande dice el resultado real (Enviando /
- * Producto agregado a la cuenta / sin conexión / no se agregó). Bajo las
- * cabinas, "Cargando a" nombra la cabina elegida con sus pasajeros y lo de
- * hoy y del viaje; la barra inferior conserva el último registro, el modo
- * Cortesía (la próxima bebida va como cortesía, con motivo) y Corregir:
- * los consumos recientes de la cabina con Cortesía / Retirar consumo.
+ * Producto agregado a la cuenta / sin conexión / no se agregó).
+ * Bar y cuentas en una pantalla (pedido del cliente, 31-oct-2026): la
+ * cabina elegida muestra su cuenta completa (por bebida, con − y +, total
+ * de hoy y del viaje) y el modo Cortesía; ya no hay barra inferior ni
+ * Corregir aparte. Al costado en tableta horizontal; arriba en vertical.
  */
 const catalogStore = useCatalogStore()
 const cruiseStore = useCruiseStore()
@@ -50,7 +51,6 @@ const courtesyMode = shallowRef<string | null>(null)
 const showBuilder = shallowRef(false)
 const showQueue = shallowRef(false)
 const showMenu = shallowRef(false)
-const showRecent = shallowRef(false)
 const correcting = shallowRef('')
 /**
  * Último registro de la tableta: lo que muestra la barra inferior. Toques
@@ -121,6 +121,7 @@ const contextKey = computed(() =>
 let restoredKey: string | null = null
 const cabinsEl = useTemplateRef<HTMLElement>('cabinsEl')
 const chargeEl = useTemplateRef<HTMLElement>('chargeEl')
+const accountEl = useTemplateRef<HTMLElement>('accountEl')
 
 function restoreContext() {
   const key = contextKey.value
@@ -201,7 +202,11 @@ onMounted(async () => {
   }
   restoreContext()
   queue.start()
-  availabilityTimer = setInterval(loadAvailability, 60_000)
+  // Otra tableta pudo cargar a la misma cabina: la cuenta se refresca sola.
+  availabilityTimer = setInterval(() => {
+    void loadAvailability()
+    if (selectedCabin.value) void loadSummary(selectedCabin.value)
+  }, 60_000)
 })
 
 onBeforeUnmount(() => {
@@ -292,10 +297,13 @@ async function toggleCourtesy() {
 function anchorFor(productId: string): { top?: number; bottom?: number } {
   const card = document.querySelector(`[data-product="${productId}"]`)?.getBoundingClientRect()
   const header = document.querySelector('.context')?.getBoundingClientRect().bottom ?? 0
-  const footer = document.querySelector('.result')?.getBoundingClientRect().top ?? window.innerHeight
+  const footer = window.innerHeight
+  // La cuenta va arriba de la carta salvo en pantallas anchas (al costado).
+  const accountAbove = window.innerWidth < 1024
   const cabinsBottom = Math.max(
     cabinsEl.value?.getBoundingClientRect().bottom ?? 0,
     chargeEl.value?.getBoundingClientRect().bottom ?? 0,
+    accountAbove ? (accountEl.value?.getBoundingClientRect().bottom ?? 0) : 0,
   )
   if (!card) return {}
   const top = Math.max(header, cabinsBottom) + 10
@@ -380,11 +388,27 @@ function flashConfirmed(productId: string, cabinNumber: number) {
   })
 }
 
-/** Consumos recientes de la cabina elegida, el más nuevo primero. */
-const recent = computed<CabinConsumption[]>(() => summary.value?.recent ?? (summary.value?.last ? [summary.value.last] : []))
-const recentCorrectable = computed(() => recent.value.some((c) => c.canUndo || c.canCourtesy))
+/** La cuenta se muestra con la cabina elegida y el crucero en curso. */
+const showAccount = computed(() => !loading.value && Boolean(cabin.value) && !blockedReason.value)
 
-/** Cortesía o Retirar consumo sobre un consumo recién registrado. */
+/** Envíos de esta tableta a la cabina elegida que el servidor aún no confirma. */
+const queuedForCabin = computed(() =>
+  queue.entries.value.filter((e) => e.cabinNumber === selectedCabin.value && e.cruiseId === cruise.value?._id),
+)
+
+const sellableById = computed(() => new Map(sellable.value.map((p) => [p._id, p])))
+
+/** + en la cuenta: la bebida sigue en la carta y no está agotada. */
+function canAdd(productId: string) {
+  return sellableById.value.has(productId) && availability.value[productId]?.available !== false
+}
+
+function addById(productId: string) {
+  const product = sellableById.value.get(productId)
+  if (product) tap(product)
+}
+
+/** Cortesía o Retirar consumo sobre un consumo de la cuenta. */
 async function correctRecent(item: CabinConsumption, kind: 'courtesy' | 'retire') {
   if (correcting.value) return
   const cabinNumber = summary.value?.cabinNumber
@@ -492,29 +516,21 @@ function onCocktailCreated(product: Product) {
   void loadAvailability()
 }
 
+/** Cócteles creados en el bar que siguen en la carta (se pueden eliminar). */
+const customCocktails = computed(() => sellable.value.filter((p) => p.isCustom))
+
+function onCocktailRemoved(product: Product) {
+  catalogStore.remove(product._id)
+  favorites.value = favorites.value.filter((id) => id !== product._id)
+  localStorage.setItem(favoritesKey.value, JSON.stringify(favorites.value))
+  play('success')
+  toast.success(`Cóctel "${product.name}" eliminado de la carta`)
+}
+
 function onEmptyCabin(number: number) {
   toast.push(`Cabina ${number} sin pasajeros. Dirección de crucero debe registrarlos.`)
 }
 
-const statusText = computed(() => {
-  const t = lastTap.value
-  if (!t || !tapState.value) return ''
-  const what = `Cabina ${t.cabin} · ${tapState.value === 'rechazado' ? t.keys.length : tapUnits.value} ${t.name}${t.courtesy ? ' (cortesía)' : ''}`
-  switch (tapState.value) {
-    case 'enviando':
-      return `Enviando consumo… · ${what}`
-    case 'pendiente':
-      return queue.offlineConfirmed.value
-        ? `Sin conexión. El consumo está pendiente de enviar · ${what}`
-        : `Sin confirmar: el servidor no respondió, se reintenta solo · ${what}`
-    case 'guardado':
-      return `Guardado · ${what}`
-    case 'retenido':
-      return `Retenido para revisión · ${what}`
-    default:
-      return `No se guardó · ${what}${t.message ? `: ${t.message}` : ''}`
-  }
-})
 </script>
 
 <template>
@@ -536,7 +552,18 @@ const statusText = computed(() => {
         <span class="today">{{ todayLabel }}</span>
         <span v-if="tripDay && cruise?.status === 'abordo'" class="trip-day">Día {{ tripDay }} del viaje</span>
       </div>
-      <!-- Bar, Cuentas y Abastecimiento ya están en la navegación de la app; aquí solo los atajos del bar -->
+      <!-- Envíos sin confirmar de esta tableta: siempre a la vista -->
+      <button
+        v-if="queue.pending.value"
+        type="button"
+        class="queue-btn"
+        :class="{ 'queue-btn--offline': !queue.online.value }"
+        @click="showQueue = true"
+      >
+        <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true" />
+        {{ queue.pending.value }} sin confirmar
+      </button>
+      <!-- Bar y Abastecimiento ya están en la navegación de la app; aquí solo los atajos del bar -->
       <button type="button" class="tab tab--menu" :aria-expanded="showMenu" @click="showMenu = true">
         <i class="fa-solid fa-ellipsis" aria-hidden="true" /> Más
       </button>
@@ -574,50 +601,54 @@ const statusText = computed(() => {
           </button>
         </div>
 
-        <!-- A quién se carga: la cabina elegida con sus pasajeros y lo consumido -->
-        <Transition name="fade" mode="out-in">
-          <div v-if="!loading && cabin && !blockedReason" :key="cabin.number" ref="chargeEl" class="charge">
-            <div class="charge-who">
-              <span class="charge-label">Cargando a</span>
-              <strong class="charge-cabin">Cabina {{ cabin.number }}</strong>
-              <span class="charge-names">{{ cabin.passengers.map((p) => p.name).join(', ') }}</span>
-            </div>
-            <dl class="charge-totals">
-              <div>
-                <dt>Hoy</dt>
-                <dd :class="{ 'charge-missing': !summary }">{{ summary ? formatMoney(summary.todayTotal) : '—' }}</dd>
-              </div>
-              <div>
-                <dt>Viaje</dt>
-                <dd :class="{ 'charge-missing': !summary }">{{ summary ? formatMoney(summary.tripTotal) : '—' }}</dd>
-              </div>
-            </dl>
-          </div>
-          <p v-else-if="!loading && blockedReason" key="blocked" ref="chargeEl" class="blocked">
+        <!-- Sin cabina o sin crucero en curso: qué falta -->
+        <Transition name="fade">
+          <p v-if="!loading && blockedReason" ref="chargeEl" class="blocked">
             <i class="fa-solid" :class="cabin ? 'fa-circle-info' : 'fa-hand-pointer'" aria-hidden="true" /> {{ blockedReason }}
           </p>
         </Transition>
       </section>
 
-      <!-- Centro: bebidas fáciles de tocar -->
-      <section class="block">
-        <SkeletonList v-if="loading" variant="tile" :rows="12" />
-        <ProductCatalog
-          v-else
-          :products="sellable"
-          :availability="availability"
-          v-model:filter="catalogFilter"
-          :favorites="effectiveFavorites"
-          :pinned="favorites"
-          :pulse="pulse"
-          :confirmed="confirmed?.productId ?? ''"
-          :disabled="Boolean(blockedReason)"
-          @add="tap"
-          @toggle-favorite="toggleFavorite"
-          @request-review="requestReview"
-          @create-cocktail="showBuilder = true"
-        />
-      </section>
+      <div class="bar-grid" :class="{ 'bar-grid--account': showAccount }">
+        <!-- La cuenta de la cabina elegida: arriba en vertical, al costado en horizontal -->
+        <aside v-if="showAccount && cabin" ref="accountEl" class="account-col">
+          <Transition name="fade" mode="out-in">
+            <CabinAccount
+              :key="cabin.number"
+              :cabin="cabin"
+              :summary="summary"
+              :queued="queuedForCabin"
+              :can-add="canAdd"
+              :courtesy-mode="courtesyMode"
+              :correcting="correcting"
+              @add="addById"
+              @retire="(item) => correctRecent(item, 'retire')"
+              @courtesy="(item) => correctRecent(item, 'courtesy')"
+              @toggle-courtesy="toggleCourtesy"
+            />
+          </Transition>
+        </aside>
+
+        <!-- Bebidas fáciles de tocar -->
+        <section class="block catalog-col">
+          <SkeletonList v-if="loading" variant="tile" :rows="12" />
+          <ProductCatalog
+            v-else
+            :products="sellable"
+            :availability="availability"
+            v-model:filter="catalogFilter"
+            :favorites="effectiveFavorites"
+            :pinned="favorites"
+            :pulse="pulse"
+            :confirmed="confirmed?.productId ?? ''"
+            :disabled="Boolean(blockedReason)"
+            @add="tap"
+            @toggle-favorite="toggleFavorite"
+            @request-review="requestReview"
+            @create-cocktail="showBuilder = true"
+          />
+        </section>
+      </div>
     </div>
 
     <!-- Confirmación grande del último toque (sobre el catálogo, no bloquea) -->
@@ -632,67 +663,6 @@ const statusText = computed(() => {
       :stamp="`${lastTap.at}.${lastTap.saved.length}.${lastTap.held.length}.${lastTap.rejected.length}`"
       :anchor="confirmAnchor"
     />
-
-    <!-- Abajo: resultado y corrección, siempre visibles (la confirmación grande es la región viva) -->
-    <footer class="result">
-      <div class="result-status" :class="courtesyMode ? 'result-status--courtesy' : tapState ? `result-status--${tapState}` : ''">
-        <template v-if="courtesyMode">
-          <i class="fa-solid fa-gift" aria-hidden="true" />
-          <span>Cortesía activa: la próxima bebida no se cobra · {{ courtesyMode }}</span>
-        </template>
-        <template v-else-if="lastTap && tapState">
-          <i
-            class="fa-solid"
-            :class="{
-              'fa-spinner fa-spin': tapState === 'enviando',
-              'fa-wifi': tapState === 'pendiente' && queue.offlineConfirmed.value,
-              'fa-cloud-arrow-up': tapState === 'pendiente' && !queue.offlineConfirmed.value,
-              'fa-circle-check': tapState === 'guardado',
-              'fa-hourglass-half': tapState === 'retenido',
-              'fa-circle-exclamation': tapState === 'rechazado',
-            }"
-            aria-hidden="true"
-          />
-          <span>{{ statusText }}</span>
-        </template>
-        <template v-else-if="summary?.last">
-          <i class="fa-solid fa-clock-rotate-left" aria-hidden="true" />
-          <span>Último · Cabina {{ summary.cabinNumber }} · {{ summary.last.qty }} {{ summary.last.name }} · {{ formatTime(summary.last.at) }}</span>
-        </template>
-        <template v-else>
-          <i class="fa-solid fa-hand-pointer" aria-hidden="true" />
-          <span>{{ cabin && !blockedReason ? `Cabina ${cabin.number}: toca la bebida para agregarla` : 'Elige cabina y toca la bebida' }}</span>
-        </template>
-      </div>
-
-      <div class="result-actions">
-        <button
-          v-if="queue.pending.value"
-          type="button"
-          class="queue-btn"
-          :class="{ 'queue-btn--offline': !queue.online.value }"
-          @click="showQueue = true"
-        >
-          <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true" />
-          {{ queue.pending.value }} sin confirmar
-        </button>
-        <button
-          type="button"
-          class="courtesy-btn"
-          :class="{ 'courtesy-btn--on': courtesyMode }"
-          :aria-pressed="Boolean(courtesyMode)"
-          @click="toggleCourtesy"
-        >
-          <i class="fa-solid" :class="courtesyMode ? 'fa-xmark' : 'fa-gift'" aria-hidden="true" />
-          {{ courtesyMode ? 'Quitar cortesía' : 'Cortesía' }}
-        </button>
-        <button type="button" class="undo-btn" :disabled="!recent.length" @click="showRecent = true">
-          <i class="fa-solid fa-pen-to-square" aria-hidden="true" />
-          <span class="undo-long">Corregir consumo</span>
-          <span class="undo-short">Corregir</span>
-        </button>
-      </div>
-    </footer>
 
     <!-- Envíos sin confirmar en esta tableta -->
     <BaseModal v-if="showQueue" title="Sin confirmar en esta tableta" @close="showQueue = false">
@@ -722,54 +692,6 @@ const statusText = computed(() => {
       </button>
     </BaseModal>
 
-    <!-- Corregir: consumos recientes de la cabina con Cortesía / Retirar consumo -->
-    <BaseModal v-if="showRecent && summary" :title="`Corregir consumos · Cabina ${summary.cabinNumber}`" @close="showRecent = false">
-      <p class="queue-help">
-        Cortesía: se sirvió y no se cobra. Retirar consumo: no se sirvió o fue a otra cabina. El total se actualiza y
-        queda en el historial.
-      </p>
-      <p v-if="!recentCorrectable && summary.accountStatus === 'aprobada'" class="recent-note">
-        <i class="fa-solid fa-circle-info" aria-hidden="true" />
-        Cuenta aprobada: las correcciones las hace Dirección de crucero o Gerencia.
-      </p>
-      <p v-else-if="!recentCorrectable && summary.accountStatus === 'cobrada'" class="recent-note">
-        <i class="fa-solid fa-circle-info" aria-hidden="true" />
-        Cuenta pagada: ya no se corrige aquí.
-      </p>
-      <ul v-if="recent.length" class="recent-list">
-        <li v-for="c in recent" :key="c.orderId" class="recent-item">
-          <div class="recent-main">
-            <strong>{{ c.qty }} × {{ c.name }}</strong>
-            <span class="recent-meta">
-              {{ formatTime(c.at) }} · {{ formatMoney(c.total) }}
-              <span v-if="c.courtesy" class="estado estado--ok">Cortesía</span>
-            </span>
-          </div>
-          <div v-if="c.canUndo || c.canCourtesy" class="recent-actions">
-            <button
-              v-if="c.canCourtesy"
-              type="button"
-              class="recent-link"
-              :disabled="Boolean(correcting)"
-              @click="correctRecent(c, 'courtesy')"
-            >
-              <i class="fa-solid fa-gift" aria-hidden="true" /> Cortesía
-            </button>
-            <button
-              v-if="c.canUndo"
-              type="button"
-              class="recent-link recent-link--danger"
-              :disabled="Boolean(correcting)"
-              @click="correctRecent(c, 'retire')"
-            >
-              <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Retirar consumo
-            </button>
-          </div>
-        </li>
-      </ul>
-      <p v-else class="queue-help">Sin consumos en esta cabina.</p>
-    </BaseModal>
-
     <!-- Menú del bar: abastecimiento -->
     <BaseModal v-if="showMenu" title="Atajos del bar" @close="showMenu = false">
       <div class="menu-grid">
@@ -794,8 +716,10 @@ const statusText = computed(() => {
     <CocktailBuilder
       v-if="showBuilder"
       :physical="physical"
+      :custom="customCocktails"
       @close="showBuilder = false"
       @created="onCocktailCreated"
+      @removed="onCocktailRemoved"
     />
   </div>
 </template>
@@ -805,7 +729,7 @@ const statusText = computed(() => {
 
 .bar {
   min-width: 0;
-  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
 }
 
 // Bajo la cabecera de la app (barra + secciones; solo la barra en escritorio).
@@ -1070,72 +994,44 @@ const statusText = computed(() => {
   white-space: nowrap;
 }
 
-// "Cargando a": la cabina elegida, a la vista antes de tocar una bebida.
-.charge {
+// Carta y cuenta de la cabina. Celular y tableta vertical: la cuenta arriba
+// (con su propio scroll). Pantalla ancha: la cuenta fija al costado.
+.bar-grid {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem 1.25rem;
-  margin-top: 0.6rem;
-  padding: 0.6rem 0.9rem;
-  border-radius: var(--radius-sm);
-  background: var(--powder-100);
-  border: 1px solid var(--powder-200);
-}
-
-.charge-who {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.15rem 0.6rem;
+  flex-direction: column;
   min-width: 0;
+
+  @include desktop {
+    &--account {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+      grid-template-areas: 'catalog account';
+      align-items: start;
+      gap: 1.1rem;
+    }
+  }
 }
 
-.charge-label {
-  font-size: 0.82rem;
-  color: var(--ink-600);
+.catalog-col {
+  grid-area: catalog;
 }
 
-.charge-cabin {
-  font-family: var(--font-serif);
-  font-size: 1.3rem;
-  color: var(--navy-800);
-}
-
-.charge-names {
+.account-col {
+  grid-area: account;
   min-width: 0;
-  font-weight: 600;
-  color: var(--ink-900);
-  overflow-wrap: anywhere;
-}
+  margin-bottom: 0.8rem;
 
-.charge-totals {
-  display: flex;
-  gap: 1.25rem;
-  margin: 0;
+  @include desktop {
+    position: sticky;
+    top: calc(var(--header-h, 64px) + env(safe-area-inset-top) + 76px);
+    margin-bottom: 0;
 
-  div {
-    display: flex;
-    align-items: baseline;
-    gap: 0.4rem;
-  }
-
-  dt {
-    font-size: 0.82rem;
-    color: var(--ink-600);
-  }
-
-  dd {
-    margin: 0;
-    font-size: 1.05rem;
-    font-weight: 700;
-    color: var(--ink-900);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .charge-missing {
-    color: var(--ink-400);
+    > .account {
+      // Cabe entero antes de desplazarse (bajo cabecera, contexto y cabinas):
+      // los totales siempre a la vista; la lista se desplaza por dentro.
+      max-height: calc(100dvh - var(--header-h, 64px) - env(safe-area-inset-top) - 190px);
+      min-height: 320px;
+    }
   }
 }
 
@@ -1157,224 +1053,28 @@ const statusText = computed(() => {
   }
 }
 
-.result {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 20;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 1rem;
-  padding: 0.6rem max(14px, env(safe-area-inset-left, 0px)) calc(0.6rem + env(safe-area-inset-bottom));
-  background: var(--surface);
-  border-top: 1px solid var(--cream-200);
-  box-shadow: 0 -6px 24px rgba(27, 43, 37, 0.08);
-
-  @include desktop {
-    left: var(--shell-rail, 76px);
-    padding-left: 1.5rem;
-    padding-right: 1.5rem;
-  }
-}
-
-.result-status {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  flex: 1 1 160px;
-  min-width: 0;
-  font-weight: 600;
-  color: var(--ink-600);
-  transition: color 0.2s ease;
-
-  span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  &--guardado {
-    color: var(--success);
-  }
-
-  &--pendiente,
-  &--retenido {
-    color: var(--warning);
-  }
-
-  &--rechazado {
-    color: var(--danger);
-  }
-
-  &--courtesy {
-    color: var(--navy-800);
-  }
-}
-
-.result-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-left: auto;
-}
-
-.undo-btn,
-.courtesy-btn,
+// En la cabecera oscura: aviso de envíos sin confirmar.
 .queue-btn {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  min-height: 48px;
-  padding: 0 1rem;
+  min-height: 44px;
+  padding: 0 0.9rem;
   border-radius: 12px;
   font-weight: 700;
-  font-size: 0.88rem;
-  border: 2px solid var(--cream-200);
-  background: var(--surface);
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    opacity 0.15s ease,
-    transform 0.12s ease;
+  font-size: 0.85rem;
+  background: #f3dfb8;
+  color: #6b4a14;
+  transition: transform 0.12s ease;
 
-  &:active:not(:disabled) {
+  &:active {
     transform: scale(0.97);
   }
-
-  &:disabled {
-    opacity: 0.4;
-  }
-}
-
-.undo-short {
-  @include tablet {
-    display: none;
-  }
-}
-
-.undo-long {
-  display: none;
-
-  @include tablet {
-    display: inline;
-  }
-}
-
-.undo-btn:not(:disabled) {
-  border-color: var(--navy-700);
-  color: var(--navy-800);
-}
-
-.courtesy-btn--on {
-  background: var(--navy-800);
-  border-color: var(--navy-800);
-  color: #fff;
-}
-
-// Corregir: lista de consumos recientes
-.recent-note {
-  display: flex;
-  gap: 0.5rem;
-  margin: 0 0 0.8rem;
-  padding: 0.6rem 0.8rem;
-  border-radius: var(--radius-sm);
-  background: var(--pill-info-bg);
-  color: var(--pill-info-ink);
-  font-size: 0.9rem;
-
-  i {
-    margin-top: 0.2rem;
-  }
-}
-
-.recent-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.recent-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  padding: 0.65rem 0.2rem 0.4rem;
-  border-bottom: 1px solid var(--line);
-
-  &:first-child {
-    border-top: 1px solid var(--line);
-  }
-}
-
-.recent-main {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.2rem 0.75rem;
-
-  strong {
-    font-weight: 600;
-  }
-}
-
-.recent-meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-  color: var(--ink-400);
-  font-variant-numeric: tabular-nums;
-}
-
-.recent-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 0.5rem;
-  margin-left: -0.6rem;
-}
-
-// Acción pequeña de texto con ícono, zona táctil de 44 px.
-.recent-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-height: 44px;
-  padding: 0 0.6rem;
-  border-radius: var(--radius-sm);
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--navy-700);
-  transition:
-    background 0.15s ease,
-    opacity 0.15s ease,
-    transform 0.12s ease;
-
-  &:hover:not(:disabled) {
-    background: var(--powder-100);
-  }
-
-  &:active:not(:disabled) {
-    transform: scale(0.97);
-  }
-
-  &:disabled {
-    opacity: 0.45;
-  }
-
-  &--danger {
-    color: var(--danger);
-  }
-}
-
-.queue-btn {
-  border-color: var(--warning);
-  color: var(--warning);
 
   &--offline {
-    background: rgba(185, 128, 47, 0.12);
+    background: #f6c9c0;
+    color: #7a2417;
   }
 }
 
