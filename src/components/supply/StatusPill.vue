@@ -26,6 +26,7 @@ const tone = computed(() => {
       return 'approved'
     case 'anulada':
     case 'rechazado':
+    case 'cancelado':
       return 'bad'
     default:
       return 'pending'
