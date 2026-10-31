@@ -142,6 +142,15 @@ const visible = computed(() =>
       ],
 )
 
+const upcomingCount = computed(() => cruises.value.filter((c) => c.status !== 'cerrado').length)
+const closedCount = computed(() => cruises.value.filter((c) => c.status === 'cerrado').length)
+
+const STATUS_PILL: Record<CruiseStatus, string> = {
+  planificado: 'estado--info',
+  abordo: 'estado--ok',
+  cerrado: '',
+}
+
 function label(cruise: Cruise): string {
   return cruise.code ? `Crucero ${cruise.code}` : cruise.name
 }
@@ -209,20 +218,23 @@ async function onPassengersSaved() {
 
 <template>
   <div class="page">
-    <header class="head">
-      <h1 class="page-title">Cruceros</h1>
-      <button type="button" class="btn btn-ghost" @click="showSettings = true">
-        <i class="fa-solid fa-sliders" aria-hidden="true" /> Configurar ciclo
-      </button>
+    <header class="page-head">
+      <div class="page-head-text">
+        <h1 class="page-title">Cruceros</h1>
+        <p class="page-lead">Elige el tipo y la fecha de inicio: el fin, la ruta y el código se completan solos.</p>
+      </div>
+      <div class="page-actions">
+        <button type="button" class="btn btn-secondary" @click="showSettings = true">
+          <i class="fa-solid fa-sliders" aria-hidden="true" /> Configurar ciclo
+        </button>
+      </div>
     </header>
 
     <!-- Nuevo crucero: tipo + fecha de inicio (pedido de Gerencia, 30-oct-2026) -->
     <section class="new-cruise" aria-labelledby="new-cruise-title">
-      <h2 id="new-cruise-title" class="new-title">
-        <i class="fa-solid fa-ship" aria-hidden="true" /> Nuevo crucero
-      </h2>
+      <h2 id="new-cruise-title" class="section-title">Nuevo crucero</h2>
 
-      <p class="step">1. Tipo de crucero</p>
+      <p class="step">Tipo de crucero</p>
       <div class="leg-options" role="radiogroup" aria-label="Tipo de crucero">
         <button
           v-for="(leg, i) in settings?.legs ?? []"
@@ -237,14 +249,18 @@ async function onPassengersSaved() {
           <span class="leg-option-head">
             <span class="leg-icon"><i class="fa-solid" :class="LEG_ICONS[i]" aria-hidden="true" /></span>
             <strong class="leg-letter">Crucero {{ leg.code }}</strong>
-            <i v-if="newLeg === leg.code" class="fa-solid fa-circle-check leg-check" aria-hidden="true" />
+            <i
+              class="fa-solid fa-circle-check leg-check"
+              :class="{ 'leg-check--on': newLeg === leg.code }"
+              aria-hidden="true"
+            />
           </span>
           <span class="leg-route">{{ leg.routeFrom }} → {{ leg.routeTo }}</span>
           <span class="leg-meta">{{ leg.label }} · {{ leg.durationDays }} días · zarpe {{ leg.departureTime }}</span>
         </button>
       </div>
 
-      <p class="step">2. Fecha de inicio</p>
+      <p class="step">Fecha de inicio</p>
       <div class="start-field">
         <BaseDatePicker v-model="newStart" placeholder="Elige la fecha de inicio" />
       </div>
@@ -275,19 +291,23 @@ async function onPassengersSaved() {
           </dl>
           <p v-if="plan.overlap" class="plan-alert plan-alert--danger">
             <i class="fa-solid fa-circle-exclamation" aria-hidden="true" />
-            Se cruza con el crucero {{ plan.overlap.code || plan.overlap.name }}
-            ({{ plan.overlap.status === 'abordo' ? 'en curso' : 'programado' }},
-            {{ formatDate(plan.overlap.startDate) }}<template v-if="plan.overlap.endDate"> → {{ formatDate(plan.overlap.endDate) }}</template>).
-            Elige otra fecha de inicio.
+            <span>
+              Se cruza con el crucero {{ plan.overlap.code || plan.overlap.name }}
+              ({{ plan.overlap.status === 'abordo' ? 'en curso' : 'programado' }},
+              {{ formatDate(plan.overlap.startDate) }}<template v-if="plan.overlap.endDate"> → {{ formatDate(plan.overlap.endDate) }}</template>).
+              Elige otra fecha de inicio.
+            </span>
           </p>
           <p v-else-if="!plan.weekday.ok" class="plan-alert plan-alert--warning">
             <i class="fa-solid fa-calendar-day" aria-hidden="true" />
-            El crucero {{ plan.leg }} zarpa en {{ plan.weekday.expected }} y el {{ formatDayKey(newStart) }} es
-            {{ plan.weekday.actual }}. Se puede crear igual si es correcto.
+            <span>
+              El crucero {{ plan.leg }} zarpa en {{ plan.weekday.expected }} y el {{ formatDayKey(newStart) }} es
+              {{ plan.weekday.actual }}. Se puede crear igual si es correcto.
+            </span>
           </p>
         </div>
-        <p v-else-if="planError" class="plan-alert plan-alert--danger">
-          <i class="fa-solid fa-circle-exclamation" aria-hidden="true" /> {{ planError }}
+        <p v-else-if="planError" class="plan-alert plan-alert--danger plan-alert--solo">
+          <i class="fa-solid fa-circle-exclamation" aria-hidden="true" /> <span>{{ planError }}</span>
         </p>
         <p v-else-if="planning" class="plan-hint"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true" /> Calculando…</p>
         <p v-else class="plan-hint">
@@ -295,7 +315,7 @@ async function onPassengersSaved() {
         </p>
       </Transition>
 
-      <button type="button" class="btn btn-primary create-btn" :disabled="!canCreate" @click="createCruise()">
+      <button type="button" class="btn btn-primary btn-lg create-btn" :disabled="!canCreate" @click="createCruise()">
         <i class="fa-solid" :class="creating ? 'fa-spinner fa-spin' : 'fa-plus'" aria-hidden="true" />
         {{ creating ? 'Creando…' : plan ? `Crear crucero ${plan.code}` : 'Crear crucero' }}
       </button>
@@ -311,13 +331,15 @@ async function onPassengersSaved() {
         @click="showGenerator = !showGenerator"
       >
         <i class="fa-solid fa-layer-group" aria-hidden="true" />
-        <span>Programar varios</span>
-        <small>Repite A → B → C entre dos fechas</small>
+        <span class="cycle-texts">
+          <span>Programar varios</span>
+          <small>Repite A → B → C entre dos fechas</small>
+        </span>
         <i class="fa-solid fa-chevron-down cycle-chevron" :class="{ 'cycle-chevron--open': showGenerator }" aria-hidden="true" />
       </button>
       <Transition name="fold">
         <div v-if="showGenerator" id="cycle-panel" class="cycle-panel">
-          <article class="generate">
+          <div class="generate">
             <div class="field">
               <label>Inicio del crucero A</label>
               <BaseDatePicker v-model="startDate" placeholder="Sábado de inicio" />
@@ -330,7 +352,7 @@ async function onPassengersSaved() {
               <i class="fa-regular fa-clock" aria-hidden="true" />
               {{ generating ? 'Programando…' : 'Programar cruceros' }}
             </button>
-          </article>
+          </div>
           <p class="rule">
             Se repite A → B → C con su código y {{ settings?.cabinCount ?? 9 }} cabinas limpias. Volver a
             programar no duplica cruceros y nunca toca los finalizados.
@@ -339,19 +361,36 @@ async function onPassengersSaved() {
       </Transition>
     </section>
 
-    <div class="tabs">
-      <button type="button" class="tab" :class="{ 'tab--on': tab === 'proximas' }" @click="tab = 'proximas'">
-        Programados y en curso
+    <div class="segs tabs" role="tablist" aria-label="Cruceros por estado">
+      <button
+        type="button"
+        role="tab"
+        class="segs-item"
+        :class="{ 'segs-item--on': tab === 'proximas' }"
+        :aria-selected="tab === 'proximas'"
+        @click="tab = 'proximas'"
+      >
+        <i class="fa-solid fa-ship" aria-hidden="true" /> Programados y en curso
+        <span v-if="!loading" class="segs-count">{{ upcomingCount }}</span>
       </button>
-      <button type="button" class="tab" :class="{ 'tab--on': tab === 'cerradas' }" @click="tab = 'cerradas'">
-        Finalizados
+      <button
+        type="button"
+        role="tab"
+        class="segs-item"
+        :class="{ 'segs-item--on': tab === 'cerradas' }"
+        :aria-selected="tab === 'cerradas'"
+        @click="tab = 'cerradas'"
+      >
+        <i class="fa-solid fa-anchor" aria-hidden="true" /> Finalizados
+        <span v-if="!loading" class="segs-count">{{ closedCount }}</span>
       </button>
     </div>
 
     <SkeletonList v-if="loading" variant="card" :rows="3" />
-    <p v-else-if="!visible.length" class="empty">
-      {{ tab === 'cerradas' ? 'Aún no hay cruceros finalizados.' : 'Aún no hay crucero programado. Crea uno arriba.' }}
-    </p>
+    <div v-else-if="!visible.length" class="vacio">
+      <i class="fa-solid" :class="tab === 'cerradas' ? 'fa-anchor' : 'fa-ship'" aria-hidden="true" />
+      <p>{{ tab === 'cerradas' ? 'Aún no hay cruceros finalizados.' : 'Aún no hay crucero programado. Crea uno arriba.' }}</p>
+    </div>
 
     <TransitionGroup v-else name="list" tag="div" class="cruises">
       <article v-for="cruise in visible" :key="cruise._id" class="cruise" :class="`cruise--${cruise.status}`">
@@ -361,13 +400,16 @@ async function onPassengersSaved() {
             <p v-if="cruise.routeFrom" class="cruise-route">
               <i class="fa-solid fa-route" aria-hidden="true" /> {{ cruise.routeFrom }} → {{ cruise.routeTo }}
             </p>
-            <p class="cruise-dates">
+            <p class="cruise-dates num">
               <i class="fa-regular fa-calendar" aria-hidden="true" />
               {{ formatDate(cruise.startDate) }}
               <template v-if="cruise.endDate"> → {{ formatDate(cruise.endDate) }}</template>
             </p>
           </div>
-          <span class="status" :class="`status--${cruise.status}`">{{ STATUS_LABELS[cruise.status] }}</span>
+          <span class="estado" :class="STATUS_PILL[cruise.status]">
+            <i v-if="cruise.status === 'abordo'" class="fa-solid fa-circle live-dot" aria-hidden="true" />
+            {{ STATUS_LABELS[cruise.status] }}
+          </span>
         </header>
 
         <div class="cabin-grid">
@@ -377,6 +419,7 @@ async function onPassengersSaved() {
             type="button"
             class="cabin-chip"
             :class="{ 'cabin-chip--filled': cabin.passengers.length }"
+            :aria-label="`Cabina ${cabin.number}: ${cabin.passengers.length ? cabin.guestName : 'sin pasajeros'}`"
             @click="paxTarget = { cruise, cabin }"
           >
             <strong>{{ cabin.number }}</strong>
@@ -385,7 +428,10 @@ async function onPassengersSaved() {
           </button>
         </div>
 
-        <footer class="cruise-actions">
+        <footer
+          v-if="(cruise.status !== 'cerrado' && userStore.isDirector) || cruise.closeReason"
+          class="cruise-actions"
+        >
           <button
             v-if="cruise.status === 'planificado' && userStore.isDirector"
             type="button"
@@ -397,12 +443,14 @@ async function onPassengersSaved() {
           <button
             v-if="cruise.status === 'abordo' && userStore.isDirector"
             type="button"
-            class="btn btn-ghost"
+            class="btn btn-secondary"
             @click="finishTarget = cruise"
           >
             <i class="fa-solid fa-anchor" aria-hidden="true" /> Finalizar operación del crucero
           </button>
-          <p v-if="cruise.closeReason" class="close-reason">Cierre excepcional: {{ cruise.closeReason }}</p>
+          <p v-if="cruise.closeReason" class="close-reason">
+            <i class="fa-solid fa-circle-info" aria-hidden="true" /> Cierre excepcional: {{ cruise.closeReason }}
+          </p>
         </footer>
       </article>
     </TransitionGroup>
@@ -432,73 +480,35 @@ async function onPassengersSaved() {
 <style scoped lang="scss">
 @use '@/styles/mixins' as *;
 
-.close-reason {
-  font-size: 0.82rem;
-  color: var(--warning);
-}
-
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
-
-  .page-title {
-    margin-bottom: 0;
-  }
-}
-
-.section-title {
-  font-family: var(--font-sans);
-  font-size: 0.78rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--ink-400);
-  margin-bottom: 0.6rem;
-}
-
 // ---- Nuevo crucero ----
 .new-cruise {
   margin-bottom: 1rem;
-  padding: 1rem;
+  padding: 1.1rem 1rem 1.25rem;
   background: var(--surface);
-  border: 1px solid var(--cream-200);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
 
   @include tablet {
-    padding: 1.25rem 1.4rem;
+    padding: 1.35rem 1.5rem 1.5rem;
   }
-}
 
-.new-title {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  font-size: 1.3rem;
-  margin-bottom: 0.9rem;
-
-  i {
-    color: var(--gold-500);
+  .section-title {
+    margin-bottom: 1rem;
   }
 }
 
 .step {
   margin: 0 0 0.5rem;
-  font-size: 0.8rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--ink-400);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink-600);
 }
 
 .leg-options {
   display: grid;
   grid-template-columns: 1fr;
   gap: 0.6rem;
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
 
   @include tablet {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -507,24 +517,24 @@ async function onPassengersSaved() {
 
 .leg-option {
   min-width: 0;
-  min-height: 96px;
+  min-height: 104px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0.3rem;
-  padding: 0.85rem 0.95rem;
+  padding: 0.9rem 1rem;
   text-align: left;
   background: var(--surface);
-  border: 2px solid var(--cream-200);
+  border: 1.5px solid var(--line-strong);
   border-radius: var(--radius);
   transition:
-    border-color 0.15s ease,
-    background 0.15s ease,
-    box-shadow 0.15s ease,
-    transform 0.12s ease;
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.14s var(--ease-out);
 
-  &:hover {
-    border-color: var(--powder-300);
+  &:hover:not(.leg-option--on) {
+    border-color: var(--navy-600);
   }
 
   &:active {
@@ -534,7 +544,7 @@ async function onPassengersSaved() {
   &--on {
     border-color: var(--navy-800);
     background: var(--powder-100);
-    box-shadow: 0 0 0 3px rgba(39, 68, 90, 0.12);
+    box-shadow: inset 0 0 0 1px var(--navy-800);
   }
 }
 
@@ -547,7 +557,8 @@ async function onPassengersSaved() {
 
 .leg-letter {
   font-family: var(--font-serif);
-  font-size: 1.25rem;
+  font-size: 1.3rem;
+  font-weight: 700;
   color: var(--ink-900);
 }
 
@@ -555,28 +566,42 @@ async function onPassengersSaved() {
   margin-left: auto;
   font-size: 1.25rem;
   color: var(--navy-800);
+  opacity: 0;
+  transform: scale(0.6);
+  transition:
+    opacity 0.16s ease,
+    transform 0.2s var(--ease-out);
+
+  &--on {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .leg-route {
   font-weight: 600;
+  font-size: 1.02rem;
   color: var(--ink-900);
   overflow-wrap: anywhere;
 }
 
 .leg-meta {
-  font-size: 0.84rem;
+  font-size: 0.92rem;
   color: var(--ink-600);
 }
 
 .leg-icon {
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
   display: grid;
   place-items: center;
-  border-radius: 12px;
+  border-radius: 50%;
   background: var(--powder-100);
   color: var(--navy-700);
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease;
 }
 
 .leg-option--on .leg-icon {
@@ -586,19 +611,19 @@ async function onPassengersSaved() {
 
 .start-field {
   max-width: 360px;
-  margin-bottom: 1rem;
+  margin-bottom: 1.1rem;
 }
 
 .plan {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.9rem 1.4rem;
+  gap: 0.9rem 1.6rem;
   align-items: flex-start;
-  padding: 0.9rem 1rem;
-  margin-bottom: 1rem;
+  padding: 1rem 1.1rem;
+  margin-bottom: 1.1rem;
   border-radius: var(--radius-sm);
   background: var(--powder-100);
-  transition: opacity 0.15s ease;
+  transition: opacity 0.16s ease;
 
   &--busy {
     opacity: 0.6;
@@ -608,19 +633,18 @@ async function onPassengersSaved() {
 .plan-code {
   display: flex;
   flex-direction: column;
+  gap: 0.1rem;
 
   span {
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--ink-400);
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--ink-600);
   }
 
   strong {
     font-family: var(--font-serif);
-    font-size: 1.9rem;
-    line-height: 1.1;
+    font-size: 2rem;
+    line-height: 1.05;
     color: var(--navy-800);
   }
 }
@@ -628,20 +652,19 @@ async function onPassengersSaved() {
 .plan-grid {
   flex: 1 1 320px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 0.6rem 1.2rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem 1.4rem;
   margin: 0;
 
   dt {
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--ink-400);
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--ink-600);
   }
 
   dd {
     margin: 0.1rem 0 0;
+    font-size: 1rem;
     font-weight: 600;
     color: var(--ink-900);
   }
@@ -650,33 +673,37 @@ async function onPassengersSaved() {
 .plan-alert {
   flex: 1 1 100%;
   display: flex;
-  gap: 0.5rem;
+  gap: 0.55rem;
   align-items: baseline;
   margin: 0;
-  padding: 0.6rem 0.75rem;
+  padding: 0.7rem 0.85rem;
   border-radius: var(--radius-sm);
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: 1rem;
+  line-height: 1.4;
 
   &--danger {
-    background: rgba(180, 72, 59, 0.1);
-    color: var(--danger);
+    background: var(--pill-danger-bg);
+    color: var(--pill-danger-ink);
   }
 
   &--warning {
-    background: rgba(185, 128, 47, 0.12);
-    color: var(--warning);
+    background: var(--pill-warn-bg);
+    color: var(--pill-warn-ink);
+  }
+
+  &--solo {
+    margin-bottom: 1.1rem;
   }
 }
 
 .plan-hint {
-  margin: 0 0 1rem;
-  font-size: 0.9rem;
-  color: var(--ink-400);
+  margin: 0 0 1.1rem;
+  font-size: 1rem;
+  color: var(--ink-600);
 }
 
 .create-btn {
-  min-height: 52px;
   width: 100%;
 
   @include tablet {
@@ -687,43 +714,51 @@ async function onPassengersSaved() {
 
 // ---- Programar varios (plegado) ----
 .cycle {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.75rem;
 }
 
 .cycle-toggle {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 0.2rem 0.6rem;
+  gap: 0.8rem;
   width: 100%;
-  min-height: 52px;
-  padding: 0.6rem 0.95rem;
+  min-height: 56px;
+  padding: 0.6rem 1rem;
   text-align: left;
   background: var(--surface);
-  border: 1px solid var(--cream-200);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
   font-weight: 600;
   color: var(--ink-900);
-  transition: border-color 0.15s ease;
+  transition: border-color 0.16s ease;
 
   &:hover {
-    border-color: var(--powder-300);
+    border-color: var(--navy-600);
   }
 
   > i:first-child {
     color: var(--navy-700);
   }
+}
+
+.cycle-texts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.1rem 0.7rem;
+  min-width: 0;
 
   small {
+    font-size: 0.95rem;
     font-weight: 500;
-    color: var(--ink-400);
+    color: var(--ink-600);
   }
 }
 
 .cycle-chevron {
   margin-left: auto;
   color: var(--ink-400);
-  transition: transform 0.2s ease;
+  transition: transform 0.22s var(--ease-out);
 
   &--open {
     transform: rotate(180deg);
@@ -737,11 +772,11 @@ async function onPassengersSaved() {
 .generate {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.75rem;
   padding: 1rem;
   border-radius: var(--radius);
-  border: 1px solid var(--cream-200);
-  background: var(--powder-100);
+  border: 1px solid var(--line);
+  background: var(--surface);
 
   @include tablet {
     flex-direction: row;
@@ -752,6 +787,13 @@ async function onPassengersSaved() {
       margin: 0;
     }
   }
+}
+
+.rule {
+  margin: 0.6rem 0 0;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--ink-600);
 }
 
 .fade-enter-active,
@@ -768,7 +810,7 @@ async function onPassengersSaved() {
 .fold-leave-active {
   transition:
     opacity 0.2s ease,
-    transform 0.2s ease;
+    transform 0.22s var(--ease-out);
 }
 
 .fold-enter-from,
@@ -777,61 +819,35 @@ async function onPassengersSaved() {
   transform: translateY(-6px);
 }
 
-.rule {
-  margin: 0.6rem 0 0;
-  font-size: 0.82rem;
-  color: var(--ink-400);
-}
-
 .tabs {
-  display: flex;
-  gap: 0.4rem;
-  margin-bottom: 0.9rem;
+  margin-bottom: 1rem;
 }
 
-.tab {
-  min-height: 40px;
-  padding: 0.4rem 1rem;
-  border-radius: 999px;
-  border: 1.5px solid var(--cream-200);
-  background: var(--surface);
-  font-weight: 600;
-  font-size: 0.86rem;
-  color: var(--ink-600);
-  transition: all 0.15s ease;
-
-  &--on {
-    background: var(--navy-800);
-    border-color: var(--navy-800);
-    color: #fff;
-  }
-}
-
-.empty {
-  color: var(--ink-400);
-}
-
+// ---- Lista de cruceros ----
 .cruises {
   display: grid;
   grid-template-columns: 1fr;
   gap: 1rem;
 
   @include desktop {
-    grid-template-columns: repeat(auto-fill, minmax(460px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
   }
 }
 
 .cruise {
-  background: var(--surface);
-  border: 1px solid var(--cream-200);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 1rem;
   min-width: 0;
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+
+  @include tablet {
+    padding: 1.15rem 1.25rem;
+  }
 
   &--abordo {
     border-color: var(--success);
-    box-shadow: 0 0 0 3px rgba(63, 122, 87, 0.12);
+    box-shadow: inset 3px 0 0 var(--success);
   }
 }
 
@@ -840,72 +856,76 @@ async function onPassengersSaved() {
   justify-content: space-between;
   align-items: flex-start;
   gap: 0.75rem;
-  margin-bottom: 0.8rem;
+  margin-bottom: 0.9rem;
 }
 
 .cruise-title {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
 
   h3 {
-    font-size: 1.15rem;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--ink-900);
   }
 
   p {
-    margin: 0.15rem 0 0;
-    font-size: 0.84rem;
+    margin: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 0.45rem;
+    font-size: 1rem;
     color: var(--ink-600);
   }
 
   i {
     width: 1rem;
-    color: var(--gold-500);
+    flex: none;
+    color: var(--navy-600);
   }
 }
 
-.status {
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-  background: var(--powder-100);
-  color: var(--navy-700);
-  white-space: nowrap;
+.live-dot {
+  font-size: 0.5rem;
+  animation: live-pulse 1.8s ease-in-out infinite;
+}
 
-  &--abordo {
-    background: rgba(63, 122, 87, 0.15);
-    color: var(--success);
-  }
-
-  &--cerrado {
-    background: var(--cream-200);
-    color: var(--ink-600);
+@keyframes live-pulse {
+  50% {
+    opacity: 0.35;
   }
 }
 
 .cabin-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
-  gap: 0.4rem;
-  margin-bottom: 0.8rem;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 0.5rem;
 }
 
 .cabin-chip {
   min-width: 0;
+  min-height: 64px;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: center;
   gap: 0.05rem;
-  padding: 0.45rem 0.25rem;
-  border: 1.5px dashed var(--cream-200);
+  padding: 0.5rem 0.7rem;
+  text-align: left;
+  border: 1px dashed var(--line-strong);
   border-radius: var(--radius-sm);
-  font-size: 0.7rem;
+  font-size: 0.92rem;
   color: var(--ink-400);
-  transition: border-color 0.14s ease, background 0.14s ease;
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    transform 0.14s var(--ease-out);
 
   strong {
-    font-size: 0.98rem;
+    font-size: 1.05rem;
+    font-variant-numeric: tabular-nums;
     color: var(--ink-900);
   }
 
@@ -917,9 +937,9 @@ async function onPassengersSaved() {
   }
 
   small {
-    font-size: 0.64rem;
-    font-weight: 700;
-    color: var(--gold-500);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--gold-600);
   }
 
   &--filled {
@@ -930,12 +950,30 @@ async function onPassengersSaved() {
   }
 
   &:hover {
-    border-color: var(--gold-500);
+    border-color: var(--navy-600);
+  }
+
+  &:active {
+    transform: scale(0.97);
   }
 }
 
 .cruise-actions {
   display: flex;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--rule);
+}
+
+.close-reason {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--pill-warn-ink);
 }
 </style>
