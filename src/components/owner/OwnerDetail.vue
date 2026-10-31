@@ -152,7 +152,7 @@ function goAccounts() {
 
 <template>
   <BaseModal :title="TITLE[kind]" @close="emit('close')">
-    <div class="detail">
+    <div class="detail-sheet">
       <p v-if="note" class="note">{{ note }}</p>
 
       <ul v-if="rows.length" class="rows">
@@ -175,27 +175,39 @@ function goAccounts() {
         <strong>{{ total === null ? 'No disponible: faltan costos' : formatMoney(total) }}</strong>
       </footer>
 
-      <button v-if="kind === 'porCobrar' && rows.length" type="button" class="btn btn-primary" @click="goAccounts">
+      <button v-if="kind === 'porCobrar' && rows.length" type="button" class="btn btn-primary btn-go" @click="goAccounts">
         <i class="fa-solid fa-file-invoice-dollar" aria-hidden="true" /> Ir a Cuentas
       </button>
     </div>
   </BaseModal>
 </template>
 
+<style lang="scss">
+// Detalle con más ancho en tableta; BaseModal no se toca.
+@media (min-width: 640px) {
+  .overlay .modal:has(> .modal-body > .detail-sheet) {
+    max-width: 640px;
+  }
+}
+</style>
+
 <style scoped lang="scss">
-.detail {
+.detail-sheet {
+  --line: #dbe4eb;
+  --muted: #55636d;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  font-size: 1rem;
 }
 
 .note {
   margin: 0;
-  padding: 0.6rem 0.75rem;
+  padding: 0.7rem 0.9rem;
   border-radius: var(--radius-sm);
-  background: var(--cream-100);
-  font-size: 0.85rem;
-  color: var(--ink-600);
+  background: var(--powder-100);
+  font-size: 0.9375rem;
+  color: var(--navy-900);
 }
 
 .rows {
@@ -210,60 +222,76 @@ function goAccounts() {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 0.75rem;
-  padding: 0.55rem 0;
-  border-bottom: 1px dashed var(--cream-200);
+  gap: 1rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--line);
 }
 
 .row-main {
   display: flex;
   flex-direction: column;
+  gap: 0.1rem;
   min-width: 0;
 }
 
 .row-title {
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .row-meta {
-  font-size: 0.78rem;
-  color: var(--ink-400);
+  font-size: 0.875rem;
+  color: var(--muted);
 }
 
 .row-tag {
-  font-size: 0.74rem;
-  font-weight: 700;
-  color: #8a5d1d;
+  align-self: flex-start;
+  margin-top: 0.2rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  background: #f7ecdc;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #6f4a16;
 }
 
 .row-sub {
-  margin: 0.25rem 0 0;
+  margin: 0.3rem 0 0;
   padding-left: 1rem;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: var(--ink-600);
 }
 
 .row-amount {
-  font-weight: 700;
+  font-weight: 500;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
 .empty {
   margin: 0;
-  color: var(--ink-400);
+  padding: 0.9rem 1rem;
+  border: 1px dashed #c3d1dc;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
 }
 
+// El total queda a la vista mientras se recorre la lista.
 .total {
+  position: sticky;
+  bottom: -1.25rem;
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 0.75rem;
-  padding-top: 0.6rem;
-  border-top: 2px solid var(--cream-200);
+  margin: 0 -1.25rem;
+  padding: 0.8rem 1.25rem 1.25rem;
+  background: var(--surface);
+  border-top: 1px solid #c3d1dc;
+  font-weight: 500;
 
   strong {
-    font-size: 1.25rem;
+    font-size: 1.375rem;
+    font-weight: 600;
     color: var(--navy-800);
     font-variant-numeric: tabular-nums;
   }

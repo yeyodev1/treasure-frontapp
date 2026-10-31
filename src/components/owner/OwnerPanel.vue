@@ -3,9 +3,9 @@ import { computed, onMounted, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseDatePicker from '@/components/ui/BaseDatePicker.vue'
-import BarList from '@/components/ui/BarList.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import OwnerDetail, { type DetailKind } from '@/components/owner/OwnerDetail.vue'
+import OwnerBars from '@/components/owner/OwnerBars.vue'
 import { useToastStore } from '@/stores/toast'
 import { apiCruises, apiOwnerPanel } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
@@ -189,6 +189,31 @@ const cruiseRows = computed(
     })) ?? [],
 )
 
+/** Parte de lo consumido que ya se cobró: solo si las tres cifras cuadran. */
+const salesSplit = computed(() => {
+  const d = data.value
+  if (!d || d.netConsumption <= 0) return null
+  if (Math.abs(d.collected + d.pendingCollection - d.netConsumption) > 0.005) return null
+  const paid = (d.collected / d.netConsumption) * 100
+  return {
+    paid,
+    due: 100 - paid,
+    label: `Cobrado ${Math.round(paid)} % de los consumos · ${formatMoney(d.collected)} de ${formatMoney(d.netConsumption)}`,
+  }
+})
+
+/** Costo y margen sobre la misma escala de Consumos, si ambos están disponibles. */
+const marginSplit = computed(() => {
+  const d = data.value
+  if (!d || d.netConsumption <= 0 || d.consumedCost === null || d.margin === null || d.margin < 0) return null
+  const cost = (d.consumedCost / d.netConsumption) * 100
+  return {
+    cost,
+    margin: 100 - cost,
+    label: `Costo ${Math.round(cost)} % · margen ${Math.round(100 - cost)} % de los consumos del bar`,
+  }
+})
+
 const ALERT_ICON: Record<OwnerAlert['kind'], string> = {
   cuentas: 'fa-file-invoice-dollar',
   costos: 'fa-tag',
@@ -215,7 +240,7 @@ function openHeld() {
 <template>
   <section class="owner" aria-label="Resumen del negocio">
     <!-- Un solo filtro para todo el resumen -->
-    <div class="card filters">
+    <div class="filters">
       <div class="mode" role="tablist" aria-label="Filtrar por">
         <button
           type="button"
@@ -241,18 +266,25 @@ function openHeld() {
       </div>
 
       <Transition name="fade" mode="out-in">
-        <div v-if="mode === 'crucero'" key="crucero" class="field filter-cruise">
-          <label>Crucero</label>
-          <BaseSelect :model-value="cruiseId" :options="cruiseOptions" searchable placeholder="Elige un crucero" @update:model-value="onCruise" />
+        <div v-if="mode === 'crucero'" key="crucero" class="filter-cruise">
+          <BaseSelect
+            :model-value="cruiseId"
+            :options="cruiseOptions"
+            searchable
+            placeholder="Elige un crucero"
+            aria-label="Crucero"
+            @update:model-value="onCruise"
+          />
         </div>
         <div v-else key="periodo" class="period">
-          <div class="presets">
+          <div class="presets" role="group" aria-label="Periodo rápido">
             <button
               v-for="p in PRESETS"
               :key="p.key"
               type="button"
               class="preset"
               :class="{ 'preset--on': preset === p.key }"
+              :aria-pressed="preset === p.key"
               @click="applyPreset(p.key)"
             >
               {{ p.label }}
@@ -273,30 +305,31 @@ function openHeld() {
       <p v-if="rangeError" class="range-error">{{ rangeError }}</p>
     </div>
 
-    <div v-if="loading && !data" class="grid">
-      <SkeletonBlock v-for="i in 5" :key="i" height="120px" />
+    <div v-if="loading && !data" class="skeleton">
+      <SkeletonBlock height="180px" />
+      <SkeletonBlock height="120px" />
+      <SkeletonBlock height="96px" />
     </div>
 
     <Transition v-else-if="data" name="fade" appear>
       <div class="content" :class="{ busy: loading }">
-        <p class="scope">
-          <i class="fa-solid fa-circle-info" aria-hidden="true" />
-          <span>{{ scopeText }}</span>
+        <div class="scope">
+          <p>{{ scopeText }}</p>
           <span class="updated">
             Actualizado {{ formatTime(data.scope.generatedAt) }}
             <button type="button" class="refresh" :disabled="loading" aria-label="Actualizar" @click="load">
               <i class="fa-solid fa-rotate" :class="{ 'fa-spin': loading }" aria-hidden="true" />
             </button>
           </span>
-        </p>
+        </div>
 
         <!-- Alertas: solo incidencias existentes, con su acción -->
-        <TransitionGroup v-if="data.alerts.length" name="fade" tag="ul" class="alerts">
+        <TransitionGroup v-if="data.alerts.length" name="fade" tag="ul" class="alerts" aria-label="Pendientes">
           <li v-for="alert in data.alerts" :key="alert.kind" class="alert">
             <i class="fa-solid" :class="ALERT_ICON[alert.kind]" aria-hidden="true" />
-            <span>
+            <span class="alert-text">
               {{ alert.text }}<template v-if="alert.amount"> · {{ formatMoney(alert.amount) }}</template>
-              <small v-if="alert.scope === 'total'" class="alert-scope">Pendientes en total</small>
+              <small v-if="alert.scope === 'total'">Pendientes en total, de todos los cruceros</small>
             </span>
             <button type="button" class="alert-action" @click="act(alert)">
               {{ alert.action }} <i class="fa-solid fa-arrow-right" aria-hidden="true" />
@@ -304,111 +337,140 @@ function openHeld() {
           </li>
         </TransitionGroup>
 
-        <!-- Cifras principales, en orden -->
-        <div class="grid grid--main">
-          <button type="button" class="card kpi" @click="detail = 'consumo'">
-            <span class="kpi-label">Consumos del bar</span>
-            <span class="kpi-value">{{ formatMoney(data.netConsumption) }}</span>
-            <span class="kpi-hint">Cargado a las cabinas, sin cortesías ni anulados.</span>
-            <span class="kpi-more">Ver detalle <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
-          </button>
-
-          <button type="button" class="card kpi" @click="detail = 'cobrado'">
-            <span class="kpi-label">Cobrado</span>
-            <span class="kpi-value kpi-value--ok">{{ formatMoney(data.collected) }}</span>
-            <span v-if="methods.length" class="kpi-list">
-              <span v-for="m in methods" :key="m.label">
-                <span>{{ m.label }}</span><strong>{{ formatMoney(m.value) }}</strong>
+        <!-- Ventas del bar: lo consumido, cuánto se cobró y cuánto falta -->
+        <section class="panel ledger" aria-labelledby="ledger-title">
+          <h2 id="ledger-title" class="panel-title">Ventas del bar</h2>
+          <div class="figures">
+            <button type="button" class="figure figure--lead" @click="detail = 'consumo'">
+              <span class="figure-label">Consumos del bar</span>
+              <span class="figure-value">{{ formatMoney(data.netConsumption) }}</span>
+              <span class="figure-hint">Cargado a las cabinas, sin cortesías ni anulados.</span>
+              <span class="figure-more">Ver detalle <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
+            </button>
+            <button type="button" class="figure" @click="detail = 'cobrado'">
+              <span class="figure-label"><i class="dot dot--paid" aria-hidden="true" /> Cobrado</span>
+              <span class="figure-value">{{ formatMoney(data.collected) }}</span>
+              <span v-if="methods.length" class="figure-list">
+                <span v-for="m in methods" :key="m.label">
+                  <span>{{ m.label }}</span><span class="num">{{ formatMoney(m.value) }}</span>
+                </span>
               </span>
+              <span v-else class="figure-hint">Sin pagos en este alcance.</span>
+              <span class="figure-more">Ver detalle <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
+            </button>
+            <button type="button" class="figure" @click="detail = 'porCobrar'">
+              <span class="figure-label"><i class="dot dot--due" aria-hidden="true" /> Por cobrar</span>
+              <span class="figure-value" :class="{ 'figure-value--zero': data.pendingCollection === 0 }">
+                {{ formatMoney(data.pendingCollection) }}
+              </span>
+              <span class="figure-hint">
+                Saldo al corte.
+                <template v-if="data.pendingFromBefore > 0">
+                  {{ formatMoney(data.pendingFromPeriod) }} de este periodo y {{ formatMoney(data.pendingFromBefore) }} de antes.
+                </template>
+              </span>
+              <span class="figure-more">Ver detalle <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
+            </button>
+          </div>
+          <!-- Solo cuando cuadra: Consumos = Cobrado + Por cobrar -->
+          <div v-if="salesSplit" class="split" role="img" :aria-label="salesSplit.label">
+            <span class="split-bar">
+              <span class="split-part split-part--paid" :style="{ width: `${salesSplit.paid}%` }" />
+              <span class="split-part split-part--due" :style="{ width: `${salesSplit.due}%` }" />
             </span>
-            <span v-else class="kpi-hint">Sin pagos en este alcance.</span>
-            <span class="kpi-more">Ver detalle <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
-          </button>
+            <span class="split-caption">{{ salesSplit.label }}</span>
+          </div>
+        </section>
 
-          <button type="button" class="card kpi" @click="detail = 'porCobrar'">
-            <span class="kpi-label">Por cobrar</span>
-            <span class="kpi-value" :class="{ 'kpi-value--warn': data.pendingCollection > 0 }">
-              {{ formatMoney(data.pendingCollection) }}
-            </span>
-            <span class="kpi-hint">
-              Saldo al corte.
-              <template v-if="data.pendingFromBefore > 0">
-                {{ formatMoney(data.pendingFromPeriod) }} de este periodo y {{ formatMoney(data.pendingFromBefore) }} de antes.
+        <!-- Costo de lo servido y margen -->
+        <section class="panel" aria-labelledby="margin-title">
+          <h2 id="margin-title" class="panel-title">Costo y margen</h2>
+          <div class="figures figures--two">
+            <button type="button" class="figure" @click="detail = 'costo'">
+              <span class="figure-label"><i class="dot dot--cost" aria-hidden="true" /> Costo de lo servido</span>
+              <template v-if="data.noConsumption">
+                <span class="figure-value figure-value--zero">{{ formatMoney(0) }}</span>
+                <span class="figure-hint">Sin consumos en este alcance.</span>
               </template>
-            </span>
-            <span class="kpi-more">Ver detalle <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
-          </button>
-
-          <button type="button" class="card kpi" :class="{ 'kpi--incomplete': data.consumedCost === null }" @click="detail = 'costo'">
-            <span class="kpi-label">Costo de lo servido</span>
-            <template v-if="data.noConsumption">
-              <span class="kpi-value">{{ formatMoney(0) }}</span>
-              <span class="kpi-hint">Sin consumos en este alcance.</span>
-            </template>
-            <template v-else-if="data.consumedCost !== null">
-              <span class="kpi-value">{{ formatMoney(data.consumedCost) }}</span>
-              <span class="kpi-hint">Insumos al costo histórico, incluidas las cortesías servidas.</span>
-            </template>
-            <template v-else>
-              <span class="kpi-value kpi-value--warn">No disponible: faltan costos</span>
-              <span class="kpi-hint">
-                {{ data.missingCostCount ? `${data.missingCostCount} producto(s) sin costo.` : 'Aún no hay consumos en este alcance.' }}
+              <template v-else-if="data.consumedCost !== null">
+                <span class="figure-value">{{ formatMoney(data.consumedCost) }}</span>
+                <span class="figure-hint">Insumos al costo histórico, incluidas las cortesías servidas.</span>
+              </template>
+              <template v-else>
+                <span class="figure-value figure-value--missing">No disponible: faltan costos</span>
+                <span class="figure-hint">
+                  {{ data.missingCostCount ? `${data.missingCostCount} producto(s) sin costo.` : 'Aún no hay consumos en este alcance.' }}
+                </span>
+              </template>
+              <span class="figure-more">Ver detalle <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
+            </button>
+            <button type="button" class="figure" @click="detail = 'margen'">
+              <span class="figure-label"><i class="dot dot--margin" aria-hidden="true" /> Margen del bar</span>
+              <span v-if="data.margin !== null" class="figure-value">{{ formatMoney(data.margin) }}</span>
+              <span v-else class="figure-value figure-value--missing">No disponible: faltan costos</span>
+              <span class="figure-hint">
+                {{
+                  data.noConsumption
+                    ? 'Sin consumos en este alcance.'
+                    : 'Consumos del bar − costo de lo servido. No es utilidad neta; mermas y ajustes van aparte.'
+                }}
               </span>
-            </template>
-            <span class="kpi-more">Ver detalle <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
-          </button>
-
-          <button type="button" class="card kpi" :class="{ 'kpi--incomplete': data.margin === null }" @click="detail = 'margen'">
-            <span class="kpi-label">Margen del bar</span>
-            <span v-if="data.margin !== null" class="kpi-value">{{ formatMoney(data.margin) }}</span>
-            <span v-else class="kpi-value kpi-value--warn">No disponible: faltan costos</span>
-            <span class="kpi-hint">
-              {{ data.noConsumption ? 'Sin consumos en este alcance.' : 'Consumos del bar − costo de lo servido. No es utilidad neta; mermas y ajustes van aparte.' }}
+              <span class="figure-more">Ver detalle <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
+            </button>
+          </div>
+          <div v-if="marginSplit" class="split" role="img" :aria-label="marginSplit.label">
+            <span class="split-bar">
+              <span class="split-part split-part--cost" :style="{ width: `${marginSplit.cost}%` }" />
+              <span class="split-part split-part--margin" :style="{ width: `${marginSplit.margin}%` }" />
             </span>
-            <span class="kpi-more">Ver detalle <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
-          </button>
-        </div>
+            <span class="split-caption">{{ marginSplit.label }}</span>
+          </div>
+        </section>
 
         <!-- Información secundaria -->
-        <div class="grid grid--secondary">
-          <button type="button" class="card kpi kpi--small" @click="detail = 'cortesias'">
-            <span class="kpi-label">Cortesías</span>
-            <span class="kpi-value">{{ formatMoney(data.courtesy) }}</span>
-            <span class="kpi-hint">A precio de venta. No se cobran.</span>
+        <section class="panel panel--strip" aria-label="Otras cifras">
+          <button type="button" class="figure figure--small" @click="detail = 'cortesias'">
+            <span class="figure-label">Cortesías</span>
+            <span class="figure-value" :class="{ 'figure-value--zero': data.courtesy === 0 }">{{ formatMoney(data.courtesy) }}</span>
+            <span class="figure-hint">A precio de venta. No se cobran.</span>
           </button>
-          <button type="button" class="card kpi kpi--small" @click="detail = 'compras'">
-            <span class="kpi-label">Compras recibidas</span>
-            <span class="kpi-value">{{ formatMoney(data.purchases) }}</span>
-            <span class="kpi-hint">{{ purchaseScope }} No es el costo de lo servido.</span>
+          <button type="button" class="figure figure--small" @click="detail = 'compras'">
+            <span class="figure-label">Compras recibidas</span>
+            <span class="figure-value" :class="{ 'figure-value--zero': data.purchases === 0 }">{{ formatMoney(data.purchases) }}</span>
+            <span class="figure-hint">{{ purchaseScope }} No es el costo de lo servido.</span>
           </button>
           <!-- Abre los retenidos igual que su alerta (09) -->
-          <button type="button" class="card kpi kpi--small" @click="openHeld">
-            <span class="kpi-label">Consumos retenidos</span>
-            <span class="kpi-value" :class="{ 'kpi-value--warn': data.heldConsumptions > 0 }">{{ data.heldConsumptions }}</span>
-            <span class="kpi-hint">
-              Consumos enviados tarde, pendientes de revisión.{{ data.pendingScope === 'total' ? ' Pendientes en total.' : '' }}
+          <button type="button" class="figure figure--small" @click="openHeld">
+            <span class="figure-label">Consumos retenidos</span>
+            <span class="figure-value" :class="{ 'figure-value--warn': data.heldConsumptions > 0, 'figure-value--zero': !data.heldConsumptions }">
+              {{ data.heldConsumptions }}
             </span>
-            <span class="kpi-more">Revisar consumos retenidos <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
+            <span class="figure-hint">
+              Enviados tarde, pendientes de revisión.{{ data.pendingScope === 'total' ? ' Pendientes en total.' : '' }}
+            </span>
+            <span class="figure-more">Revisar en Cuentas <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
           </button>
-        </div>
+        </section>
 
-        <!-- Bloque de consumos (mismo filtro) -->
-        <div class="panels">
-          <section class="card">
-            <h3 class="panel-title"><i class="fa-regular fa-calendar-days" aria-hidden="true" /> Consumos por día</h3>
-            <BarList :rows="dayRows" :format="formatMoney" />
+        <!-- Consumos (mismo filtro) -->
+        <div class="lists">
+          <section class="panel list-day">
+            <h2 class="panel-title">Consumos por día</h2>
+            <OwnerBars :rows="dayRows" :format="formatMoney" tone="main" />
           </section>
-          <section class="card">
-            <h3 class="panel-title"><i class="fa-solid fa-user-group" aria-hidden="true" /> Consumos por bartender</h3>
-            <BarList :rows="bartenderRows" :format="formatMoney" />
-          </section>
-          <section class="card">
-            <h3 class="panel-title"><i class="fa-solid fa-champagne-glasses" aria-hidden="true" /> Productos más consumidos</h3>
-            <BarList :rows="productRows" />
-          </section>
-          <section class="card">
-            <h3 class="panel-title"><i class="fa-solid fa-ship" aria-hidden="true" /> Cobrado por crucero</h3>
-            <BarList :rows="cruiseRows" :format="formatMoney" />
+          <div class="list-side">
+            <section class="panel">
+              <h2 class="panel-title">Consumos por bartender</h2>
+              <OwnerBars :rows="bartenderRows" :format="formatMoney" />
+            </section>
+            <section class="panel">
+              <h2 class="panel-title">Cobrado por crucero</h2>
+              <OwnerBars :rows="cruiseRows" :format="formatMoney" />
+            </section>
+          </div>
+          <section class="panel list-products">
+            <h2 class="panel-title">Productos más consumidos</h2>
+            <OwnerBars :rows="productRows" :format="(v) => `${v} u.`" class="two-col" />
           </section>
         </div>
       </div>
@@ -421,36 +483,45 @@ function openHeld() {
 <style scoped lang="scss">
 @use '@/styles/mixins' as *;
 
+/*
+ * Resumen: tinta en las cifras, azul profundo en la serie principal y en lo
+ * cobrado, caramelo solo en el costo. Paneles blancos con borde de 1 px, sin
+ * sombras en reposo; cada cifra es un botón que abre su detalle.
+ */
 .owner {
+  --line: #dbe4eb;
+  --line-strong: #c3d1dc;
+  --muted: #55636d;
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 1rem;
 }
 
+// Filtro
 .filters {
   display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
 }
 
 .mode {
   display: inline-flex;
-  align-self: flex-start;
-  gap: 0.3rem;
-  padding: 0.25rem;
+  flex: none;
+  padding: 4px;
   border-radius: 999px;
-  background: var(--cream-200);
+  background: var(--powder-100);
 }
 
 .mode-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  min-height: 40px;
-  padding: 0 1rem;
+  gap: 0.45rem;
+  min-height: 44px;
+  padding: 0 1.1rem;
   border-radius: 999px;
-  font-weight: 700;
-  font-size: 0.88rem;
+  font-weight: 500;
+  font-size: 1rem;
   color: var(--ink-600);
   transition:
     background 0.18s ease,
@@ -458,7 +529,7 @@ function openHeld() {
 
   &--on {
     background: var(--navy-800);
-    color: var(--cream-100);
+    color: #fff;
   }
 
   &:disabled {
@@ -467,13 +538,16 @@ function openHeld() {
 }
 
 .filter-cruise {
+  flex: 1 1 320px;
   max-width: 520px;
 }
 
 .period {
+  flex: 1 1 100%;
   display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
 }
 
 .presets {
@@ -483,47 +557,55 @@ function openHeld() {
 }
 
 .preset {
-  min-height: 40px;
-  padding: 0 0.9rem;
+  @include touch-target;
+  padding: 0 1rem;
   border-radius: 999px;
-  border: 1.5px solid var(--cream-200);
-  font-weight: 700;
-  font-size: 0.85rem;
-  color: var(--ink-600);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  font-weight: 500;
+  font-size: 1rem;
+  color: var(--ink-900);
   transition:
     border-color 0.18s ease,
     background 0.18s ease,
     color 0.18s ease;
 
+  &:hover:not(.preset--on) {
+    border-color: var(--navy-600);
+  }
+
   &--on {
     background: var(--navy-800);
     border-color: var(--navy-800);
-    color: var(--cream-100);
+    color: #fff;
   }
 }
 
 .dates {
+  flex: 1 1 320px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-
-  @include tablet {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
-  max-width: 520px;
+  max-width: 480px;
 }
 
 .range-error {
+  flex-basis: 100%;
   margin: 0;
   color: var(--danger);
-  font-weight: 600;
+  font-weight: 500;
+}
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 .content {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 1rem;
   transition: opacity 0.2s ease;
 
   &.busy {
@@ -532,49 +614,49 @@ function openHeld() {
 }
 
 .scope {
-  margin: 0;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: baseline;
-  gap: 0.2rem 0.5rem;
-  font-size: 0.86rem;
-  color: var(--ink-600);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  font-size: 0.9375rem;
+  color: var(--muted);
 
-  > i {
-    color: var(--navy-600);
+  p {
+    flex: 1 1 360px;
+    margin: 0;
   }
 }
 
 .updated {
-  grid-column: 2;
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  color: var(--ink-400);
-  font-weight: 600;
+  gap: 0.25rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .refresh {
-  width: 32px;
-  height: 32px;
+  @include touch-target;
   display: grid;
   place-items: center;
   border-radius: 50%;
-  color: var(--navy-600);
+  color: var(--navy-700);
   transition: background 0.18s ease;
 
   &:hover:not(:disabled) {
-    background: var(--cream-200);
+    background: var(--powder-100);
   }
 }
 
+// Alertas
 .alerts {
   list-style: none;
   margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
+  padding: 0 1rem;
+  border-radius: var(--radius);
+  background: #fbf5ec;
+  border: 1px solid #ead7b8;
 }
 
 .alert {
@@ -582,172 +664,337 @@ function openHeld() {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem 0.75rem;
-  padding: 0.6rem 0.85rem;
-  border-radius: var(--radius-sm);
-  background: rgba(185, 128, 47, 0.1);
-  border: 1px solid rgba(185, 128, 47, 0.3);
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #6f4b17;
+  padding: 0.65rem 0;
+  font-size: 1rem;
+  color: #5c3f12;
 
-  > span {
-    flex: 1;
-    min-width: 180px;
+  & + & {
+    border-top: 1px solid #ead7b8;
+  }
+
+  > i {
+    width: 1.25rem;
+    color: #8a5d1d;
   }
 }
 
-.alert-scope {
-  display: block;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-400);
+.alert-text {
+  flex: 1 1 220px;
+  min-width: 0;
+
+  small {
+    display: block;
+    font-size: 0.875rem;
+    color: #6f5a3c;
+  }
 }
 
 .alert-action {
+  @include touch-target;
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  min-height: 40px;
-  padding: 0 0.85rem;
-  border-radius: 999px;
+  gap: 0.4rem;
+  padding: 0 1rem;
+  border-radius: var(--radius-sm);
   background: var(--surface);
-  border: 1.5px solid rgba(185, 128, 47, 0.45);
-  font-weight: 700;
-  font-size: 0.84rem;
+  border: 1px solid #d9bf96;
+  font-weight: 500;
+  font-size: 0.9375rem;
   color: var(--navy-800);
   transition: border-color 0.18s ease;
 
+  i {
+    font-size: 0.8rem;
+    transition: transform 0.18s ease;
+  }
+
   &:hover {
     border-color: var(--navy-800);
+
+    i {
+      transform: translateX(2px);
+    }
   }
 }
 
-.grid {
+// Paneles
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.panel-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.1875rem;
+  color: var(--ink-900);
+}
+
+.figures {
   display: grid;
-  gap: 0.75rem;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0 -1.25rem;
 
-  @include tablet {
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  }
+  // En celular, Cobrado y Por cobrar quedan lado a lado bajo Consumos.
+  &:not(.figures--two) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 
-  &--main {
-    @include tablet {
-      grid-template-columns: repeat(3, 1fr);
+    .figure--lead {
+      grid-column: 1 / -1;
+    }
+
+    .figure:nth-child(3) {
+      border-left: 1px solid var(--line);
     }
   }
 
-  &--secondary {
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  @include tablet {
+    &:not(.figures--two) {
+      grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr);
+
+      .figure--lead {
+        grid-column: auto;
+      }
+    }
+  }
+
+  &--two {
+    @include tablet {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 }
 
-.kpi {
+.figure {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0.3rem;
   min-width: 0;
+  padding: 0.75rem 1.25rem;
   text-align: left;
-  font: inherit;
-  color: inherit;
-  transition:
-    box-shadow 0.18s ease,
-    transform 0.18s ease;
+  border-top: 1px solid var(--line);
+  transition: background 0.18s ease;
 
-  &:not(.kpi--static):hover {
-    box-shadow: var(--shadow-lg);
-    transform: translateY(-2px);
+  &:first-child {
+    border-top: 0;
   }
 
-  &--small .kpi-value {
-    font-size: 1.2rem;
+  @include tablet {
+    border-top: 0;
+
+    & + & {
+      border-left: 1px solid var(--line);
+    }
   }
 
-  &--incomplete .kpi-value {
-    font-size: 1.1rem;
+  &:hover {
+    background: #f7fafc;
+  }
+
+  &:hover .figure-more i {
+    transform: translateX(3px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--navy-700);
+    outline-offset: -2px;
   }
 }
 
-.kpi-label {
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-400);
+.figure-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9375rem;
+  color: var(--muted);
 }
 
-.kpi-value {
-  font-size: 1.6rem;
-  font-weight: 800;
-  color: var(--navy-800);
+.figure-value {
+  font-size: 1.5rem;
+  line-height: 1.15;
+  font-weight: 600;
+  color: var(--ink-900);
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 
-  &--ok {
-    color: var(--success);
+  .figure--lead & {
+    font-size: 2rem;
+    color: var(--navy-800);
+  }
+
+  &--zero {
+    color: var(--muted);
   }
 
   &--warn {
     color: #8a5d1d;
   }
-}
 
-.kpi-hint {
-  font-size: 0.82rem;
-  color: var(--ink-400);
-}
-
-.kpi-more {
-  margin-top: auto;
-  padding-top: 0.3rem;
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--navy-600);
-
-  i {
-    font-size: 0.7rem;
+  &--missing {
+    font-size: 1.0625rem;
+    font-weight: 500;
+    color: #8a5d1d;
   }
 }
 
-.kpi-list {
+.figure-hint {
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.figure-list {
   align-self: stretch;
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
-  padding-top: 0.4rem;
-  border-top: 1px solid var(--cream-200);
-  font-size: 0.86rem;
+  gap: 0.15rem;
+  font-size: 0.9375rem;
 
   > span {
     display: flex;
     justify-content: space-between;
-    gap: 0.5rem;
+    gap: 0.75rem;
     color: var(--ink-600);
+  }
+
+  .num {
+    color: var(--ink-900);
+    font-variant-numeric: tabular-nums;
   }
 }
 
-.panels {
+.figure-more {
+  margin-top: auto;
+  padding-top: 0.4rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--navy-700);
+
+  i {
+    font-size: 0.7rem;
+    transition: transform 0.18s ease;
+  }
+}
+
+.dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+
+  &--paid {
+    background: var(--navy-700);
+  }
+
+  &--due {
+    background: var(--powder-300);
+  }
+
+  &--cost {
+    background: var(--gold-500);
+  }
+
+  &--margin {
+    background: var(--navy-700);
+  }
+}
+
+// Barra que reparte el total entre sus partes (misma escala que Consumos)
+.split {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.split-bar {
+  display: flex;
+  gap: 2px;
+  height: 12px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--powder-100);
+}
+
+.split-part {
+  display: block;
+  height: 100%;
+  transition: width 0.4s ease;
+
+  &--paid,
+  &--margin {
+    background: var(--navy-700);
+  }
+
+  &--due {
+    background: var(--powder-300);
+  }
+
+  &--cost {
+    background: var(--gold-500);
+  }
+}
+
+.split-caption {
+  font-size: 0.875rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.panel--strip {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0;
+
+  @include tablet {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .figure {
+    padding: 1rem 1.25rem;
+  }
+}
+
+.figure--small .figure-value {
+  font-size: 1.25rem;
+}
+
+// Por día junto a bartender y cruceros (apilados); productos a todo el ancho
+// en dos columnas, para que la fila no quede dispareja.
+.lists {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
 
   @include tablet {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-.panel-title {
-  font-size: 0.9rem;
-  margin-bottom: 0.75rem;
-  color: var(--ink-600);
+.list-side {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 1rem;
 
-  i {
-    color: var(--gold-500);
+  > .panel:last-child {
+    flex: 1;
+  }
+}
+
+.list-products {
+  @include tablet {
+    grid-column: 1 / -1;
+  }
+}
+
+.two-col {
+  @include tablet {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 2.5rem;
   }
 }
 

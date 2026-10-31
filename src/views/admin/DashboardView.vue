@@ -12,7 +12,7 @@ import OwnerPanel from '@/components/owner/OwnerPanel.vue'
   <div class="page">
     <header class="dash-head">
       <h1 class="page-title">Resumen del negocio</h1>
-      <p class="subtitle">Bar, cobros e inventario</p>
+      <p class="subtitle">Ventas del bar, cobros, costo y margen con un mismo filtro.</p>
     </header>
 
     <OwnerPanel />
@@ -21,7 +21,7 @@ import OwnerPanel from '@/components/owner/OwnerPanel.vue'
 
 <style scoped lang="scss">
 .dash-head {
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
 
   .page-title {
     margin-bottom: 0.15rem;
@@ -30,7 +30,7 @@ import OwnerPanel from '@/components/owner/OwnerPanel.vue'
 
 .subtitle {
   margin: 0;
-  color: var(--ink-400);
-  font-weight: 600;
+  font-size: 1rem;
+  color: #55636d;
 }
 </style>
