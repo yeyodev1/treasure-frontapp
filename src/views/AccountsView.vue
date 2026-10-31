@@ -37,14 +37,20 @@ const reviewing = shallowRef('')
 const isBar = computed(() => userStore.role === 'bartender')
 const cruise = computed(() => cruises.value.find((c) => c._id === selectedId.value) ?? active.value ?? null)
 
-const STATUS: Record<AccountStatus, { label: string; icon: string }> = {
+/**
+ * Estado que se muestra: "en revisión" es heredado (el bar ya no envía a
+ * revisión, los aprobadores aprueban directo) y se ve como abierta.
+ */
+type ShownStatus = Exclude<AccountStatus, 'en_revision'>
+const shown = (status: AccountStatus): ShownStatus => (status === 'en_revision' ? 'abierta' : status)
+
+const STATUS: Record<ShownStatus, { label: string; icon: string }> = {
   abierta: { label: 'Abierta', icon: 'fa-folder-open' },
-  en_revision: { label: 'En revisión', icon: 'fa-hourglass-half' },
   aprobada: { label: 'Aprobada', icon: 'fa-shield-halved' },
   cobrada: { label: 'Pagada', icon: 'fa-circle-check' },
 }
 
-type Filter = 'todas' | AccountStatus
+type Filter = 'todas' | 'aprobada' | 'cobrada'
 const filter = shallowRef<Filter>('todas')
 
 /** Cabina con movimiento: consumos abiertos, pagados o cuenta ya pagada. */
@@ -55,13 +61,11 @@ const visibleRows = computed(() =>
   filter.value === 'todas' ? activeRows.value : activeRows.value.filter((r) => r.status === filter.value),
 )
 
-/** Filtros por estado: los conteos salen de las mismas filas que se muestran. */
+/** Filtros (pedido 31-oct-2026): Todas · Aprobadas · Pagadas, con conteo de las mismas filas. */
 const filters = computed(() => {
   const count = (s: AccountStatus) => activeRows.value.filter((r) => r.status === s).length
   return [
     { key: 'todas' as Filter, label: 'Todas', count: activeRows.value.length },
-    { key: 'abierta' as Filter, label: 'Abiertas', count: count('abierta') },
-    { key: 'en_revision' as Filter, label: 'En revisión', count: count('en_revision') },
     { key: 'aprobada' as Filter, label: 'Aprobadas', count: count('aprobada') },
     { key: 'cobrada' as Filter, label: 'Pagadas', count: count('cobrada') },
   ]
@@ -71,12 +75,11 @@ const filters = computed(() => {
 function nextStep(row: CabinAccountRow): { text: string; tone: 'act' | 'wait' | 'done' } {
   if (row.status === 'cobrada') return { text: 'Ver cuenta pagada', tone: 'done' }
   if (isBar.value) {
-    if (row.status === 'abierta') return { text: 'Enviar a revisión', tone: 'act' }
-    return { text: row.status === 'en_revision' ? 'Esperando aprobación' : 'Aprobada, lista para cobrar', tone: 'wait' }
+    if (row.status === 'aprobada') return { text: 'Aprobada, lista para cobrar', tone: 'wait' }
+    return { text: 'Ver consumos', tone: 'act' }
   }
   if (row.status === 'aprobada') return { text: `Cobrar ${formatMoney(row.due)}`, tone: 'act' }
-  if (row.status === 'en_revision') return { text: 'Revisar y aprobar', tone: 'act' }
-  return { text: 'Revisar consumos', tone: 'act' }
+  return { text: row.orders ? 'Revisar y aprobar' : 'Ver cuenta', tone: 'act' }
 }
 
 /** Parte cobrada de lo consumido (pagos parciales). */
@@ -101,7 +104,8 @@ const totals = computed(() => {
     paid: rows.value.reduce((s, r) => s + r.paid, 0),
     ready: approved.reduce((s, r) => s + r.due, 0),
     readyCabins: approved.length,
-    review: rows.value.filter((r) => r.status === 'en_revision').length,
+    // Por aprobar: cuentas abiertas con consumos sin cobrar.
+    toApprove: rows.value.filter((r) => shown(r.status) === 'abierta' && r.orders > 0).length,
   }
 })
 
@@ -271,8 +275,8 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
           </div>
           <div class="ledger-cell">
             <span class="ledger-label">Por aprobar</span>
-            <strong>{{ totals.review }}</strong>
-            <span class="ledger-sub">{{ totals.review === 1 ? 'cuenta en revisión' : 'cuentas en revisión' }}</span>
+            <strong>{{ totals.toApprove }}</strong>
+            <span class="ledger-sub">{{ totals.toApprove === 1 ? 'cuenta con consumos' : 'cuentas con consumos' }}</span>
           </div>
         </div>
       </section>
@@ -299,7 +303,7 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
           :key="row.cabinNumber"
           type="button"
           class="account"
-          :class="`account--${row.status}`"
+          :class="`account--${shown(row.status)}`"
           @click="open(row)"
         >
           <span class="account-top">
@@ -307,9 +311,9 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
               <small>Cabina</small>
               <span class="account-number">{{ row.cabinNumber }}</span>
             </span>
-            <span class="pill" :class="`pill--${row.status}`">
-              <i class="fa-solid" :class="STATUS[row.status].icon" aria-hidden="true" />
-              {{ STATUS[row.status].label }}
+            <span class="pill" :class="`pill--${shown(row.status)}`">
+              <i class="fa-solid" :class="STATUS[shown(row.status)].icon" aria-hidden="true" />
+              {{ STATUS[shown(row.status)].label }}
             </span>
           </span>
           <span class="account-guest">{{ row.guestName || 'Sin pasajeros' }}</span>
@@ -640,11 +644,6 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
 
   i {
     font-size: 0.75rem;
-  }
-
-  &--en_revision {
-    background: #f7ecdc;
-    color: #6f4a16;
   }
 
   &--aprobada {
