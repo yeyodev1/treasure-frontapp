@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, shallowRef, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { useCruiseStore } from '@/stores/cruise'
 import { useToastStore } from '@/stores/toast'
@@ -25,6 +26,7 @@ import { useUserStore } from '@/stores/user'
 import type { Cabin, Cruise, CruiseStatus, CycleSettings, NewCruiseOptions, NewCruisePlan } from '@/types'
 
 const toast = useToastStore()
+const router = useRouter()
 const cruiseStore = useCruiseStore()
 const confirmStore = useConfirmStore()
 const { play } = useSound()
@@ -261,6 +263,12 @@ async function onLifecycleDone() {
   await cruiseStore.loadActive(true)
 }
 
+/** Al iniciar el crucero se entra directo al bar (pedido del cliente, 3-nov-2026). */
+async function onStarted() {
+  await onLifecycleDone()
+  await router.push('/')
+}
+
 async function onPassengersSaved() {
   paxTarget.value = null
   await refresh()
@@ -331,7 +339,7 @@ async function onPassengersSaved() {
 
       <p class="step">
         <span class="step-n">2</span> Fecha de inicio
-        <small v-if="legOption?.weekday">· el crucero {{ legOption.code }} zarpa los {{ legOption.weekday.endsWith('s') ? legOption.weekday : `${legOption.weekday}s` }}</small>
+        <small v-if="legOption?.weekday">· el crucero {{ legOption.code }} zarpa los {{ legOption.weekday.endsWith('s') ? legOption.weekday : `${legOption.weekday}s` }} · próximos {{ legOption.dates.length }} zarpes desde hoy, se actualiza solo</small>
       </p>
       <Transition name="fade" mode="out-in">
         <div v-if="legOption" :key="legOption.code" class="dates" role="radiogroup" aria-label="Fecha de inicio">
@@ -491,10 +499,17 @@ async function onPassengersSaved() {
               <template v-if="cruise.endDate"> → {{ formatDate(cruise.endDate) }}</template>
             </p>
           </div>
-          <span class="estado" :class="STATUS_PILL[cruise.status]">
-            <i v-if="cruise.status === 'abordo'" class="fa-solid fa-circle live-dot" aria-hidden="true" />
-            {{ STATUS_LABELS[cruise.status] }}
-          </span>
+          <div class="cruise-side">
+            <span class="estado" :class="STATUS_PILL[cruise.status]">
+              <i v-if="cruise.status === 'abordo'" class="fa-solid fa-circle live-dot" aria-hidden="true" />
+              {{ STATUS_LABELS[cruise.status] }}
+            </span>
+            <!-- Crucero en curso: un toque y se entra al bar (pedido del cliente, 3-nov-2026) -->
+            <RouterLink v-if="cruise.status === 'abordo' && userStore.isDirector" to="/" class="btn btn-primary go-bar">
+              <i class="fa-solid fa-martini-glass-citrus" aria-hidden="true" /> Ir al bar
+              <i class="fa-solid fa-arrow-right" aria-hidden="true" />
+            </RouterLink>
+          </div>
         </header>
 
         <div class="cabin-grid">
@@ -540,7 +555,7 @@ async function onPassengersSaved() {
       </article>
     </TransitionGroup>
 
-    <CruiseStartModal v-if="startTarget" :cruise="startTarget" @close="startTarget = null" @started="onLifecycleDone" />
+    <CruiseStartModal v-if="startTarget" :cruise="startTarget" @close="startTarget = null" @started="onStarted" />
     <CruiseFinishModal v-if="finishTarget" :cruise="finishTarget" @close="finishTarget = null" @finished="onLifecycleDone" />
 
     <PassengersModal
@@ -1080,6 +1095,19 @@ async function onPassengersSaved() {
   align-items: flex-start;
   gap: 0.75rem;
   margin-bottom: 0.9rem;
+}
+
+.cruise-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.6rem;
+  flex-shrink: 0;
+}
+
+.go-bar {
+  min-height: 48px;
+  gap: 0.5rem;
 }
 
 .cruise-title {
