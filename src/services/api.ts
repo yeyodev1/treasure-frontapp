@@ -235,6 +235,16 @@ export async function apiCabinAccount(cruiseId: string, cabinNumber: number) {
   return data.account
 }
 
+/** Quién de la cabina consumió cada consumo sin pagar (null = sin asignar). */
+export async function apiAssignConsumers(
+  cruiseId: string,
+  cabinNumber: number,
+  assignments: Array<{ orderId: string; passengerId: string | null }>,
+) {
+  const { data } = await http.post<{ account: AccountSummary }>(`/accounts/${cruiseId}/${cabinNumber}/assign`, { assignments })
+  return data.account
+}
+
 export async function apiAccountAction(
   cruiseId: string,
   cabinNumber: number,
