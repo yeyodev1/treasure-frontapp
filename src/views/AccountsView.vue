@@ -13,6 +13,7 @@ import { formatDateTime, formatMoney } from '@/utils/format'
 import AccountModal from '@/components/accounts/AccountModal.vue'
 import GroupCollectModal from '@/components/accounts/GroupCollectModal.vue'
 import AgencyCourtesiesModal from '@/components/accounts/AgencyCourtesiesModal.vue'
+import CruiseFinishModal from '@/components/cruises/CruiseFinishModal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import type { AccountStatus, Cabin, CabinAccountRow, Cruise, Order } from '@/types'
@@ -136,6 +137,31 @@ async function loadRows() {
   }
 }
 
+/**
+ * Finalizar el crucero desde Cuentas (pedido 3-nov-2026). No se finaliza
+ * solo al quedar todo pagado: el bar puede seguir sirviendo y el cierre
+ * revisa las tabletas; con todo pagado se ofrece de forma destacada.
+ */
+const finishTarget = shallowRef<Cruise | null>(null)
+const canFinish = computed(() => !isBar.value && userStore.isDirector && cruise.value?.status === 'abordo')
+const allSettled = computed(() => activeRows.value.length > 0 && totals.value.open === 0)
+
+async function loadCruises() {
+  const list = await apiCruises()
+  // En curso primero, luego finalizadas recientes y programadas próximas.
+  cruises.value = [
+    ...list.filter((c) => c.status === 'abordo'),
+    ...list.filter((c) => c.status === 'cerrado').reverse().slice(0, 12),
+    ...list.filter((c) => c.status === 'planificado').slice(0, 3),
+  ]
+}
+
+async function onFinished() {
+  finishTarget.value = null
+  await Promise.all([loadCruises(), cruiseStore.loadActive(true)])
+  await loadRows()
+}
+
 /** Cabinas aprobadas con saldo: con dos o más se pueden cobrar juntas. */
 const groupable = computed(() => rows.value.filter((r) => r.status === 'aprobada' && r.due > 0).length)
 
@@ -157,15 +183,7 @@ async function loadHeld() {
 onMounted(async () => {
   try {
     await cruiseStore.loadActive(true)
-    if (!isBar.value) {
-      const list = await apiCruises()
-      // En curso primero, luego finalizadas recientes y programadas próximas.
-      cruises.value = [
-        ...list.filter((c) => c.status === 'abordo'),
-        ...list.filter((c) => c.status === 'cerrado').reverse().slice(0, 12),
-        ...list.filter((c) => c.status === 'planificado').slice(0, 3),
-      ]
-    }
+    if (!isBar.value) await loadCruises()
     selectedId.value = active.value?._id ?? cruises.value[0]?._id ?? ''
     await Promise.all([loadRows(), loadHeld()])
     openFromQuery()
@@ -325,8 +343,22 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
         </div>
       </section>
 
-      <!-- Dirección: cobrar varias cabinas a un pagador y la cuenta de la agencia -->
-      <div v-if="!isBar && userStore.isDirector" class="actions-row">
+      <!-- Todo pagado: finalizar el crucero desde aquí -->
+      <Transition name="fade">
+        <section v-if="canFinish && allSettled" class="finish-ready" aria-labelledby="finish-ready-title">
+          <i class="fa-solid fa-circle-check finish-ready-icon" aria-hidden="true" />
+          <div class="finish-ready-text">
+            <strong id="finish-ready-title">Todas las cuentas están pagadas</strong>
+            <span>Si el viaje terminó, finaliza el crucero. No se borra nada: queda en Finalizados y el siguiente empieza en cero.</span>
+          </div>
+          <button type="button" class="btn btn-primary" @click="finishTarget = cruise">
+            <i class="fa-solid fa-flag-checkered" aria-hidden="true" /> Finalizar crucero
+          </button>
+        </section>
+      </Transition>
+
+      <!-- Dirección: cobrar varias cabinas a un pagador, la cuenta de la agencia y el fin del crucero -->
+      <div v-if="!isBar && userStore.isDirector" class="actions-row" :class="{ 'actions-row--three': canFinish && !allSettled }">
         <button type="button" class="action" :disabled="groupable < 2" @click="groupPreselect = null; showGroup = true">
           <i class="fa-solid fa-people-group" aria-hidden="true" />
           <span>
@@ -339,6 +371,15 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
           <span>
             <strong>Cortesías de agencia · {{ formatMoney(agencyTotal) }}</strong>
             <small>Se facturan a la agencia al final del crucero</small>
+          </span>
+        </button>
+        <button v-if="canFinish && !allSettled" type="button" class="action" @click="finishTarget = cruise">
+          <i class="fa-solid fa-flag-checkered" aria-hidden="true" />
+          <span>
+            <strong>Finalizar crucero</strong>
+            <small>
+              {{ totals.openCabins ? `${totals.openCabins} ${totals.openCabins === 1 ? 'cabina' : 'cabinas'} con saldo: se puede cobrar después` : 'Cierra el viaje; nada se borra' }}
+            </small>
           </span>
         </button>
       </div>
@@ -450,6 +491,7 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
       @collected="onGroupCollected"
     />
     <AgencyCourtesiesModal v-if="showAgency && cruise" :cruise="cruise" @close="showAgency = false" />
+    <CruiseFinishModal v-if="finishTarget" :cruise="finishTarget" @close="finishTarget = null" @finished="onFinished" />
   </div>
 </template>
 
@@ -573,6 +615,63 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
 
   @include tablet {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+// Con "Finalizar crucero": en tableta va abajo a lo ancho; en escritorio, tres columnas.
+.actions-row--three {
+  @include tablet {
+    > .action:nth-child(3) {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @include desktop {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+
+    > .action:nth-child(3) {
+      grid-column: auto;
+    }
+  }
+}
+
+// Todo pagado: el siguiente paso es finalizar el crucero.
+.finish-ready {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1.5px solid var(--success);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+
+  .btn {
+    margin-left: auto;
+  }
+}
+
+.finish-ready-icon {
+  font-size: 1.5rem;
+  color: var(--success);
+}
+
+.finish-ready-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1 1 260px;
+  min-width: 0;
+
+  strong {
+    font-size: 1.0625rem;
+    color: var(--ink-900);
+  }
+
+  span {
+    font-size: 0.9375rem;
+    color: var(--ink-600);
   }
 }
 
