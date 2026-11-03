@@ -17,7 +17,6 @@ import {
   apiCabinAccount,
   apiCollectCabin,
   apiOrders,
-  apiProforma,
   apiResendSummary,
   apiReviewAnnulment,
 } from '@/services/api'
@@ -48,8 +47,8 @@ const account = shallowRef<AccountSummary | null>(null)
 const annulmentOrders = shallowRef<Order[]>([])
 const loading = shallowRef(true)
 const busy = shallowRef(false)
-const showQr = shallowRef(false)
-const proformaBusy = shallowRef<'' | 'ver' | 'descargar'>('')
+/** QR arriba desde que se abre la cuenta (pedido 3-nov-2026); se amplía al tocarlo. */
+const qrBig = shallowRef(false)
 
 const ACTION_LABEL: Record<string, string> = {
   creada: 'Cuenta abierta',
@@ -566,33 +565,6 @@ async function resendSummary() {
   })
 }
 
-/**
- * Prefactura en inglés: "Ver" la abre en otra pestaña (se reserva antes de
- * pedirla para que el navegador no la bloquee); "Descargar" guarda el PDF.
- */
-async function openProforma(download: boolean) {
-  if (proformaBusy.value) return
-  const tab = download ? null : window.open('', '_blank')
-  proformaBusy.value = download ? 'descargar' : 'ver'
-  try {
-    const { blob, fileName } = await apiProforma(props.cruiseId, props.cabin.number, download)
-    const url = URL.createObjectURL(blob)
-    if (tab) {
-      tab.location.href = url
-    } else {
-      const link = document.createElement('a')
-      link.href = url
-      link.download = fileName
-      link.click()
-    }
-    setTimeout(() => URL.revokeObjectURL(url), 60_000)
-  } catch (err) {
-    tab?.close()
-    toast.error(apiErrorMessage(err))
-  } finally {
-    proformaBusy.value = ''
-  }
-}
 </script>
 
 <template>
@@ -625,6 +597,24 @@ async function openProforma(download: boolean) {
             {{ formatMoney(account.status === 'cobrada' ? account.consumed : account.due) }}
           </strong>
         </div>
+
+        <!-- QR para el pasajero, visible al abrir: revisa su cuenta en inglés en su celular -->
+        <button
+          v-if="cabin.accountToken"
+          type="button"
+          class="qr-top"
+          :class="{ 'qr-top--big': qrBig }"
+          :aria-expanded="qrBig"
+          :aria-label="qrBig ? 'Achicar el QR' : 'Ampliar el QR'"
+          @click="qrBig = !qrBig"
+        >
+          <QrCanvas :text="publicUrl" :size="qrBig ? 240 : 96" />
+          <span class="qr-top-text">
+            <strong><i class="fa-solid fa-qrcode" aria-hidden="true" /> Cuenta en el celular del pasajero</strong>
+            <small>Que escanee el QR: ve sus consumos, pagos y saldo en inglés.</small>
+            <small class="qr-top-hint">{{ qrBig ? 'Toca para achicar' : 'Toca para ampliar' }}</small>
+          </span>
+        </button>
 
         <!-- Cuenta completa: lo pagado no desaparece (checklist 29-oct, 01) -->
         <dl v-if="!isBar && !neverCharged" class="sums">
@@ -1052,33 +1042,6 @@ async function openProforma(download: boolean) {
         </template>
         <p v-else-if="account.readyToCollect" class="muted">Aprobada. Lista para cobrar.</p>
         <p v-else class="muted">Revisa los consumos con el pasajero y aprueba la cuenta para registrar el pago.</p>
-      </section>
-
-      <!-- Para el pasajero: prefactura en inglés (sin correo ni Contífico) y QR -->
-      <section class="block" aria-labelledby="acc-tools-title">
-        <h4 id="acc-tools-title" class="block-title">Para el pasajero</h4>
-        <div class="tools">
-          <template v-if="userStore.isDirector && !neverCharged">
-            <button type="button" class="tool" :disabled="Boolean(proformaBusy)" @click="openProforma(false)">
-              <i class="fa-regular fa-file-lines" aria-hidden="true" />
-              {{ proformaBusy === 'ver' ? 'Abriendo…' : 'Ver prefactura' }}
-            </button>
-            <button type="button" class="tool" :disabled="Boolean(proformaBusy)" @click="openProforma(true)">
-              <i class="fa-solid fa-file-arrow-down" aria-hidden="true" />
-              {{ proformaBusy === 'descargar' ? 'Descargando…' : 'Descargar prefactura en inglés' }}
-            </button>
-          </template>
-          <button type="button" class="tool" :aria-expanded="showQr" @click="showQr = !showQr">
-            <i class="fa-solid fa-qrcode" aria-hidden="true" />
-            {{ showQr ? 'Ocultar QR' : 'Mostrar QR para el pasajero' }}
-          </button>
-        </div>
-        <Transition name="fade">
-          <div v-if="showQr" class="qr-box">
-            <QrCanvas :text="publicUrl" :size="220" />
-            <p>El pasajero escanea y ve su cuenta en inglés: total, pagos y saldo.</p>
-          </div>
-        </Transition>
       </section>
 
       <!-- Historial de la cuenta -->
@@ -2078,12 +2041,6 @@ async function openProforma(download: boolean) {
 }
 
 // Para el pasajero
-.tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
 .tool {
   @include touch-target;
   display: inline-flex;
@@ -2114,20 +2071,63 @@ async function openProforma(download: boolean) {
   }
 }
 
-.qr-box {
+.qr-top {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  background: var(--powder-100);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease;
+
+  &:hover {
+    border-color: var(--line-strong);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--navy-700);
+    outline-offset: 2px;
+  }
+
+  :deep(.qr) {
+    flex-shrink: 0;
+  }
+
+  &--big {
+    flex-direction: column;
+    text-align: center;
+    padding: 1rem;
+  }
+}
+
+.qr-top-text {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 0.5rem;
-  padding: 1rem;
-  background: var(--powder-100);
-  border-radius: var(--radius-sm);
+  gap: 0.2rem;
+  min-width: 0;
 
-  p {
-    margin: 0;
+  strong {
+    font-size: 1rem;
+    color: var(--navy-800);
+
+    i {
+      margin-right: 0.3rem;
+    }
+  }
+
+  small {
     font-size: 0.9375rem;
     color: var(--ink-600);
   }
+}
+
+.qr-top-hint {
+  color: var(--navy-700) !important;
+  font-weight: 500;
 }
 
 // Historial
