@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, shallowRef, useTemplateRef } from 'vue'
+import { computed, nextTick, onMounted, ref, shallowRef, useTemplateRef, watch } from 'vue'
 import type { AccountSummary, Cabin, Order } from '@/types'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import PayerForm from '@/components/accounts/PayerForm.vue'
@@ -13,6 +13,7 @@ import { useSound } from '@/composables/useSound'
 import { useConsumptionCorrections } from '@/composables/useConsumptionCorrections'
 import {
   apiAccountAction,
+  apiAssignConsumers,
   apiCabinAccount,
   apiCollectCabin,
   apiOrders,
@@ -35,7 +36,7 @@ import {
 import { dayKeyOf, formatDateTime, formatDayHeading, formatHour, formatMoney } from '@/utils/format'
 
 const props = defineProps<{ cruiseId: string; cabin: Cabin }>()
-const emit = defineEmits<{ close: []; changed: [] }>()
+const emit = defineEmits<{ close: []; changed: []; groupWith: [cabinNumber: number] }>()
 
 const userStore = useUserStore()
 const confirmStore = useConfirmStore()
@@ -118,8 +119,74 @@ const openOrders = computed(() =>
       at: o.createdAt,
       label: o.items.map((i) => `${i.chargeableQty} × ${i.name}`).join(', '),
       total: o.total,
+      consumerId: o.consumerId && peopleIds.value.has(o.consumerId) ? o.consumerId : null,
+      consumerName: o.consumerName,
     })),
 )
+
+/**
+ * Cada uno lo suyo: la persona elegida ve lo suyo ya marcado, lo sin asignar
+ * para sumar si corresponde y lo de los demás bloqueado (no se cobra dos veces
+ * ni se mezcla). Lo suyo primero.
+ */
+const collectOrders = computed(() => {
+  const me = payerBilling.value.passengerId
+  const rank = (o: (typeof openOrders.value)[number]) => (o.consumerId && o.consumerId === me ? 0 : o.consumerId ? 2 : 1)
+  return [...openOrders.value]
+    .map((o) => ({ ...o, mine: Boolean(me) && o.consumerId === me, other: Boolean(o.consumerId) && o.consumerId !== me }))
+    .sort((a, b) => rank(a) - rank(b))
+})
+const selectable = computed(() => collectOrders.value.filter((o) => !o.other))
+
+/** Al elegir quién paga se marcan sus consumos asignados. */
+function syncSelection() {
+  if (splitMode.value !== 'consumos') return
+  const me = payerBilling.value.passengerId
+  selected.value = new Set(me ? openOrders.value.filter((o) => o.consumerId === me).map((o) => o.id) : [])
+}
+watch([() => payerBilling.value.passengerId, splitMode], syncSelection)
+
+// ---- Quién consumió qué (pedido del cliente, 3-nov-2026) ----
+// Se asigna antes de aprobar; no es un cargo: no anula la aprobación.
+const people = computed(() => props.cabin.passengers.filter((p) => p._id))
+const peopleIds = computed(() => new Set(people.value.map((p) => p._id!)))
+const assigning = shallowRef('')
+
+async function assign(orderIds: string[], passengerId: string | null) {
+  if (!orderIds.length || assigning.value) return
+  assigning.value = orderIds.length === 1 ? orderIds[0]! : 'todos'
+  try {
+    account.value = await apiAssignConsumers(
+      props.cruiseId,
+      props.cabin.number,
+      orderIds.map((orderId) => ({ orderId, passengerId })),
+    )
+    syncSelection()
+  } catch (err) {
+    play('error')
+    toast.error(apiErrorMessage(err))
+  } finally {
+    assigning.value = ''
+  }
+}
+
+const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name
+
+/** Lo que queda por cobrar repartido por persona, y lo que falta asignar. */
+const sharing = computed(() => {
+  const round = (n: number) => Math.round(n * 100) / 100
+  const rows = people.value.map((p) => {
+    const mine = openOrders.value.filter((o) => o.consumerId === p._id)
+    return { id: p._id!, name: p.name, count: mine.length, total: round(mine.reduce((s, o) => s + o.total, 0)) }
+  })
+  const loose = openOrders.value.filter((o) => !o.consumerId)
+  return {
+    rows,
+    looseIds: loose.map((o) => o.id),
+    looseTotal: round(loose.reduce((s, o) => s + o.total, 0)),
+    anyAssigned: rows.some((r) => r.count > 0),
+  }
+})
 
 function toggleOrder(id: string) {
   const next = new Set(selected.value)
@@ -161,6 +228,7 @@ function setMode(mode: SplitMode) {
   splitMode.value = mode
   selected.value = new Set()
   payLines.value = [newLine()]
+  syncSelection()
 }
 
 /** Siguiente persona sin pagar (al dividir) o el titular de la cabina. */
@@ -169,7 +237,10 @@ function suggestPayer() {
   const next =
     splitMode.value === 'una'
       ? (pax.find((p) => p.isPayer) ?? pax[0] ?? null)
-      : (pax.find((p) => !paidNames.value.includes(p.name)) ?? pax[0] ?? null)
+      : (pax.find((p) => sharing.value.rows.some((r) => r.id === p._id && r.count > 0)) ??
+        pax.find((p) => !paidNames.value.includes(p.name)) ??
+        pax[0] ??
+        null)
   payerBilling.value = billingOf(next)
 }
 
@@ -177,7 +248,15 @@ function linesOf(orders: AccountSummary['orders']) {
   return orders.flatMap((order) =>
     order.items
       .filter((i) => i.chargeableQty > 0)
-      .map((i) => ({ ...i, orderId: order.id, by: order.by, at: order.createdAt, single: order.items.length === 1 })),
+      .map((i) => ({
+        ...i,
+        orderId: order.id,
+        by: order.by,
+        at: order.createdAt,
+        single: order.items.length === 1,
+        consumerId: order.consumerId,
+        consumerName: order.consumerName,
+      })),
   )
 }
 
@@ -250,6 +329,12 @@ const canApprove = computed(() => isApprover.value && hasOpenCharges.value && is
  * abierta; Dirección y Gerencia también con la cuenta aprobada (la anula).
  */
 const canCorrect = computed(() => (isApprover.value && (isOpen.value || isApproved.value)) || (isBar.value && isOpen.value))
+/** Asignar quién consumió: con dos o más personas y algo por cobrar. */
+const canAssign = computed(
+  () => people.value.length > 1 && hasOpenCharges.value && account.value?.status !== 'cobrada' && (isApprover.value || isBar.value),
+)
+/** Primera carga: si ya se asignaron consumos a dos o más personas, el cobro abre en "Cada uno lo suyo". */
+let firstLoad = true
 const collectSection = useTemplateRef<HTMLElement>('collectSection')
 
 
@@ -262,7 +347,12 @@ async function load() {
     account.value = acc
     // Con partes ya cobradas se sigue dividiendo como se empezó.
     if (acc.payments.some((p) => !p.settled && p.part) && splitMode.value === 'una') splitMode.value = 'porcentaje'
+    else if (firstLoad && splitMode.value === 'una' && !hasAbonos.value && sharing.value.rows.filter((r) => r.count).length > 1) {
+      splitMode.value = 'consumos'
+    }
+    firstLoad = false
     suggestPayer()
+    syncSelection()
     annulmentOrders.value = ann.orders
   } catch (err) {
     toast.error(apiErrorMessage(err))
@@ -605,11 +695,41 @@ async function openProforma(download: boolean) {
                 </em>
                 <em v-if="line.paid" class="tag tag--paid">Cobrado</em>
                 <em v-if="line.pendingQty" class="tag tag--pending">{{ line.pendingQty }} por entregar</em>
+                <em v-if="line.consumerName && (line.paid || !canAssign)" class="tag tag--who">
+                  <i class="fa-solid fa-user" aria-hidden="true" /> {{ line.consumerName }}
+                </em>
               </span>
             </div>
             <span class="line-amount" :class="{ 'line-amount--zero': lineAmount(line) === 0 }">
               {{ formatMoney(lineAmount(line)) }}
             </span>
+            <!-- ¿Quién lo consumió? Antes de aprobar; un toque en la misma persona lo deja sin asignar -->
+            <div
+              v-if="canAssign && !line.paid && lineAmount(line) > 0"
+              class="who-row"
+              role="radiogroup"
+              :aria-label="`Quién consumió ${line.name}`"
+            >
+              <span class="who-label">¿Quién?</span>
+              <button
+                v-for="p in people"
+                :key="p._id"
+                type="button"
+                role="radio"
+                class="who-btn"
+                :class="{ 'who-btn--on': line.consumerId === p._id }"
+                :aria-checked="line.consumerId === p._id"
+                :disabled="Boolean(assigning)"
+                @click="assign([line.orderId], line.consumerId === p._id ? null : p._id!)"
+              >
+                <i
+                  class="fa-solid"
+                  :class="assigning === line.orderId ? 'fa-spinner fa-spin' : line.consumerId === p._id ? 'fa-circle-check' : 'fa-user'"
+                  aria-hidden="true"
+                />
+                {{ firstName(p.name) }}
+              </button>
+            </div>
             <!-- Corrección directa bajo cada consumo (sin modo Modificar) -->
             <div v-if="canCorrect && !line.paid && line.single" class="line-actions">
               <button
@@ -633,6 +753,45 @@ async function openProforma(download: boolean) {
         </div>
         <p v-if="!neverCharged && !deliveredLines.length" class="muted">Nada por cobrar.</p>
         <p v-if="account.courtesyAll" class="muted">Cortesías registradas: {{ formatMoney(account.courtesyAll) }}</p>
+      </section>
+
+      <!-- Reparto por persona (pedido 3-nov-2026): se ve antes de aprobar y alimenta "Cada uno lo suyo" -->
+      <section v-if="canAssign" class="block sharing" aria-labelledby="acc-share-title">
+        <h4 id="acc-share-title" class="block-title">
+          <i class="fa-solid fa-users" aria-hidden="true" /> Quién consumió qué
+        </h4>
+        <p class="muted">
+          Si dividen la cuenta, toca en cada consumo de quién es. Al cobrar, "Cada uno lo suyo" ya trae lo de cada persona.
+        </p>
+        <ul class="share-list">
+          <li v-for="r in sharing.rows" :key="r.id" class="share-row">
+            <span class="share-name"><i class="fa-solid fa-user" aria-hidden="true" /> {{ r.name }}</span>
+            <small>{{ r.count }} consumo{{ r.count === 1 ? '' : 's' }}</small>
+            <strong>{{ formatMoney(r.total) }}</strong>
+          </li>
+          <li class="share-row" :class="{ 'share-row--loose': sharing.looseIds.length }">
+            <span class="share-name">
+              <i class="fa-solid" :class="sharing.looseIds.length ? 'fa-circle-question' : 'fa-circle-check'" aria-hidden="true" />
+              {{ sharing.looseIds.length ? 'Sin asignar' : 'Todo asignado' }}
+            </span>
+            <small v-if="sharing.looseIds.length">{{ sharing.looseIds.length }} consumo{{ sharing.looseIds.length === 1 ? '' : 's' }}</small>
+            <strong v-if="sharing.looseIds.length">{{ formatMoney(sharing.looseTotal) }}</strong>
+          </li>
+        </ul>
+        <div v-if="sharing.looseIds.length" class="share-all">
+          <span>Lo sin asignar:</span>
+          <button
+            v-for="p in people"
+            :key="p._id"
+            type="button"
+            class="tool tool--sm"
+            :disabled="Boolean(assigning)"
+            @click="assign(sharing.looseIds, p._id!)"
+          >
+            <i class="fa-solid" :class="assigning === 'todos' ? 'fa-spinner fa-spin' : 'fa-user-check'" aria-hidden="true" />
+            Todo a {{ firstName(p.name) }}
+          </button>
+        </div>
       </section>
 
       <!-- Pagos recibidos: pago y factura son estados separados -->
@@ -784,6 +943,16 @@ async function openProforma(download: boolean) {
               <strong>Dividir en porcentaje</strong>
               <small>Ej. 50 % cada uno</small>
             </button>
+            <button
+              type="button"
+              class="split-opt"
+              :disabled="hasAbonos || hasParts"
+              @click="emit('groupWith', cabin.number)"
+            >
+              <i class="fa-solid fa-people-arrows" aria-hidden="true" />
+              <strong>Otra cabina paga</strong>
+              <small>Una factura por las dos</small>
+            </button>
           </div>
           <p v-if="hasAbonos" class="muted">Hay un pago parcial: cobra el saldo completo para dividir de nuevo.</p>
 
@@ -803,23 +972,36 @@ async function openProforma(download: boolean) {
               <p class="collect-label">
                 <span class="collect-n">2</span> Consumos de {{ payerBilling.name || 'esta persona' }}
                 <button
+                  v-if="selectable.length"
                   type="button"
                   class="tool tool--sm"
-                  @click="selected = selected.size === openOrders.length ? new Set() : new Set(openOrders.map((o) => o.id))"
+                  @click="selected = selected.size === selectable.length ? new Set() : new Set(selectable.map((o) => o.id))"
                 >
-                  {{ selected.size === openOrders.length ? 'Ninguno' : 'Todos' }}
+                  {{ selected.size === selectable.length ? 'Ninguno' : 'Todos' }}
                 </button>
               </p>
               <ul class="assign">
-                <li v-for="o in openOrders" :key="o.id">
-                  <label class="assign-row" :class="{ 'assign-row--on': selected.has(o.id) }">
-                    <input type="checkbox" :checked="selected.has(o.id)" @change="toggleOrder(o.id)" />
-                    <span class="assign-name">{{ o.label }}<small>{{ formatHour(o.at) }}</small></span>
+                <li v-for="o in collectOrders" :key="o.id">
+                  <label
+                    class="assign-row"
+                    :class="{ 'assign-row--on': selected.has(o.id), 'assign-row--other': o.other }"
+                  >
+                    <input type="checkbox" :checked="selected.has(o.id)" :disabled="o.other" @change="toggleOrder(o.id)" />
+                    <span class="assign-name">
+                      {{ o.label }}
+                      <small>
+                        {{ formatHour(o.at) }}
+                        <template v-if="o.other"> · de {{ o.consumerName }}</template>
+                        <template v-else-if="!o.consumerId"> · sin asignar</template>
+                      </small>
+                    </span>
                     <strong>{{ formatMoney(o.total) }}</strong>
                   </label>
                 </li>
               </ul>
-              <p class="muted">Lo que no marques queda en la cuenta para la otra persona.</p>
+              <p class="muted">
+                Lo de otra persona queda para su propio cobro. Para cambiar de quién es un consumo, tócalo arriba en "Quién consumió qué".
+              </p>
             </div>
             <div v-else-if="splitMode === 'porcentaje'" key="pct" class="collect-step">
               <p class="collect-label"><span class="collect-n">2</span> Porcentaje que paga {{ payerBilling.name || 'esta persona' }}</p>
@@ -1547,7 +1729,11 @@ async function openProforma(download: boolean) {
   gap: 0.45rem;
 
   @include tablet {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @include desktop {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -1684,6 +1870,135 @@ async function openProforma(download: boolean) {
   &--on {
     border-color: var(--navy-700);
     background: var(--powder-100);
+  }
+}
+
+.assign-row--other {
+  cursor: not-allowed;
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+// Quién consumió qué: selector bajo cada consumo y reparto por persona
+.who-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  margin-top: 0.15rem;
+}
+
+.who-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink-600);
+  margin-right: 0.15rem;
+}
+
+.who-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--cream-200);
+  background: var(--surface);
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.12s ease;
+
+  i {
+    color: var(--navy-600);
+  }
+
+  &:hover:not(:disabled):not(.who-btn--on) {
+    border-color: var(--navy-600);
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  &:disabled {
+    cursor: progress;
+  }
+
+  &--on {
+    background: var(--navy-800);
+    border-color: var(--navy-800);
+    color: #fff;
+
+    i {
+      color: var(--powder-300);
+    }
+  }
+}
+
+.tag--who {
+  background: var(--powder-100);
+  color: var(--navy-800);
+}
+
+.sharing .muted {
+  margin: 0 0 0.6rem;
+}
+
+.share-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.share-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--cream-100);
+
+  small {
+    color: var(--ink-400);
+  }
+
+  strong {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &--loose {
+    background: var(--pill-warn-bg);
+    color: var(--pill-warn-ink);
+  }
+}
+
+.share-name {
+  font-weight: 600;
+
+  i {
+    margin-right: 0.3rem;
+  }
+}
+
+.share-all {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+
+  span {
+    font-size: 0.9rem;
+    font-weight: 600;
   }
 }
 
