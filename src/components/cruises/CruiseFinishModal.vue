@@ -61,7 +61,7 @@ async function finish() {
   try {
     const { cruise } = await apiFinishCruise(props.cruise._id, reason.value.trim() || undefined)
     play('success')
-    toast.success(`Operación de ${label.value} finalizada. Las cuentas pendientes siguen por cobrar.`)
+    toast.success(`${label.value} finalizado y guardado. El siguiente crucero empieza en cero.`)
     emit('finished', cruise)
   } catch (err) {
     play('error')
@@ -130,6 +130,22 @@ async function finish() {
           <textarea id="finish-reason" v-model="reason" rows="2" placeholder="Ej.: tableta sin señal en Baltra" />
         </div>
       </Transition>
+
+      <!-- Qué pasa al finalizar (pedido de Administración, 3-nov-2026): nada se borra -->
+      <ul class="after">
+        <li>
+          <i class="fa-solid fa-box-archive" aria-hidden="true" />
+          <span><strong>Se guarda, no se borra.</strong> Cuentas, pagos y pasajeros de {{ label }} quedan en Cruceros → Finalizados y en Cuentas, eligiendo este crucero.</span>
+        </li>
+        <li>
+          <i class="fa-solid fa-rotate-right" aria-hidden="true" />
+          <span><strong>El siguiente crucero empieza en cero.</strong> Cuentas en $0 y cabinas sin pasajeros.</span>
+        </li>
+        <li>
+          <i class="fa-solid fa-boxes-stacked" aria-hidden="true" />
+          <span><strong>El inventario no cambia.</strong> Lo que queda a bordo pasa al siguiente crucero.</span>
+        </li>
+      </ul>
 
       <p class="note">
         Se finaliza la operación de <strong>{{ label }}</strong>. El bar ya no podrá registrar consumos nuevos.
@@ -302,5 +318,30 @@ async function finish() {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+.after {
+  list-style: none;
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  border-radius: var(--radius-sm);
+  background: var(--powder-100);
+
+  li {
+    display: flex;
+    gap: 0.65rem;
+    align-items: flex-start;
+    line-height: 1.4;
+  }
+
+  i {
+    width: 1.1rem;
+    margin-top: 0.2rem;
+    color: var(--navy-700);
+    text-align: center;
+    flex-shrink: 0;
+  }
 }
 </style>
