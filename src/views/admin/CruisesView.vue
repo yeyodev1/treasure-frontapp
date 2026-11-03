@@ -195,6 +195,10 @@ const visible = computed(() =>
       ],
 )
 
+/** Sin crucero en curso: el siguiente empieza en cero (cuentas en $0, cabinas vacías). */
+const noneActive = computed(() => !loading.value && !cruises.value.some((c) => c.status === 'abordo'))
+const nextPlanned = computed(() => cruises.value.find((c) => c.status === 'planificado') ?? null)
+
 const upcomingCount = computed(() => cruises.value.filter((c) => c.status !== 'cerrado').length)
 const closedCount = computed(() => cruises.value.filter((c) => c.status === 'cerrado').length)
 
@@ -289,6 +293,23 @@ async function onPassengersSaved() {
         </button>
       </div>
     </header>
+
+    <!-- Sin crucero en curso: cómo empezar de cero sin borrar nada (pedido de Administración, 3-nov-2026) -->
+    <Transition name="fade">
+      <aside v-if="noneActive && userStore.isDirector" class="fresh" aria-label="Empezar el siguiente crucero">
+        <i class="fa-solid fa-rotate-right fresh-icon" aria-hidden="true" />
+        <div>
+          <p class="fresh-title">No hay crucero en curso: el siguiente empieza en cero</p>
+          <p class="fresh-text">
+            Cuentas en $0 y cabinas sin pasajeros. Lo anterior sigue guardado en Finalizados y el inventario no cambia.
+            <template v-if="nextPlanned">
+              Para empezar: en <strong>{{ label(nextPlanned) }}</strong> toca cada cabina para registrar sus pasajeros y luego <strong>Iniciar crucero</strong>.
+            </template>
+            <template v-else>Para empezar: crea el siguiente crucero aquí abajo, registra sus pasajeros y toca <strong>Iniciar crucero</strong>.</template>
+          </p>
+        </div>
+      </aside>
+    </Transition>
 
     <!-- Nuevo crucero: el siguiente del ciclo ya elegido; tipo y fecha solo en días de zarpe -->
     <section class="new-cruise" aria-labelledby="new-cruise-title">
@@ -1095,6 +1116,34 @@ async function onPassengersSaved() {
   align-items: flex-start;
   gap: 0.75rem;
   margin-bottom: 0.9rem;
+}
+
+.fresh {
+  display: flex;
+  gap: 0.9rem;
+  align-items: flex-start;
+  margin-bottom: 1.1rem;
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--powder-300);
+  background: var(--powder-100);
+}
+
+.fresh-icon {
+  margin-top: 0.2rem;
+  font-size: 1.15rem;
+  color: var(--navy-700);
+}
+
+.fresh-title {
+  margin: 0 0 0.25rem;
+  font-weight: 700;
+  color: var(--navy-800);
+}
+
+.fresh-text {
+  margin: 0;
+  line-height: 1.45;
 }
 
 .cruise-side {
