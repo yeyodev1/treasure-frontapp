@@ -558,6 +558,9 @@ export interface AccountOrder {
   status: OrderStatus
   items: AccountLineItem[]
   total: number
+  /** Pasajero de la cabina que lo consumió (null = sin asignar). */
+  consumerId: string | null
+  consumerName: string
 }
 
 export interface AccountPayment {
