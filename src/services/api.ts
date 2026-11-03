@@ -1,6 +1,7 @@
 import { http } from './httpBase'
 import type {
   AccountSummary,
+  CommissionSummary,
   AgencyCourtesy,
   CourtesyKind,
   Availability,
@@ -684,5 +685,21 @@ export async function apiCancelPurchase(id: string, reason: string) {
 // Panel de la dueña
 export async function apiOwnerPanel(params: { cruiseId?: string; from?: string; to?: string } = {}) {
   const { data } = await http.get<OwnerPanel>('/reports/owner', { params })
+  return data
+}
+
+// Comisiones del bartender (solo Gerencia)
+export async function apiCommissions() {
+  const { data } = await http.get<CommissionSummary>('/commissions')
+  return data
+}
+
+export async function apiCreateCommissionPayment(payload: { amount: number; paidAt: string; note: string }) {
+  const { data } = await http.post<CommissionSummary>('/commissions/payments', payload)
+  return data
+}
+
+export async function apiVoidCommissionPayment(id: string, reason: string) {
+  const { data } = await http.post<CommissionSummary>(`/commissions/payments/${id}/void`, { reason })
   return data
 }
