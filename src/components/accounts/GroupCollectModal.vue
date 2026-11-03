@@ -26,7 +26,12 @@ import { formatMoney } from '@/utils/format'
  * cabinas y uno paga todo. Se eligen las cuentas aprobadas, quién paga y
  * cómo; queda una sola factura y todas las cabinas Pagadas.
  */
-const props = defineProps<{ cruise: Cruise; rows: CabinAccountRow[] }>()
+const props = defineProps<{
+  cruise: Cruise
+  rows: CabinAccountRow[]
+  /** Cabina que pidió que otra le pague: entra ya marcada. */
+  preselect?: number | null
+}>()
 const emit = defineEmits<{ close: []; collected: [] }>()
 
 const confirmStore = useConfirmStore()
@@ -35,7 +40,7 @@ const { play } = useSound()
 
 /** Aprobadas con saldo; con pagos parciales se cobran solas. */
 const candidates = computed(() => props.rows.filter((r) => r.status === 'aprobada' && r.due > 0))
-const picked = ref<Set<number>>(new Set())
+const picked = ref<Set<number>>(new Set(props.preselect ? [props.preselect] : []))
 const billing = ref<Billing>(emptyBilling())
 const payLines = ref<PayLine[]>([newLine()])
 const busy = shallowRef(false)
@@ -106,11 +111,21 @@ async function collect() {
 </script>
 
 <template>
-  <BaseModal title="Cobrar cabinas juntas" subtitle="Una persona paga varias cabinas: una sola factura." size="lg" @close="emit('close')">
+  <BaseModal
+    :title="preselect ? `Otra cabina paga la cabina ${preselect}` : 'Cobrar cabinas juntas'"
+    :subtitle="preselect
+      ? 'Marca la cabina que paga y elige a la persona: una sola factura por todo.'
+      : 'Una persona paga varias cabinas: una sola factura.'"
+    size="lg"
+    @close="emit('close')"
+  >
     <div class="group">
       <section class="step">
-        <p class="label"><span class="n">1</span> Cabinas que paga</p>
+        <p class="label"><span class="n">1</span> {{ preselect ? 'Cabina que paga' : 'Cabinas que paga' }}</p>
         <p v-if="!candidates.length" class="muted">No hay cuentas aprobadas con saldo. Aprueba las cuentas primero.</p>
+        <p v-else-if="preselect" class="muted">
+          Solo aparecen cuentas aprobadas: si la cabina que paga no está, aprueba su cuenta primero.
+        </p>
         <div v-else class="cabins">
           <label
             v-for="r in candidates"
