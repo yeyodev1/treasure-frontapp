@@ -24,20 +24,23 @@ interface NavSection {
 }
 
 // Menú en tres grupos (guía visual V3): Operar / Controlar / Administrar.
+// Cruceros va primero (pedido del cliente, 3-nov-2026): se inicia el crucero
+// y desde ahí se entra al bar. Dirección no ve Bodega ni En vivo.
 const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Operar',
     items: [
+      { to: '/admin/salidas', label: 'Cruceros', icon: 'fa-ship', roles: ['duena', 'admin', 'direccion'] },
       { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: ['duena', 'direccion', 'bartender'] },
       { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: ['duena', 'direccion'] },
       { to: '/abastecimiento', label: 'Abastecimiento', icon: 'fa-dolly', roles: ['duena', 'admin', 'direccion', 'bartender', 'bodega'] },
-      { to: '/bodega', label: 'Bodega', icon: 'fa-warehouse', roles: ['duena', 'admin', 'bodega', 'direccion'] },
+      { to: '/bodega', label: 'Bodega', icon: 'fa-warehouse', roles: ['duena', 'admin', 'bodega'] },
     ],
   },
   {
     label: 'Controlar',
     items: [
-      { to: '/admin/en-vivo', label: 'En vivo', icon: 'fa-tower-broadcast', roles: ['duena', 'admin', 'direccion'] },
+      { to: '/admin/en-vivo', label: 'En vivo', icon: 'fa-tower-broadcast', roles: ['duena', 'admin'] },
       { to: '/admin', label: 'Resumen del negocio', short: 'Resumen', icon: 'fa-chart-line', roles: ['duena'] },
       { to: '/admin/inventario', label: 'Inventario', icon: 'fa-boxes-stacked', roles: ['duena', 'admin', 'bodega', 'direccion'] },
       { to: '/admin/pagos', label: 'Cobros', icon: 'fa-cash-register', roles: ['duena', 'admin', 'direccion'] },
@@ -46,7 +49,6 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Administrar',
     items: [
-      { to: '/admin/salidas', label: 'Cruceros', icon: 'fa-ship', roles: ['duena', 'admin', 'direccion'] },
       { to: '/admin/productos', label: 'Catálogo', icon: 'fa-wine-bottle', roles: ['duena', 'admin', 'bodega'] },
       { to: '/admin/equipo', label: 'Equipo', icon: 'fa-users', roles: ['duena'] },
     ],
@@ -180,7 +182,9 @@ async function logout() {
     <div class="masthead">
     <header class="topbar">
       <div class="topbar-left">
+        <!-- Las pestañas de arriba ya son el menú; el lateral queda para Gerencia (Ver la app como, Registros ISM). -->
         <button
+          v-if="userStore.isRealAdmin"
           class="menu-btn"
           type="button"
           :aria-label="drawerOpen ? 'Cerrar menú' : 'Abrir menú'"
