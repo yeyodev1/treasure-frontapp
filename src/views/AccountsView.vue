@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, shallowRef } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useCruiseStore } from '@/stores/cruise'
 import { useToastStore } from '@/stores/toast'
@@ -27,6 +28,8 @@ const userStore = useUserStore()
 const confirmStore = useConfirmStore()
 const { play } = useSound()
 const { active } = storeToRefs(cruiseStore)
+const route = useRoute()
+const router = useRouter()
 
 const cruises = shallowRef<Cruise[]>([])
 const selectedId = shallowRef('')
@@ -36,6 +39,8 @@ const loading = shallowRef(true)
 const target = shallowRef<Cabin | null>(null)
 const reviewing = shallowRef('')
 const showGroup = shallowRef(false)
+/** Cabina que entra ya marcada al cobrar cabinas juntas ("otra cabina paga"). */
+const groupPreselect = shallowRef<number | null>(null)
 const showAgency = shallowRef(false)
 /** Cortesías de agencia del crucero (se le facturan a la agencia). */
 const agencyTotal = shallowRef(0)
@@ -136,6 +141,7 @@ const groupable = computed(() => rows.value.filter((r) => r.status === 'aprobada
 
 async function onGroupCollected() {
   showGroup.value = false
+  groupPreselect.value = null
   await onChanged()
 }
 
@@ -162,10 +168,27 @@ onMounted(async () => {
     }
     selectedId.value = active.value?._id ?? cruises.value[0]?._id ?? ''
     await Promise.all([loadRows(), loadHeld()])
+    openFromQuery()
   } finally {
     loading.value = false
   }
 })
+
+/** "Ir a cuenta" desde el Bar llega con ?cabina=N: abre esa cuenta del crucero en curso. */
+function openFromQuery() {
+  const n = Number(route.query.cabina)
+  if (!n || !cruise.value) return
+  const cabin = cruise.value.cabins.find((c) => c.number === n)
+  if (cabin) target.value = cabin
+  void router.replace({ query: {} })
+}
+
+/** Desde la cuenta de una cabina: otra cabina le paga (cobro de cabinas juntas). */
+function groupWith(cabinNumber: number) {
+  target.value = null
+  groupPreselect.value = cabinNumber
+  showGroup.value = true
+}
 
 async function changeCruise(id: string) {
   selectedId.value = id
@@ -304,7 +327,7 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
 
       <!-- Dirección: cobrar varias cabinas a un pagador y la cuenta de la agencia -->
       <div v-if="!isBar && userStore.isDirector" class="actions-row">
-        <button type="button" class="action" :disabled="groupable < 2" @click="showGroup = true">
+        <button type="button" class="action" :disabled="groupable < 2" @click="groupPreselect = null; showGroup = true">
           <i class="fa-solid fa-people-group" aria-hidden="true" />
           <span>
             <strong>Cobrar cabinas juntas</strong>
@@ -416,12 +439,14 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
       :cabin="target"
       @close="target = null"
       @changed="onChanged"
+      @group-with="groupWith"
     />
     <GroupCollectModal
       v-if="showGroup && cruise"
       :cruise="cruise"
       :rows="rows"
-      @close="showGroup = false"
+      :preselect="groupPreselect"
+      @close="showGroup = false; groupPreselect = null"
       @collected="onGroupCollected"
     />
     <AgencyCourtesiesModal v-if="showAgency && cruise" :cruise="cruise" @close="showAgency = false" />
