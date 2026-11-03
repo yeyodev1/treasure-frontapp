@@ -7,7 +7,7 @@ import { useToastStore } from '@/stores/toast'
 import { useConfirmStore } from '@/stores/confirm'
 import { apiCommissions, apiCreateCommissionPayment, apiVoidCommissionPayment } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
-import { formatDate, formatDateTime, formatDayKey, formatMoney, todayKey } from '@/utils/format'
+import { formatDate, formatDateTime, formatMoney, todayKey } from '@/utils/format'
 import type { CommissionPaymentRow, CommissionSummary, CruiseCommission } from '@/types'
 
 /**
@@ -47,9 +47,11 @@ async function load() {
 
 onMounted(load)
 
+/** Fechas reales de operación (inicio y fin); si no constan, las programadas. */
 function cruiseDates(c: CruiseCommission) {
-  const end = c.closedAt ?? c.endDate
-  return end ? `${formatDate(c.startDate)} – ${formatDate(end)}` : `Desde ${formatDate(c.startDate)}`
+  const start = c.startedAt ?? c.startDate
+  const end = c.status === 'cerrado' ? (c.closedAt ?? c.endDate) : null
+  return end ? `${formatDate(start)} – ${formatDate(end)}` : `Desde ${formatDate(start)}`
 }
 
 /** Monto escrito con coma o punto. */
@@ -255,7 +257,6 @@ async function voidPayment(p: CommissionPaymentRow) {
         <div class="field">
           <label>Fecha del pago</label>
           <BaseDatePicker v-model="paidAt" placeholder="Elige la fecha" />
-          <p v-if="paidAt" class="field-hint">{{ formatDayKey(paidAt) }}</p>
         </div>
         <div class="field">
           <label for="commission-note">Nota (opcional)</label>
