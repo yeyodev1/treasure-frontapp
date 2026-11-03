@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, shallowRef, watch } from 'vue'
+import { useUserStore } from '@/stores/user'
 import type { Cabin, CabinConsumption, CabinSummary } from '@/types'
 import type { QueueEntry } from '@/composables/useConsumptionQueue'
 import { formatMoney } from '@/utils/format'
@@ -32,8 +33,19 @@ const emit = defineEmits<{
   toggleCourtesy: []
 }>()
 
+/**
+ * Se ve lo de hoy; todo el viaje solo si el pasajero lo pide (pedido del
+ * cliente, 3-nov-2026). Al cambiar de cabina vuelve a Hoy.
+ */
 type Scope = 'viaje' | 'hoy'
-const scope = shallowRef<Scope>('viaje')
+const scope = shallowRef<Scope>('hoy')
+watch(
+  () => props.cabin.number,
+  () => (scope.value = 'hoy'),
+)
+
+/** Dirección y Gerencia saltan a la cuenta de la cabina para aprobar y cobrar. */
+const userStore = useUserStore()
 
 /** Plegado en tableta vertical y celular; se recuerda en esta tableta. */
 const COLLAPSE_KEY = 'treasure.bar.accountCollapsed'
@@ -153,21 +165,21 @@ function names(c: Cabin) {
           type="button"
           role="tab"
           class="scope-btn"
-          :class="{ 'scope-btn--on': scope === 'viaje' }"
-          :aria-selected="scope === 'viaje'"
-          @click="scope = 'viaje'"
-        >
-          Todo el viaje
-        </button>
-        <button
-          type="button"
-          role="tab"
-          class="scope-btn"
           :class="{ 'scope-btn--on': scope === 'hoy' }"
           :aria-selected="scope === 'hoy'"
           @click="scope = 'hoy'"
         >
           Hoy
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="scope-btn"
+          :class="{ 'scope-btn--on': scope === 'viaje' }"
+          :aria-selected="scope === 'viaje'"
+          @click="scope = 'viaje'"
+        >
+          Todo el viaje
         </button>
       </div>
       <button type="button" class="collapse-btn" :aria-expanded="!collapsed" @click="collapsed = !collapsed">
@@ -246,6 +258,14 @@ function names(c: Cabin) {
         <span>Cuenta de la cabina<span v-if="units" class="trip-count"> · {{ tripCount }} consumos</span></span>
         <strong :class="{ missing: !summary }">{{ summary ? formatMoney(summary.tripTotal) : '—' }}</strong>
       </div>
+      <RouterLink
+        v-if="userStore.isDirector"
+        :to="{ path: '/cuentas', query: { cabina: String(cabin.number) } }"
+        class="go-account"
+      >
+        <i class="fa-solid fa-file-invoice-dollar" aria-hidden="true" /> Ir a cuenta
+        <i class="fa-solid fa-arrow-right" aria-hidden="true" />
+      </RouterLink>
     </footer>
   </section>
 </template>
@@ -654,6 +674,35 @@ function names(c: Cabin) {
 .account-trip {
   align-items: flex-end;
   text-align: right;
+  margin-left: auto;
+}
+
+// "Ir a cuenta": Dirección pasa de la cabina a aprobar y cobrar.
+.go-account {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 48px;
+  padding: 0 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--navy-800);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.92rem;
+  white-space: nowrap;
+  text-decoration: none;
+  transition:
+    background 0.15s ease,
+    transform 0.12s ease;
+
+  &:hover {
+    background: var(--navy-700);
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
 }
 
 .fade-enter-active,
