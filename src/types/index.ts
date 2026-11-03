@@ -800,3 +800,44 @@ export interface PublicAccount {
     due: number
   }
 }
+
+/** Comisiones del bartender (solo Gerencia): 10 % de las ventas del bar ÷ 1,21. */
+export interface CruiseCommission {
+  id: string
+  code: string
+  name: string
+  routeFrom: string
+  routeTo: string
+  startDate: string
+  endDate: string | null
+  startedAt: string | null
+  closedAt: string | null
+  status: CruiseStatus
+  orders: number
+  sales: number
+  commission: number
+  paid: number
+  pending: number
+  state: 'pagada' | 'parcial' | 'pendiente'
+  /** Comisión acumulada hasta este crucero (del más antiguo al más reciente). */
+  accumulated: number
+}
+
+export interface CommissionPaymentRow {
+  id: string
+  amount: number
+  paidAt: string
+  note: string
+  status: 'vigente' | 'anulado'
+  by: string
+  createdAt: string
+  voided: { by: string; at: string; reason: string } | null
+}
+
+export interface CommissionSummary {
+  rate: number
+  divisor: number
+  totals: { sales: number; generated: number; paid: number; pending: number; cruises: number }
+  cruises: CruiseCommission[]
+  payments: CommissionPaymentRow[]
+}
