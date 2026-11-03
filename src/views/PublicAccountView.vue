@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, shallowRef } from 'vue'
+import { onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import { useRoute } from 'vue-router'
 import { apiPublicAccount } from '@/services/api'
 import { TIMEZONE } from '@/utils/format'
@@ -32,7 +32,15 @@ const METHOD_EN: Record<string, string> = {
   online: 'Online payment',
 }
 
+// La app es en español (<html lang="es">); esta página es del pasajero y va
+// en inglés completa, también para el navegador y su traductor.
+const previousLang = document.documentElement.lang
+onBeforeUnmount(() => {
+  document.documentElement.lang = previousLang
+})
+
 onMounted(async () => {
+  document.documentElement.lang = 'en'
   document.title = 'Your onboard account · Treasure of Galapagos'
   try {
     data.value = await apiPublicAccount(String(route.params.token))
