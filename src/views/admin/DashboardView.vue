@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import OwnerPanel from '@/components/owner/OwnerPanel.vue'
+import BartenderCommissions from '@/components/owner/BartenderCommissions.vue'
 
 /**
  * Resumen del negocio (solo Gerencia; el servidor también lo restringe).
@@ -16,6 +17,7 @@ import OwnerPanel from '@/components/owner/OwnerPanel.vue'
     </header>
 
     <OwnerPanel />
+    <BartenderCommissions />
   </div>
 </template>
 
