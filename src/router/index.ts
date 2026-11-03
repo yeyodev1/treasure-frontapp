@@ -107,7 +107,8 @@ const router = createRouter({
 const ROLE_HOME: Record<UserRole, string> = {
   duena: '/admin/en-vivo',
   admin: '/bodega',
-  direccion: '/cuentas',
+  // Dirección empieza en Cruceros (primera pestaña): de ahí entra al bar.
+  direccion: '/admin/salidas',
   bartender: '/',
   bodega: '/bodega',
   capitan: '/',
