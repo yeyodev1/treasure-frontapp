@@ -188,7 +188,7 @@ async function approve(r: Requisition) {
   try {
     const updated = await apiReviewRequisition(r._id, 'aprobar')
     play('success')
-    toast.success(`Solicitud ${updated.code} aprobada. Bodega ya la ve por recibir.`)
+    toast.success(`Solicitud ${updated.code} aprobada. Ya aparece en Compras y entregas para subirla al barco.`)
     replaceRow(updated)
     void loadBadges()
   } catch (err) {
@@ -333,7 +333,7 @@ const emptyText = computed(
         v-else-if="mode === 'receive' && receiving"
         key="receive"
         :requisition="receiving"
-        back-label="Abastecimiento"
+        back-label="Solicitudes del bar"
         @back="mode = 'list'"
         @saved="onReceived"
       />
@@ -341,7 +341,7 @@ const emptyText = computed(
       <div v-else key="list" class="wrap">
         <header class="page-head">
           <div class="page-head-text">
-            <h1 class="page-title">Abastecimiento</h1>
+            <h1 class="page-title">Solicitudes del bar</h1>
             <p class="page-lead">
               El bar solicita, Dirección de crucero aprueba y bodega lo entrega a bordo. El stock cambia
               solo cuando se recibe.
@@ -421,7 +421,7 @@ const emptyText = computed(
                 <button type="button" class="btn btn-primary" :disabled="busyId === r._id" @click="resolve(r)">
                   <i class="fa-solid fa-clipboard-check" aria-hidden="true" /> Marcar atendida
                 </button>
-                <RouterLink class="btn btn-secondary" :to="{ path: '/bodega', query: { flujo: 'conteo' } }">
+                <RouterLink class="btn btn-secondary" :to="'/inventario/conteos'">
                   <i class="fa-solid fa-clipboard-list" aria-hidden="true" /> Abrir conteo físico
                 </RouterLink>
               </template>
