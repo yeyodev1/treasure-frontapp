@@ -288,7 +288,7 @@ async function toggleCourtesy() {
   }
   const answer = await confirmStore.askChoice({
     title: 'La próxima bebida va como cortesía',
-    message: 'No se cobra a la cabina, pero se descuentan los ingredientes. La de agencia va a la cuenta de la agencia.',
+    message: 'No se cobra a la cabina, pero se descuentan los ingredientes. La de agencia se junta en Cuentas › «Cortesías de agencia» para facturarla al final del crucero.',
     confirmLabel: 'Activar cortesía',
     icon: 'fa-gift',
     choice: corrections.COURTESY_CHOICE,

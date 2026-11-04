@@ -33,7 +33,7 @@ export const COURTESY_CHOICE = {
   label: '¿Quién paga la cortesía?',
   options: [
     { value: 'casa', label: 'La casa', hint: 'La absorbe Treasure' },
-    { value: 'agencia', label: 'La agencia', hint: 'Se le factura al final del crucero' },
+    { value: 'agencia', label: 'La agencia', hint: 'Se junta en Cuentas › «Cortesías de agencia»' },
   ],
 }
 const APPROVED_NOTE = ' La cuenta está aprobada: este cambio anula la aprobación y habrá que volver a aprobarla.'
@@ -54,7 +54,7 @@ export function useConsumptionCorrections() {
     if (!answer) return null
     const kind = answer.choice as CourtesyKind
     const data = await apiBonifyConsumption(line.orderId, answer.reason, kind)
-    return { message: kind === 'agencia' ? 'Cortesía de agencia: va a la cuenta de la agencia' : 'Cortesía de la casa', summary: data.summary }
+    return { message: kind === 'agencia' ? 'Cortesía de agencia: la ves en Cuentas › «Cortesías de agencia»' : 'Cortesía de la casa', summary: data.summary }
   }
 
   /**

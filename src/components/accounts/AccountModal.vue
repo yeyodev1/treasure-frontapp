@@ -349,8 +349,10 @@ async function load() {
     else if (firstLoad && splitMode.value === 'una' && !hasAbonos.value && sharing.value.rows.filter((r) => r.count).length > 1) {
       splitMode.value = 'consumos'
     }
+    // "Otra persona" ya escrita se conserva tras cobrar parte: puede pagar lo que le falte (4-nov-2026).
+    const keepOther = !firstLoad && !payerBilling.value.passengerId && Boolean(payerBilling.value.name.trim())
     firstLoad = false
-    suggestPayer()
+    if (!keepOther) suggestPayer()
     syncSelection()
     annulmentOrders.value = ann.orders
   } catch (err) {

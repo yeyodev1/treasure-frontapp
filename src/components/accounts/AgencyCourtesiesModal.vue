@@ -65,7 +65,7 @@ async function copySummary() {
 </script>
 
 <template>
-  <BaseModal :title="`Cortesías de agencia · ${label}`" subtitle="No se cobran a la cabina: se le facturan a la agencia al final del crucero." size="lg" @close="emit('close')">
+  <BaseModal :title="`Cortesías de agencia · ${label}`" subtitle="Aquí se juntan todas las cortesías de agencia del crucero. Al final, toca «Copiar resumen» y envíaselo a la agencia o úsalo para su factura." size="lg" @close="emit('close')">
     <SkeletonList v-if="loading" variant="row" :rows="4" />
     <div v-else class="agency">
       <div class="agency-total">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { Passenger } from '@/types'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { COUNTRY_OPTIONS } from '@/utils/countries'
@@ -18,10 +18,14 @@ const props = defineProps<{
 }>()
 const billing = defineModel<Billing>({ required: true })
 
+/** Lo escrito en "Otra persona": vuelve si se toca un pasajero y luego "Otra persona". */
+const lastOther = ref<Billing>(emptyBilling())
+
 function pick(p: (typeof props.passengers)[number] | null) {
+  if (isOther.value) lastOther.value = { ...billing.value }
   billing.value = p
     ? { passengerId: p._id ?? '', name: p.name, idNumber: p.idNumber ?? '', email: p.email ?? '', country: p.country ?? '' }
-    : emptyBilling()
+    : { ...lastOther.value }
 }
 
 const isOther = computed(() => !billing.value.passengerId)
