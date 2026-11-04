@@ -307,6 +307,8 @@ export async function apiCollectCabin(payload: {
   amount?: number
   /** Saldo que vio quien cobra: si cambió, el servidor rechaza (doble clic). */
   expectedDue?: number
+  /** false: no se le envía el resumen por correo al cliente. */
+  notify?: boolean
   billing: { name?: string; idNumber?: string; email?: string; country?: string; passengerId?: string }
 }) {
   const { data } = await http.post<{
@@ -322,6 +324,12 @@ export async function apiCollectCabin(payload: {
 /** Cortesías de agencia del crucero (se le facturan a la agencia al final). */
 export async function apiAgencyCourtesies(cruiseId: string) {
   const { data } = await http.get<{ items: AgencyCourtesy[]; total: number }>(`/accounts/${cruiseId}/agency-courtesies`)
+  return data
+}
+
+/** Envía a la agencia por correo el detalle de sus cortesías con el total. */
+export async function apiSendAgencyCourtesies(cruiseId: string, to: string) {
+  const { data } = await http.post<{ to: string; total: number }>(`/accounts/${cruiseId}/agency-courtesies/send`, { to })
   return data
 }
 

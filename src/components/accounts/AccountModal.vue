@@ -94,6 +94,8 @@ const payLines = ref<PayLine[]>([newLine()])
 /** Consumos que paga la persona elegida (modo por consumos). */
 const selected = ref<Set<string>>(new Set())
 const percentText = shallowRef('50')
+/** Desmarcado: no se le manda el resumen por correo al cliente (4-nov-2026). */
+const notifyClient = shallowRef(true)
 
 function billingOf(p: Cabin['passengers'][number] | null): Billing {
   return p
@@ -505,6 +507,7 @@ async function collect() {
       orderIds: splitMode.value === 'consumos' ? [...selected.value] : undefined,
       percent: splitMode.value === 'porcentaje' ? percentValue.value : undefined,
       expectedDue: acc.due,
+      notify: notifyClient.value,
       billing: {
         passengerId: b.passengerId || undefined,
         name: b.name.trim(),
@@ -1027,6 +1030,11 @@ async function resendSummary() {
             </p>
             <PaymentLines v-model="payLines" :target="target" :allow-partial="splitMode === 'una'" id-prefix="pay" />
           </div>
+
+          <label class="notify-check">
+            <input v-model="notifyClient" type="checkbox" />
+            Enviar al cliente el resumen por correo cuando la cuenta quede pagada
+          </label>
 
           <button
             type="button"
@@ -1793,6 +1801,22 @@ async function resendSummary() {
 .collect-why {
   margin: -0.4rem 0 0;
   text-align: center;
+}
+
+.notify-check {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 44px;
+  font-size: 0.92rem;
+  color: var(--ink-600);
+  cursor: pointer;
+
+  input {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--pine-600, currentColor);
+  }
 }
 
 // Por consumos: lo que paga esta persona

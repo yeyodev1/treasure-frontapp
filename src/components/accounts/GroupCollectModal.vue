@@ -47,6 +47,8 @@ const picked = ref<Set<number>>(new Set(props.preselect ? [props.preselect] : []
 const billing = ref<Billing>(emptyBilling())
 const payLines = ref<PayLine[]>([newLine()])
 const busy = shallowRef(false)
+/** Desmarcado: no se le manda el resumen por correo al cliente (4-nov-2026). */
+const notifyClient = shallowRef(true)
 
 function toggle(n: number) {
   if (n === props.preselect) return
@@ -93,6 +95,7 @@ async function collect() {
       cabins,
       lines: toPayload(payLines.value, state.value),
       expectedDue: target.value,
+      notify: notifyClient.value,
       billing: {
         name: b.name.trim(),
         idNumber: b.idNumber.trim(),
@@ -166,6 +169,10 @@ async function collect() {
             <span class="n">3</span> Forma de pago <span class="total">{{ formatMoney(target) }}</span>
           </p>
           <PaymentLines v-model="payLines" :target="target" id-prefix="group-pay" />
+          <label class="notify-check">
+            <input v-model="notifyClient" type="checkbox" />
+            Enviar al cliente el resumen por correo
+          </label>
         </section>
       </Transition>
     </div>
@@ -183,6 +190,22 @@ async function collect() {
 
 <style scoped lang="scss">
 @use '@/styles/mixins' as *;
+
+.notify-check {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 44px;
+  margin-top: 0.5rem;
+  font-size: 0.92rem;
+  color: var(--ink-600);
+  cursor: pointer;
+
+  input {
+    width: 20px;
+    height: 20px;
+  }
+}
 
 .group {
   display: flex;

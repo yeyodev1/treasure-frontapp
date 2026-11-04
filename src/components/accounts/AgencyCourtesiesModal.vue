@@ -4,7 +4,8 @@ import type { AgencyCourtesy, Cruise } from '@/types'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import { useToastStore } from '@/stores/toast'
-import { apiAgencyCourtesies } from '@/services/api'
+import { apiAgencyCourtesies, apiSendAgencyCourtesies } from '@/services/api'
+import { EMAIL_RE } from './payLines'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatDateTime, formatMoney } from '@/utils/format'
 
@@ -62,10 +63,28 @@ async function copySummary() {
     toast.error('No se pudo copiar')
   }
 }
+
+/** Correo de la agencia: se le envía este detalle con el total (4-nov-2026). */
+const agencyEmail = shallowRef('')
+const sending = shallowRef(false)
+const emailOk = computed(() => EMAIL_RE.test(agencyEmail.value.trim()))
+
+async function sendToAgency() {
+  if (!emailOk.value || sending.value) return
+  sending.value = true
+  try {
+    const { to } = await apiSendAgencyCourtesies(props.cruise._id, agencyEmail.value.trim())
+    toast.success(`Detalle enviado a ${to}`)
+  } catch (err) {
+    toast.error(apiErrorMessage(err))
+  } finally {
+    sending.value = false
+  }
+}
 </script>
 
 <template>
-  <BaseModal :title="`Cortesías de agencia · ${label}`" subtitle="Aquí se juntan todas las cortesías de agencia del crucero. Al final, toca «Copiar resumen» y envíaselo a la agencia o úsalo para su factura." size="lg" @close="emit('close')">
+  <BaseModal :title="`Cortesías de agencia · ${label}`" subtitle="No se cobran a la cabina: aquí se juntan todas las del crucero para cobrárselas a la agencia." size="lg" @close="emit('close')">
     <SkeletonList v-if="loading" variant="row" :rows="4" />
     <div v-else class="agency">
       <div class="agency-total">
@@ -97,6 +116,29 @@ async function copySummary() {
               <span>{{ formatMoney(i.total) }}</span>
             </li>
           </ul>
+        </section>
+
+        <section class="send">
+          <h4 class="title">Al final del crucero</h4>
+          <ol class="steps">
+            <li><strong>Envía el detalle a la agencia:</strong> escribe su correo y toca «Enviar a la agencia». Le llega la lista con el total.</li>
+            <li><strong>Emite la factura en Contífico</strong> a nombre de la agencia por {{ formatMoney(total) }}. La app no la emite sola.</li>
+          </ol>
+          <div class="send-row">
+            <input
+              v-model="agencyEmail"
+              type="email"
+              inputmode="email"
+              autocomplete="off"
+              placeholder="correo@agencia.com"
+              aria-label="Correo de la agencia"
+              @keydown.enter="sendToAgency"
+            />
+            <button type="button" class="btn btn-primary" :disabled="!emailOk || sending" @click="sendToAgency">
+              <i class="fa-solid" :class="sending ? 'fa-spinner fa-spin' : 'fa-paper-plane'" aria-hidden="true" />
+              Enviar a la agencia
+            </button>
+          </div>
         </section>
       </template>
     </div>
@@ -170,5 +212,27 @@ async function copySummary() {
 .muted {
   margin: 0;
   color: var(--ink-400);
+}
+
+.steps {
+  margin: 0 0 0.75rem;
+  padding-left: 1.2rem;
+  font-size: 0.92rem;
+  color: var(--ink-600);
+
+  li + li {
+    margin-top: 0.35rem;
+  }
+}
+
+.send-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+
+  input {
+    flex: 1 1 220px;
+    min-height: 44px;
+  }
 }
 </style>
