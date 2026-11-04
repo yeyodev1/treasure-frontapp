@@ -11,8 +11,14 @@ import { apiCounts, apiCreateCount } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatDateTime } from '@/utils/format'
 import type { StockCount, StockLocation } from '@/types'
+import { ACTIVE_LOCATIONS, LOCATION_HINT, LOCATION_ICON, LOCATION_IN, LOCATION_LABEL } from '@/components/supply/units'
 
-/** Conteo físico desde la tableta de bodega: abre el editor de conteos existente. */
+/**
+ * Conteos físicos por ubicación (pestaña Conteos de Inventario y pedidos).
+ * Guardar, enviar para revisión y aplicar el ajuste son pasos distintos; lo no
+ * contado no cuenta como cero. `embedded`: dentro de la pestaña, sin botón de volver.
+ */
+defineProps<{ embedded?: boolean }>()
 const emit = defineEmits<{ back: [] }>()
 
 const confirmStore = useConfirmStore()
@@ -49,7 +55,7 @@ const recent = computed(() => counts.value.filter((c) => c.status === 'aprobado'
 
 async function create(location: StockLocation) {
   const ok = await confirmStore.ask({
-    title: `¿Abrir conteo de ${location === 'bodega' ? 'bodega' : 'a bordo'}?`,
+    title: `¿Abrir conteo ${LOCATION_IN[location]}?`,
     message:
       'Se guarda una foto del stock del sistema en este momento (el corte). Guardar o enviar el conteo no cambia el stock: el ajuste se aplica solo cuando se aprueba.',
     confirmLabel: 'Abrir conteo',
@@ -74,7 +80,13 @@ async function create(location: StockLocation) {
 
 <template>
   <section class="flow">
-    <FlowHeader title="Conteo físico" icon="fa-clipboard-list" @back="emit('back')" />
+    <FlowHeader v-if="!embedded" title="Conteo físico" icon="fa-clipboard-list" @back="emit('back')" />
+    <header v-else class="page-head">
+      <div class="page-head-text">
+        <h1 class="page-title">Conteos</h1>
+        <p class="page-lead">Compara lo físico con el sistema en cada ubicación. Guardar, enviar para revisión y aplicar el ajuste son pasos distintos.</p>
+      </div>
+    </header>
 
     <div class="pane">
       <p class="lead">
@@ -83,16 +95,16 @@ async function create(location: StockLocation) {
 
       <div class="dest">
         <button
-          v-for="loc in ['bodega', 'abordo'] as const"
+          v-for="loc in ACTIVE_LOCATIONS"
           :key="loc"
           type="button"
           class="dest-btn"
           :disabled="creating"
           @click="create(loc)"
         >
-          <i class="fa-solid" :class="loc === 'bodega' ? 'fa-warehouse' : 'fa-ship'" aria-hidden="true" />
-          <strong>Nuevo conteo {{ loc === 'bodega' ? 'de bodega' : 'a bordo' }}</strong>
-          <small>{{ loc === 'bodega' ? 'Almacén en tierra' : 'Bar del barco' }}</small>
+          <i class="fa-solid" :class="LOCATION_ICON[loc]" aria-hidden="true" />
+          <strong>Nuevo conteo: {{ LOCATION_LABEL[loc] }}</strong>
+          <small>{{ LOCATION_HINT[loc] }}</small>
         </button>
       </div>
 
@@ -106,7 +118,7 @@ async function create(location: StockLocation) {
         <TransitionGroup tag="div" name="line" class="lines">
           <button v-for="c in open" :key="c._id" type="button" class="card count" @click="openId = c._id">
             <span class="count-top">
-              <strong>{{ c.code }} · {{ c.location === 'abordo' ? 'A bordo' : 'Bodega' }}</strong>
+              <strong>{{ c.code }} · {{ LOCATION_LABEL[c.location] }}</strong>
               <span class="pill" :class="`pill--${c.status}`">{{ STATUS[c.status] }}</span>
             </span>
             <small>Corte {{ formatDateTime(c.cutAt) }} · {{ c.createdBy?.name }}</small>
@@ -122,7 +134,7 @@ async function create(location: StockLocation) {
           <div class="lines">
             <button v-for="c in recent" :key="c._id" type="button" class="card count" @click="openId = c._id">
               <span class="count-top">
-                <strong>{{ c.code }} · {{ c.location === 'abordo' ? 'A bordo' : 'Bodega' }}</strong>
+                <strong>{{ c.code }} · {{ LOCATION_LABEL[c.location] }}</strong>
                 <span class="pill pill--aprobado">Aprobado</span>
               </span>
               <small>Corte {{ formatDateTime(c.cutAt) }} · aprobó {{ c.reviewedBy?.name }}</small>
