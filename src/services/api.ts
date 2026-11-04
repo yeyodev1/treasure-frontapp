@@ -2,6 +2,7 @@ import { http } from './httpBase'
 import type {
   AccountSummary,
   CommissionSummary,
+  AgencyBilling,
   AgencyCourtesy,
   CourtesyKind,
   Availability,
@@ -327,9 +328,22 @@ export async function apiAgencyCourtesies(cruiseId: string) {
   return data
 }
 
-/** Envía a la agencia por correo el detalle de sus cortesías con el total. */
-export async function apiSendAgencyCourtesies(cruiseId: string, to: string) {
-  const { data } = await http.post<{ to: string; total: number }>(`/accounts/${cruiseId}/agency-courtesies/send`, { to })
+/** Factura mensual a la agencia: cruceros con cortesías de agencia, lo facturado y el aviso del 28. */
+export async function apiAgencyBilling() {
+  const { data } = await http.get<AgencyBilling>('/agency-billing')
+  return data
+}
+
+export async function apiCreateAgencyInvoice(payload: { cruiseIds: string[]; month: string; to: string; invoiceNumber: string; note: string }) {
+  const { data } = await http.post<AgencyBilling & { email: { status: 'enviado' | 'error'; to: string; error: string } | null }>(
+    '/agency-billing/invoices',
+    payload,
+  )
+  return data
+}
+
+export async function apiVoidAgencyInvoice(id: string, reason: string) {
+  const { data } = await http.post<AgencyBilling>(`/agency-billing/invoices/${id}/void`, { reason })
   return data
 }
 

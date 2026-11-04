@@ -4,8 +4,8 @@ import type { AgencyCourtesy, Cruise } from '@/types'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import { useToastStore } from '@/stores/toast'
-import { apiAgencyCourtesies, apiSendAgencyCourtesies } from '@/services/api'
-import { EMAIL_RE } from './payLines'
+import { apiAgencyCourtesies } from '@/services/api'
+import { useUserStore } from '@/stores/user'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatDateTime, formatMoney } from '@/utils/format'
 
@@ -17,6 +17,7 @@ import { formatDateTime, formatMoney } from '@/utils/format'
 const props = defineProps<{ cruise: Cruise }>()
 const emit = defineEmits<{ close: [] }>()
 const toast = useToastStore()
+const userStore = useUserStore()
 
 const items = shallowRef<AgencyCourtesy[]>([])
 const total = shallowRef(0)
@@ -63,24 +64,6 @@ async function copySummary() {
     toast.error('No se pudo copiar')
   }
 }
-
-/** Correo de la agencia: se le envía este detalle con el total (4-nov-2026). */
-const agencyEmail = shallowRef('')
-const sending = shallowRef(false)
-const emailOk = computed(() => EMAIL_RE.test(agencyEmail.value.trim()))
-
-async function sendToAgency() {
-  if (!emailOk.value || sending.value) return
-  sending.value = true
-  try {
-    const { to } = await apiSendAgencyCourtesies(props.cruise._id, agencyEmail.value.trim())
-    toast.success(`Detalle enviado a ${to}`)
-  } catch (err) {
-    toast.error(apiErrorMessage(err))
-  } finally {
-    sending.value = false
-  }
-}
 </script>
 
 <template>
@@ -119,26 +102,14 @@ async function sendToAgency() {
         </section>
 
         <section class="send">
-          <h4 class="title">Al final del crucero</h4>
-          <ol class="steps">
-            <li><strong>Envía el detalle a la agencia:</strong> escribe su correo y toca «Enviar a la agencia». Le llega la lista con el total.</li>
-            <li><strong>Emite la factura en Contífico</strong> a nombre de la agencia por {{ formatMoney(total) }}. La app no la emite sola.</li>
-          </ol>
-          <div class="send-row">
-            <input
-              v-model="agencyEmail"
-              type="email"
-              inputmode="email"
-              autocomplete="off"
-              placeholder="correo@agencia.com"
-              aria-label="Correo de la agencia"
-              @keydown.enter="sendToAgency"
-            />
-            <button type="button" class="btn btn-primary" :disabled="!emailOk || sending" @click="sendToAgency">
-              <i class="fa-solid" :class="sending ? 'fa-spinner fa-spin' : 'fa-paper-plane'" aria-hidden="true" />
-              Enviar a la agencia
-            </button>
-          </div>
+          <h4 class="title">¿Cómo se le factura?</h4>
+          <p class="steps">
+            Una vez al mes, Gerencia entra a <strong>Resumen › Factura mensual a la agencia</strong>: elige los cruceros, le envía el
+            detalle por crucero a su correo y emite la factura en Contífico. Desde el día 28 la app lo recuerda.
+          </p>
+          <RouterLink v-if="userStore.isOwner" to="/#agencia" class="btn btn-primary" @click="emit('close')">
+            <i class="fa-solid fa-file-invoice-dollar" aria-hidden="true" /> Ir a la factura mensual
+          </RouterLink>
         </section>
       </template>
     </div>
@@ -225,14 +196,4 @@ async function sendToAgency() {
   }
 }
 
-.send-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-
-  input {
-    flex: 1 1 220px;
-    min-height: 44px;
-  }
-}
 </style>

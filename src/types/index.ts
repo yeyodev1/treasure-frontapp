@@ -612,6 +612,49 @@ export interface AgencyCourtesy {
   at: string
 }
 
+/** Factura mensual a la agencia (4-nov-2026): cruceros con cortesías de agencia y lo facturado. */
+export interface AgencyCruise {
+  id: string
+  code: string
+  name: string
+  routeFrom: string
+  routeTo: string
+  startDate: string
+  endDate: string | null
+  status: CruiseStatus
+  month: string
+  count: number
+  total: number
+  invoiced: number
+  pending: number
+  state: 'facturada' | 'parcial' | 'pendiente'
+  items: AgencyCourtesy[]
+}
+
+export interface AgencyInvoiceRow {
+  id: string
+  month: string
+  amount: number
+  items: Array<{ cruiseId: string; code: string; count: number; amount: number }>
+  invoiceNumber: string
+  sentTo: string
+  sentAt: string | null
+  note: string
+  status: 'vigente' | 'anulada'
+  by: string
+  createdAt: string
+  voided: { by: string; at: string; reason: string } | null
+}
+
+export interface AgencyBilling {
+  reminderDay: number
+  reminder: { month: string; amount: number; cruises: number } | null
+  lastEmail: string
+  totals: { total: number; invoiced: number; pending: number }
+  cruises: AgencyCruise[]
+  invoices: AgencyInvoiceRow[]
+}
+
 export interface SummaryEmail {
   status: 'no_aplica' | 'enviando' | 'enviado' | 'error'
   to: string

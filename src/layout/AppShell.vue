@@ -8,7 +8,8 @@ import type { UserRole } from '@/types'
 import BrandSeal from '@/components/ui/BrandSeal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { REGISTROS_URL, ROLE_HOME } from '@/router'
-import { apiWeeklyOrderCurrent } from '@/services/api'
+import { apiAgencyBilling, apiWeeklyOrderCurrent } from '@/services/api'
+import { formatMoney } from '@/utils/format'
 
 interface NavItem {
   to: string
@@ -114,6 +115,8 @@ function revealActiveTab() {
  * Se consulta al entrar y cada 10 minutos; nunca aprueba nada.
  */
 const orderNotice = shallowRef<{ text: string; tone: 'warn' | 'info' } | null>(null)
+/** Desde el día 28 de cada mes: factura mensual a la agencia pendiente (solo Gerencia). */
+const agencyNotice = shallowRef<string | null>(null)
 let orderTimer: ReturnType<typeof setInterval> | null = null
 
 async function checkWeeklyOrder() {
@@ -132,7 +135,18 @@ async function checkWeeklyOrder() {
   } catch {
     // Sin señal: el aviso se intenta de nuevo en el siguiente ciclo.
   }
+  if (userStore.isOwner) {
+    try {
+      const { reminder } = await apiAgencyBilling()
+      agencyNotice.value = reminder
+        ? `Toca facturar a la agencia: ${formatMoney(reminder.amount)} de ${reminder.cruises} ${reminder.cruises === 1 ? 'crucero' : 'cruceros'}.`
+        : null
+    } catch {
+      // Igual que el pedido: se reintenta en el siguiente ciclo.
+    }
+  }
 }
+
 
 onMounted(() => {
   window.addEventListener('resize', measureTopnav, { passive: true })
@@ -337,6 +351,13 @@ async function logout() {
             <i class="fa-solid" :class="orderNotice.tone === 'warn' ? 'fa-bell' : 'fa-list-check'" aria-hidden="true" />
             <span>{{ orderNotice.text }}</span>
             <strong>Abrir pedido <i class="fa-solid fa-arrow-right" aria-hidden="true" /></strong>
+          </RouterLink>
+        </Transition>
+        <Transition name="fade">
+          <RouterLink v-if="agencyNotice && route.hash !== '#agencia'" to="/#agencia" class="order-notice order-notice--warn">
+            <i class="fa-solid fa-handshake" aria-hidden="true" />
+            <span>{{ agencyNotice }}</span>
+            <strong>Facturar <i class="fa-solid fa-arrow-right" aria-hidden="true" /></strong>
           </RouterLink>
         </Transition>
         <!-- Aviso cuando administración está mirando la app como otro rol.
