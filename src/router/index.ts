@@ -32,18 +32,63 @@ const routes: Array<RouteRecordRaw> = [
     meta: { title: 'Cuentas', roles: ['direccion'] },
   },
   {
-    // Requerimientos: el bar pide, la directora aprueba, bodega recibe.
-    path: '/abastecimiento',
-    name: 'Requisitions',
-    component: () => import('@/views/RequisitionsView.vue'),
-    meta: { title: 'Abastecimiento', roles: ['admin', 'direccion', 'bartender', 'bodega'] },
+    // Inventario y pedidos (guía 4-nov-2026): un acceso, cuatro pestañas.
+    path: '/inventario',
+    component: () => import('@/views/inventory/InventoryHub.vue'),
+    meta: { title: 'Inventario y pedidos', roles: ['admin', 'direccion', 'bartender', 'bodega'] },
+    children: [
+      {
+        path: '',
+        redirect: () => (useUserStore().role === 'bartender' ? '/inventario/pedido' : '/inventario/existencias'),
+      },
+      {
+        path: 'existencias',
+        name: 'Inventory',
+        component: () => import('@/views/admin/InventoryView.vue'),
+        meta: { title: 'Existencias' },
+      },
+      {
+        path: 'pedido',
+        name: 'WeeklyOrder',
+        component: () => import('@/views/WeeklyOrderView.vue'),
+        meta: { title: 'Pedido semanal' },
+      },
+      {
+        // Compras, recepciones, traslados, entregas al barco y mermas.
+        path: 'compras',
+        name: 'Warehouse',
+        component: () => import('@/views/BodegaView.vue'),
+        meta: { title: 'Compras y entregas', roles: ['admin', 'bodega', 'direccion'] },
+      },
+      {
+        // Solicitudes del bar: el bar pide, la directora aprueba, se entrega al barco.
+        path: 'compras/solicitudes',
+        name: 'Requisitions',
+        component: () => import('@/views/RequisitionsView.vue'),
+        meta: { title: 'Solicitudes del bar' },
+      },
+      {
+        path: 'conteos',
+        name: 'Counts',
+        component: () => import('@/components/inventory/CountFlow.vue'),
+        props: { embedded: true },
+        meta: { title: 'Conteos', roles: ['admin', 'bodega', 'direccion'] },
+      },
+    ],
+  },
+  // Enlaces anteriores: llevan a su nueva pestaña.
+  { path: '/abastecimiento', redirect: (to) => ({ path: '/inventario/compras/solicitudes', query: to.query }) },
+  {
+    path: '/bodega',
+    redirect: (to) =>
+      to.query.flujo === 'conteo' ? '/inventario/conteos' : { path: '/inventario/compras', query: to.query },
   },
   {
-    // Bodega en tablet: compras, recepciones, cargas al barco, conteos y mermas.
-    path: '/bodega',
-    name: 'Warehouse',
-    component: () => import('@/views/BodegaView.vue'),
-    meta: { title: 'Bodega', roles: ['admin', 'bodega', 'direccion'] },
+    path: '/admin/inventario',
+    redirect: (to) =>
+      to.query.tab === 'conteos'
+        ? '/inventario/conteos'
+        : { path: '/inventario/existencias', query: to.query.tab === 'bitacora' ? { tab: 'bitacora' } : {} },
   },
   // Controlar
   {
@@ -58,12 +103,6 @@ const routes: Array<RouteRecordRaw> = [
     component: () => import('@/views/admin/DashboardView.vue'),
     // Solo Gerencia: el servidor también lo restringe (/reports/*).
     meta: { title: 'Resumen del negocio', roles: ['duena'] },
-  },
-  {
-    path: '/admin/inventario',
-    name: 'Inventory',
-    component: () => import('@/views/admin/InventoryView.vue'),
-    meta: { title: 'Inventario', roles: ['admin', 'bodega', 'direccion'] },
   },
   {
     path: '/admin/pagos',
