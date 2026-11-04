@@ -8,6 +8,7 @@ import type { UserRole } from '@/types'
 import BrandSeal from '@/components/ui/BrandSeal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { REGISTROS_URL, ROLE_HOME } from '@/router'
+import { apiWeeklyOrderCurrent } from '@/services/api'
 
 interface NavItem {
   to: string
@@ -16,6 +17,8 @@ interface NavItem {
   short?: string
   icon: string
   roles: UserRole[]
+  /** Activo también en sus subrutas (Inventario y pedidos y sus pestañas). */
+  prefix?: boolean
 }
 
 interface NavSection {
@@ -33,8 +36,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/admin/salidas', label: 'Cruceros', icon: 'fa-ship', roles: ['duena', 'admin', 'direccion'] },
       { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: ['duena', 'direccion', 'bartender'] },
       { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: ['duena', 'direccion'] },
-      { to: '/abastecimiento', label: 'Abastecimiento', icon: 'fa-dolly', roles: ['duena', 'admin', 'direccion', 'bartender', 'bodega'] },
-      { to: '/bodega', label: 'Bodega', icon: 'fa-warehouse', roles: ['duena', 'admin', 'bodega'] },
+      { to: '/inventario', label: 'Inventario y pedidos', short: 'Inventario', icon: 'fa-boxes-stacked', roles: ['duena', 'admin', 'direccion', 'bartender', 'bodega'], prefix: true },
     ],
   },
   {
@@ -42,7 +44,6 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/admin/en-vivo', label: 'En vivo', icon: 'fa-tower-broadcast', roles: ['duena', 'admin'] },
       { to: '/admin', label: 'Resumen del negocio', short: 'Resumen', icon: 'fa-chart-line', roles: ['duena'] },
-      { to: '/admin/inventario', label: 'Inventario', icon: 'fa-boxes-stacked', roles: ['duena', 'admin', 'bodega', 'direccion'] },
       { to: '/admin/pagos', label: 'Cobros', icon: 'fa-cash-register', roles: ['duena', 'admin', 'direccion'] },
     ],
   },
@@ -107,11 +108,48 @@ function revealActiveTab() {
   })
 }
 
+/**
+ * Pedido semanal (guía 4-nov-2026): al bar le avisa que tiene la propuesta por
+ * revisar; a la directora, si a las 18h00 el bar no la revisó (abre ese pedido).
+ * Se consulta al entrar y cada 10 minutos; nunca aprueba nada.
+ */
+const orderNotice = shallowRef<{ text: string; tone: 'warn' | 'info' } | null>(null)
+let orderTimer: ReturnType<typeof setInterval> | null = null
+
+async function checkWeeklyOrder() {
+  const isBar = userStore.role === 'bartender'
+  if (!isBar && !userStore.isDirector) return
+  try {
+    const { order, others } = await apiWeeklyOrderCurrent()
+    const overdue = [order, ...others].find((o) => o?.overdue)
+    if (userStore.isDirector && overdue) {
+      orderNotice.value = { text: `El bar no revisó el pedido ${overdue.code}. Revísalo y apruébalo tú.`, tone: 'warn' }
+    } else if (isBar && order?.status === 'bar') {
+      orderNotice.value = { text: `El pedido semanal ${order.code} está listo para que lo revises.`, tone: 'info' }
+    } else {
+      orderNotice.value = null
+    }
+  } catch {
+    // Sin señal: el aviso se intenta de nuevo en el siguiente ciclo.
+  }
+}
+
 onMounted(() => {
   window.addEventListener('resize', measureTopnav, { passive: true })
   measureTopnav()
+  void checkWeeklyOrder()
+  orderTimer = setInterval(() => void checkWeeklyOrder(), 10 * 60_000)
 })
-onBeforeUnmount(() => window.removeEventListener('resize', measureTopnav))
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', measureTopnav)
+  if (orderTimer) clearInterval(orderTimer)
+})
+watch(
+  () => route.path,
+  (path) => {
+    if (path === '/inventario/pedido') void checkWeeklyOrder()
+  },
+)
 
 const pageTitle = computed(() => (route.meta.title as string) ?? '')
 
@@ -225,6 +263,7 @@ async function logout() {
           :key="item.to"
           :to="item.to"
           class="topnav-item"
+          :class="{ 'router-link-exact-active': item.prefix && route.path.startsWith(item.to) }"
           :aria-label="item.label"
         >
           <i class="fa-solid" :class="item.icon" aria-hidden="true" />
@@ -248,6 +287,7 @@ async function logout() {
               :key="item.to"
               :to="item.to"
               class="nav-item"
+              :class="{ 'router-link-exact-active': item.prefix && route.path.startsWith(item.to) }"
               :title="railMode ? item.label : undefined"
             >
               <span class="nav-indicator" aria-hidden="true" />
@@ -287,6 +327,18 @@ async function logout() {
       </nav>
 
       <main class="content">
+        <Transition name="fade">
+          <RouterLink
+            v-if="orderNotice && route.path !== '/inventario/pedido'"
+            to="/inventario/pedido"
+            class="order-notice"
+            :class="`order-notice--${orderNotice.tone}`"
+          >
+            <i class="fa-solid" :class="orderNotice.tone === 'warn' ? 'fa-bell' : 'fa-list-check'" aria-hidden="true" />
+            <span>{{ orderNotice.text }}</span>
+            <strong>Abrir pedido <i class="fa-solid fa-arrow-right" aria-hidden="true" /></strong>
+          </RouterLink>
+        </Transition>
         <!-- Aviso cuando administración está mirando la app como otro rol.
              Vive dentro del contenido para no desplazar el sidebar. -->
         <Transition name="fade">
@@ -851,5 +903,34 @@ async function logout() {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+.order-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  min-height: 52px;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+
+  span {
+    flex: 1 1 220px;
+  }
+
+  strong {
+    white-space: nowrap;
+  }
+
+  &--warn {
+    background: #fbf0dc;
+    color: #6b4716;
+  }
+
+  &--info {
+    background: var(--powder-100);
+    color: var(--navy-800);
+  }
 }
 </style>
