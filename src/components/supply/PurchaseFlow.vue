@@ -9,14 +9,18 @@ import { apiCreatePurchase, apiPurchases } from '@/services/api'
 import { formatMoney, todayKey } from '@/utils/format'
 import { apiErrorMessage } from '@/services/httpBase'
 import { useToastStore } from '@/stores/toast'
-import type { Product, Purchase, StockLocation } from '@/types'
+import type { Product, Purchase, StockLocation, WeeklyOrder } from '@/types'
 import FlowHeader from './FlowHeader.vue'
 import ProductPicker from './ProductPicker.vue'
 import QtyStepper from './QtyStepper.vue'
 import SummaryModal from './SummaryModal.vue'
-import { containerText, conversionText, LOCATION_LABEL, plural } from './units'
+import { ACTIVE_LOCATIONS, containerText, conversionText, LOCATION_HINT, LOCATION_ICON, LOCATION_LABEL, plural } from './units'
 
-/** Registrar factura: no mueve stock; suma cuando se recibe. */
+/**
+ * Registrar factura: no mueve stock; suma cuando se recibe. Desde un pedido
+ * semanal aprobado (`order`) llega con sus productos y lo pendiente de comprar.
+ */
+const props = defineProps<{ order?: WeeklyOrder | null }>()
 const emit = defineEmits<{ back: []; receive: [purchaseId: string] }>()
 
 const catalog = useCatalogStore()
@@ -35,7 +39,7 @@ const form = reactive({
   supplier: '',
   document: '',
   date: todayKey(),
-  destination: 'bodega' as StockLocation,
+  destination: 'puerto' as StockLocation,
   note: '',
 })
 const lines = ref<Line[]>([])
@@ -50,6 +54,13 @@ onMounted(async () => {
     await catalog.load(true)
   } catch (err) {
     toast.error(apiErrorMessage(err))
+  }
+  if (props.order) {
+    // Lo pendiente de comprar del pedido: se ajusta a lo que realmente se compró.
+    for (const l of props.order.lines.filter((x) => x.toBuy > 0)) {
+      const product = catalog.physical.find((p) => p._id === l.product)
+      if (product) addProduct(product, l.toBuy)
+    }
   }
   try {
     const { purchases } = await apiPurchases()
@@ -80,10 +91,15 @@ function next() {
   step.value = 1
 }
 
-function addProduct(product: Product) {
+/** Con pedido: solo sus productos (lo demás va en una compra aparte). */
+const pickable = computed(() =>
+  props.order ? catalog.physical.filter((p) => props.order!.lines.some((l) => l.product === p._id)) : catalog.physical,
+)
+
+function addProduct(product: Product, containers = 1) {
   picking.value = false
   const last = product.costPerUnit ? product.costPerUnit * (product.containerSize || 1) : 0
-  lines.value.push({ product, containers: 1, cost: last ? last.toFixed(2).replace('.', ',') : '' })
+  lines.value.push({ product, containers, cost: last ? last.toFixed(2).replace('.', ',') : '' })
 }
 
 function removeLine(index: number) {
@@ -114,6 +130,7 @@ async function confirm() {
       })),
       note: form.note.trim() || undefined,
       idempotencyKey: key,
+      weeklyOrderId: props.order?._id,
     }),
   )
   if (result.ok) {
@@ -138,7 +155,7 @@ const dateLabel = computed(() => {
 <template>
   <section class="flow">
     <FlowHeader
-      title="Registrar compra"
+      :title="order ? `Registrar compra · pedido ${order.code}` : 'Registrar compra'"
       icon="fa-file-invoice-dollar"
       :steps="['Factura', 'Productos', 'Confirmar']"
       :current="reviewing ? 2 : step"
@@ -199,7 +216,7 @@ const dateLabel = computed(() => {
           <label>¿A dónde llega la mercadería?</label>
           <div class="dest">
             <button
-              v-for="loc in ['bodega', 'abordo'] as const"
+              v-for="loc in ACTIVE_LOCATIONS"
               :key="loc"
               type="button"
               class="dest-btn"
@@ -207,13 +224,13 @@ const dateLabel = computed(() => {
               :aria-pressed="form.destination === loc"
               @click="form.destination = loc"
             >
-              <i class="fa-solid" :class="loc === 'bodega' ? 'fa-warehouse' : 'fa-ship'" aria-hidden="true" />
+              <i class="fa-solid" :class="LOCATION_ICON[loc]" aria-hidden="true" />
               <strong>{{ LOCATION_LABEL[loc] }}</strong>
-              <small>{{ loc === 'bodega' ? 'Almacén en tierra' : 'Directo al bar del barco' }}</small>
+              <small>{{ LOCATION_HINT[loc] }}</small>
               <i v-if="form.destination === loc" class="fa-solid fa-circle-check tick" aria-hidden="true" />
             </button>
           </div>
-          <small class="muted">Una compra llega a un solo almacén.</small>
+          <small class="muted">Si una parte llega a Quito y otra al puerto, al recibir eliges dónde llegó cada entrega.</small>
         </div>
 
         <div class="field">
@@ -234,7 +251,7 @@ const dateLabel = computed(() => {
           <span><i class="fa-solid fa-truck" aria-hidden="true" /> {{ form.supplier }}</span>
           <span><i class="fa-solid fa-file-lines" aria-hidden="true" /> {{ form.document }}</span>
           <span><i class="fa-regular fa-calendar" aria-hidden="true" /> {{ dateLabel }}</span>
-          <span><i class="fa-solid fa-location-dot" aria-hidden="true" /> Llega a {{ LOCATION_LABEL[form.destination].toLowerCase() }}</span>
+          <span><i class="fa-solid fa-location-dot" aria-hidden="true" /> Llega a: {{ LOCATION_LABEL[form.destination] }}</span>
         </div>
 
         <TransitionGroup tag="div" name="line" class="lines">
@@ -305,7 +322,7 @@ const dateLabel = computed(() => {
     <ProductPicker
       v-if="picking"
       title="Producto de la factura"
-      :products="catalog.physical"
+      :products="pickable"
       :taken="lines.map((l) => l.product._id)"
       @pick="addProduct"
       @close="picking = false"
