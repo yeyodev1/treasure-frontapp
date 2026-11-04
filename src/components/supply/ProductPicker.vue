@@ -4,15 +4,15 @@ import BaseModal from '@/components/ui/BaseModal.vue'
 import ProductIcon from '@/components/ui/ProductIcon.vue'
 import { CATEGORY_LABELS } from '@/stores/catalog'
 import { useSound } from '@/composables/useSound'
-import type { Product, ProductCategory } from '@/types'
-import { hasContainer, normalize, stockText } from './units'
+import type { Product, ProductCategory, StockLocation } from '@/types'
+import { ALL_LOCATIONS, hasContainer, LOCATION_LABEL, normalize, stockAt, stockText } from './units'
 
 /** Buscador táctil de insumos: búsqueda grande y filas de 56 px. */
 const props = defineProps<{
   products: Product[]
   title?: string
   /** Saldo que se muestra en cada fila. */
-  show?: 'bodega' | 'abordo' | 'ambos'
+  show?: StockLocation | 'ambos'
   /** Ya elegidos: se marcan y no se vuelven a agregar. */
   taken?: string[]
 }>()
@@ -42,11 +42,13 @@ const visible = computed(() => {
 })
 
 function balance(p: Product): string {
-  if (props.show === 'bodega') return `Bodega: ${stockText(p.warehouseStock, p)}`
-  if (props.show === 'abordo') return `A bordo: ${stockText(p.onboardStock, p)}`
   if (props.show === 'ambos') {
-    return `Bodega ${stockText(p.warehouseStock, p)} · A bordo ${stockText(p.onboardStock, p)}`
+    const parts = ALL_LOCATIONS.filter((l) => l !== 'bodega' || stockAt(p, l) !== 0).map(
+      (l) => `${LOCATION_LABEL[l]} ${stockText(stockAt(p, l), p)}`,
+    )
+    return parts.join(' · ')
   }
+  if (props.show) return `${LOCATION_LABEL[props.show]}: ${stockText(stockAt(p, props.show), p)}`
   return hasContainer(p) ? `${p.containerLabel} de ${p.containerSize} ${p.stockUnit}` : p.containerLabel
 }
 
