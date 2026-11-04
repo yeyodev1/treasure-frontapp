@@ -25,6 +25,9 @@ import { formatMoney } from '@/utils/format'
  * Cabinas juntas (pedido del cliente, 31-oct-2026): amigos en varias
  * cabinas y uno paga todo. Se eligen las cuentas aprobadas, quién paga y
  * cómo; queda una sola factura y todas las cabinas Pagadas.
+ * "Otra cabina paga" (4-nov): el pagador puede ser cualquier pasajero del
+ * crucero, aunque su cabina ya esté pagada o sin consumos; se cobra solo
+ * la cabina preseleccionada (más las que se marquen).
  */
 const props = defineProps<{
   cruise: Cruise
@@ -46,6 +49,7 @@ const payLines = ref<PayLine[]>([newLine()])
 const busy = shallowRef(false)
 
 function toggle(n: number) {
+  if (n === props.preselect) return
   const next = new Set(picked.value)
   if (next.has(n)) next.delete(n)
   else next.add(n)
@@ -56,14 +60,15 @@ const pickedRows = computed(() => candidates.value.filter((r) => picked.value.ha
 const target = computed(() => Math.round(pickedRows.value.reduce((s, r) => s + r.due, 0) * 100) / 100)
 const state = computed(() => linesState(payLines.value, target.value, false))
 
+/** Cualquier pasajero del crucero puede pagar: sus datos se toman del zarpe, sin volver a escribirlos. */
 const passengers = computed(() =>
-  props.cruise.cabins
-    .filter((c) => picked.value.has(c.number))
-    .flatMap((c) => c.passengers.map((p) => ({ ...p, cabin: c.number }))),
+  props.cruise.cabins.flatMap((c) => c.passengers.map((p) => ({ ...p, cabin: c.number }))),
 )
 
 const blocked = computed(() => {
-  if (pickedRows.value.length < 2) return 'Elige al menos dos cabinas.'
+  if (!pickedRows.value.length) return 'Elige la cabina que se cobra.'
+  if (!props.preselect && pickedRows.value.length < 2) return 'Elige al menos dos cabinas.'
+  if (pickedRows.value.length < 2) return billingError(billing.value) || state.value.error
   const partial = pickedRows.value.find((r) => r.partialPaid > 0)
   if (partial) return `La cabina ${partial.cabinNumber} tiene un pago parcial: cóbrala sola.`
   return billingError(billing.value) || state.value.error
@@ -73,8 +78,8 @@ async function collect() {
   if (blocked.value) return
   const cabins = pickedRows.value.map((r) => r.cabinNumber)
   const ok = await confirmStore.ask({
-    title: `¿Cobrar ${formatMoney(state.value.total)} por las cabinas ${cabins.join(', ')}?`,
-    message: `${methodsLabel(payLines.value, state.value, formatMoney)}. Una sola factura a nombre de ${billing.value.name.trim()}; las ${cabins.length} cuentas quedan Pagadas.`,
+    title: `¿Cobrar ${formatMoney(state.value.total)} por ${cabins.length > 1 ? 'las cabinas' : 'la cabina'} ${cabins.join(', ')}?`,
+    message: `${methodsLabel(payLines.value, state.value, formatMoney)}. Una sola factura a nombre de ${billing.value.name.trim()}; ${cabins.length > 1 ? `las ${cabins.length} cuentas quedan Pagadas` : 'la cuenta queda Pagada'}.`,
     confirmLabel: 'Cobrar',
     icon: 'fa-cash-register',
   })
@@ -96,7 +101,7 @@ async function collect() {
       },
     })
     play('cash')
-    toast.success(`Cabinas ${cabins.join(', ')} pagadas juntas`)
+    toast.success(cabins.length > 1 ? `Cabinas ${cabins.join(', ')} pagadas juntas` : `Cabina ${cabins[0]} pagada`)
     if (result.payment?.invoiceStatus !== 'emitida') {
       toast.push(`Factura pendiente. ${result.payment?.invoiceError || 'Reintenta la emisión desde Cobros.'}`, 'info')
     }
@@ -114,26 +119,31 @@ async function collect() {
   <BaseModal
     :title="preselect ? `Otra cabina paga la cabina ${preselect}` : 'Cobrar cabinas juntas'"
     :subtitle="preselect
-      ? 'Marca la cabina que paga y elige a la persona: una sola factura por todo.'
+      ? 'Elige a la persona que paga, de cualquier cabina: sus datos ya están cargados.'
       : 'Una persona paga varias cabinas: una sola factura.'"
     size="lg"
     @close="emit('close')"
   >
     <div class="group">
       <section class="step">
-        <p class="label"><span class="n">1</span> {{ preselect ? 'Cabina que paga' : 'Cabinas que paga' }}</p>
+        <p class="label"><span class="n">1</span> Cabinas que se cobran</p>
         <p v-if="!candidates.length" class="muted">No hay cuentas aprobadas con saldo. Aprueba las cuentas primero.</p>
         <p v-else-if="preselect" class="muted">
-          Solo aparecen cuentas aprobadas: si la cabina que paga no está, aprueba su cuenta primero.
+          Si la cabina que paga también tiene consumos, márcala para cobrar todo junto. Si ya pagó o no consumió, solo elige abajo a la persona que paga.
         </p>
-        <div v-else class="cabins">
+        <div v-if="candidates.length" class="cabins">
           <label
             v-for="r in candidates"
             :key="r.cabinNumber"
             class="cabin"
             :class="{ 'cabin--on': picked.has(r.cabinNumber), 'cabin--partial': r.partialPaid > 0 }"
           >
-            <input type="checkbox" :checked="picked.has(r.cabinNumber)" @change="toggle(r.cabinNumber)" />
+            <input
+              type="checkbox"
+              :checked="picked.has(r.cabinNumber)"
+              :disabled="r.cabinNumber === preselect"
+              @change="toggle(r.cabinNumber)"
+            />
             <span class="cabin-text">
               <strong>Cabina {{ r.cabinNumber }}</strong>
               <small>{{ r.guestName || 'Sin nombre' }}<template v-if="r.partialPaid > 0"> · con pago parcial</template></small>
@@ -145,7 +155,7 @@ async function collect() {
 
       <Transition name="fade">
         <section v-if="pickedRows.length" class="step">
-          <p class="label"><span class="n">2</span> ¿Quién paga?</p>
+          <p class="label"><span class="n">2</span> ¿Quién paga? <small class="muted">Pasajeros de todas las cabinas</small></p>
           <PayerForm v-model="billing" :passengers="passengers" id-prefix="group-bill" />
         </section>
       </Transition>
