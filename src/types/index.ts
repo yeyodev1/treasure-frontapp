@@ -47,7 +47,9 @@ export type StockUnit =
   | 'golpe'
   | 'porción'
 
-export type StockLocation = 'bodega' | 'abordo'
+/** Quito, Puerto en Galápagos y A bordo; "bodega" = saldo anterior sin separar (4-nov-2026). */
+export type StockLocation = 'quito' | 'puerto' | 'abordo' | 'bodega'
+export type ActiveLocation = Exclude<StockLocation, 'bodega'>
 
 export interface RecipeIngredient {
   _id: string
@@ -83,8 +85,12 @@ export interface Product {
   containerSize: number
   containerLabel: string
   warehouseStock: number
+  quitoStock: number
+  puertoStock: number
   onboardStock: number
   lowStockThreshold: number
+  /** Envases a mantener en total (pedido semanal); 0 = sin objetivo. */
+  stockTarget?: number
   servingSize: number
   servingPrice: number
   recipe: RecipeItem[]
@@ -150,6 +156,9 @@ export interface Cruise {
   startedAt?: string | null
   closedAt?: string | null
   closeReason?: string
+  /** Bartender del crucero (comisiones). */
+  bartender?: string | null
+  bartenderName?: string
 }
 
 export interface StartCheck {
@@ -348,6 +357,8 @@ export interface RequisitionLine {
         containerLabel: string
         icon: string
         warehouseStock: number
+        quitoStock: number
+        puertoStock: number
         onboardStock: number
       }
     | string
@@ -394,11 +405,12 @@ export interface Purchase {
   document: string
   documentDate: string | null
   destination: StockLocation
+  weeklyOrder?: { _id: string; code: string; week: string } | string | null
   lines: PurchaseLine[]
   total: number
   status: PurchaseStatus
   note: string
-  receipts: Array<{ key: string; lines: Array<{ index: number; qty: number }>; note: string; by: { name: string } | string; at: string }>
+  receipts: Array<{ key: string; location?: StockLocation; lines: Array<{ index: number; qty: number }>; note: string; by: { name: string } | string; at: string }>
   createdBy: { _id: string; name: string } | string
   cancelReason: string
   createdAt: string
@@ -659,6 +671,7 @@ export interface Payment {
 
 export interface StockItem {
   product: Product
+  byLocation: Record<StockLocation, number>
   qty: number
   containers: number
   negative: boolean
@@ -813,6 +826,9 @@ export interface CruiseCommission {
   startedAt: string | null
   closedAt: string | null
   status: CruiseStatus
+  /** Bartender del crucero; null = sin asignar. */
+  bartenderId: string | null
+  bartenderName: string
   orders: number
   sales: number
   commission: number
@@ -830,14 +846,84 @@ export interface CommissionPaymentRow {
   note: string
   status: 'vigente' | 'anulado'
   by: string
+  /** Pagos antiguos (antes del 4-nov) no tienen bartender ni detalle. */
+  bartenderId: string | null
+  bartenderName: string
+  items: Array<{ cruiseId: string; code: string; sales: number; amount: number }>
   createdAt: string
   voided: { by: string; at: string; reason: string } | null
+}
+
+export interface BartenderCommission {
+  id: string | null
+  name: string
+  cruises: number
+  sales: number
+  generated: number
+  paid: number
+  pending: number
 }
 
 export interface CommissionSummary {
   rate: number
   divisor: number
   totals: { sales: number; generated: number; paid: number; pending: number; cruises: number }
+  bartenders: BartenderCommission[]
   cruises: CruiseCommission[]
   payments: CommissionPaymentRow[]
+  /** Solo al registrar un pago. */
+  paymentId?: string
+}
+
+/** Pedido semanal (guía Inventario y pedidos, 4-nov-2026). */
+export type WeeklyOrderStatus = 'bar' | 'directora' | 'aprobado' | 'cancelado'
+export type WeeklyOrderPhase = 'bar' | 'directora' | 'comprar' | 'recibir' | 'recibido' | 'cancelado'
+
+export interface WeeklyOrderLine {
+  product: string
+  name: string
+  stockUnit: StockUnit
+  containerSize: number
+  containerLabel: string
+  atCut: Record<StockLocation, number>
+  target: number
+  incoming: number
+  consumption: number
+  suggested: number | null
+  basis: 'objetivo' | 'consumo' | 'revisar' | 'agregado'
+  qty: number
+  barQty: number | null
+  approvedQty: number | null
+  observation: string
+  editedByName: string
+  editedAt: string | null
+  /** Avance en envases, según las compras ligadas al pedido. */
+  purchased: number
+  received: number
+  toBuy: number
+  toReceive: number
+}
+
+export interface WeeklyOrder {
+  _id: string
+  code: string
+  week: string
+  cutAt: string
+  generatedLate: boolean
+  status: WeeklyOrderStatus
+  phase: WeeklyOrderPhase
+  phaseLabel: string
+  overdue: boolean
+  version: number
+  revision: number
+  changedAt: string | null
+  recipient: string
+  lines: WeeklyOrderLine[]
+  history: Array<{ at: string; byName: string; action: string; detail: string }>
+}
+
+export interface WeeklyOrderCurrent {
+  order: WeeklyOrder | null
+  others: Array<{ _id: string; code: string; week: string; status: WeeklyOrderStatus; overdue: boolean }>
+  nextCut: string
 }
