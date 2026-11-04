@@ -7,13 +7,7 @@ import { useUserStore } from '@/stores/user'
 import { useConfirmStore } from '@/stores/confirm'
 import { useInfiniteScroll } from '@/composables/useInfiniteScroll'
 import { useSound } from '@/composables/useSound'
-import {
-  apiAdjustStock,
-  apiCounts,
-  apiCreateCount,
-  apiMovements,
-  apiStock,
-} from '@/services/api'
+import { apiAdjustStock, apiCloseUnsplit, apiMovements, apiStock } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatDateTime, formatMoney, formatNumber, formatStock, unitShort } from '@/utils/format'
 import BaseModal from '@/components/ui/BaseModal.vue'
@@ -21,12 +15,16 @@ import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseSpinner from '@/components/ui/BaseSpinner.vue'
 import ProductIcon from '@/components/ui/ProductIcon.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
-import CountEditor from '@/components/inventory/CountEditor.vue'
-import { costText, stockText } from '@/components/supply/units'
-import type { Product, StockCount, StockItem, StockLocation, StockMovement } from '@/types'
+import { ALL_LOCATIONS, ACTIVE_LOCATIONS, costText, LOCATION_LABEL, stockText } from '@/components/supply/units'
+import type { Product, StockItem, StockLocation, StockMovement } from '@/types'
 
-type Tab = 'abordo' | 'bodega' | 'conteos' | 'bitacora'
-type ModalKind = 'ajuste' | null
+/**
+ * Existencias (pestaña de Inventario y pedidos, 4-nov-2026): cada producto con
+ * sus cantidades en Quito, Puerto y A bordo, búsqueda, filtros e historial por
+ * producto. El costo solo lo ven Gerencia, Administración y Bodega.
+ */
+type Tab = 'existencias' | 'bitacora'
+type Filter = 'todas' | 'alertas' | StockLocation
 
 const catalogStore = useCatalogStore()
 const toast = useToastStore()
@@ -34,24 +32,20 @@ const userStore = useUserStore()
 const confirmStore = useConfirmStore()
 const { play } = useSound()
 
-// Las alertas del resumen abren una pestaña directa (?tab=conteos).
 const route = useRoute()
-const TABS: Tab[] = ['abordo', 'bodega', 'conteos', 'bitacora']
-const initialTab = TABS.find((t) => t === route.query.tab)
-const tab = shallowRef<Tab>(initialTab ?? 'abordo')
+const tab = shallowRef<Tab>(route.query.tab === 'bitacora' ? 'bitacora' : 'existencias')
 const stock = shallowRef<StockItem[]>([])
-const counts = shallowRef<StockCount[]>([])
 const movements = ref<StockMovement[]>([])
 const movementsHasMore = shallowRef(false)
 const loading = shallowRef(true)
 const loadingMore = shallowRef(false)
 const query = shallowRef('')
-const showOnlyAlerts = shallowRef(false)
+const filter = shallowRef<Filter>('todas')
 const sentinel = shallowRef<HTMLElement | null>(null)
-const openCountId = shallowRef<string | null>(null)
-const showNewCount = shallowRef(false)
+/** Historial de un solo producto (se abre desde su fila). */
+const historyOf = shallowRef<Product | null>(null)
 
-const modal = shallowRef<ModalKind>(null)
+const showAdjust = shallowRef(false)
 const saving = shallowRef(false)
 const form = reactive({
   productId: '',
@@ -61,12 +55,10 @@ const form = reactive({
   location: 'abordo' as StockLocation,
 })
 
-/** Compras, recepciones, cargas y mermas se hacen en la pantalla de Bodega. */
-const canPurchase = computed(() => userStore.isWarehouse)
-const canTransfer = computed(() => userStore.isWarehouse || userStore.isDirector)
+const canSeeCosts = computed(() => userStore.isWarehouse)
 
 const MOVEMENT_LABELS: Record<StockMovement['type'], string> = {
-  carga: 'Carga',
+  carga: 'Traslado',
   venta: 'Consumo',
   merma: 'Merma',
   ajuste: 'Ajuste',
@@ -75,19 +67,18 @@ const MOVEMENT_LABELS: Record<StockMovement['type'], string> = {
   migracion: 'Saldo inicial',
 }
 
-const MODAL_TITLES: Record<Exclude<ModalKind, null>, string> = {
-  ajuste: 'Ajuste manual de inventario',
-}
+/** "Bodega sin separar" solo se muestra mientras tenga saldo. */
+const hasUnsplit = computed(() => stock.value.some((s) => s.byLocation.bodega !== 0))
+const columns = computed<StockLocation[]>(() => (hasUnsplit.value ? ALL_LOCATIONS : ACTIVE_LOCATIONS))
+
+const locationOptions = computed(() => columns.value.map((l) => ({ value: l, label: LOCATION_LABEL[l] })))
 
 const physicalOptions = computed(() =>
   catalogStore.physical.map((p) => ({ value: p._id, label: p.name, hint: unitShort(p.stockUnit) })),
 )
-
 const selectedProduct = computed<Product | null>(
   () => catalogStore.physical.find((p) => p._id === form.productId) ?? null,
 )
-
-/** Cantidad en unidad base según el modo elegido (envases o ml). */
 const baseQty = computed(() => {
   const p = selectedProduct.value
   if (!p) return 0
@@ -98,35 +89,27 @@ function normalize(text: string): string {
   return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 }
 
+const negativeIn = (s: StockItem) => columns.value.some((l) => s.byLocation[l] < 0)
+const totalOf = (s: StockItem) => columns.value.reduce((sum, l) => sum + s.byLocation[l], 0)
+
 const visibleStock = computed(() => {
   const q = normalize(query.value.trim())
-  return stock.value.filter(
-    (s) =>
-      (!q || normalize(s.product.name).includes(q)) &&
-      (!showOnlyAlerts.value || s.negative || s.low),
-  )
+  return stock.value.filter((s) => {
+    if (q && !normalize(s.product.name).includes(q)) return false
+    if (filter.value === 'alertas') return negativeIn(s) || s.low
+    if (filter.value !== 'todas') return s.byLocation[filter.value] !== 0
+    return true
+  })
 })
 
-const alerts = computed(() => stock.value.filter((s) => s.negative || s.low).length)
-const negatives = computed(() =>
-  tab.value === 'abordo' || tab.value === 'bodega' ? stock.value.filter((s) => s.negative).length : 0,
-)
+const alerts = computed(() => stock.value.filter((s) => negativeIn(s) || s.low).length)
+const negatives = computed(() => stock.value.filter(negativeIn).length)
 
-async function loadStock(location: StockLocation) {
+async function loadStock() {
   loading.value = true
   try {
-    stock.value = await apiStock(location)
-  } catch (err) {
-    toast.error(apiErrorMessage(err))
-  } finally {
-    loading.value = false
-  }
-}
-
-async function loadCounts() {
-  loading.value = true
-  try {
-    counts.value = await apiCounts()
+    // Cada ítem trae todas las ubicaciones; "low" se mide a bordo.
+    stock.value = await apiStock('abordo')
   } catch (err) {
     toast.error(apiErrorMessage(err))
   } finally {
@@ -137,7 +120,7 @@ async function loadCounts() {
 async function loadMovements() {
   loading.value = true
   try {
-    const data = await apiMovements()
+    const data = await apiMovements({ productId: historyOf.value?._id })
     movements.value = data.movements
     movementsHasMore.value = data.hasMore
   } catch (err) {
@@ -153,7 +136,7 @@ async function loadMoreMovements() {
   if (!last) return
   loadingMore.value = true
   try {
-    const data = await apiMovements({ before: last.createdAt })
+    const data = await apiMovements({ before: last.createdAt, productId: historyOf.value?._id })
     movements.value = [...movements.value, ...data.movements]
     movementsHasMore.value = data.hasMore
   } catch (err) {
@@ -166,30 +149,31 @@ async function loadMoreMovements() {
 useInfiniteScroll({ sentinel, onReach: loadMoreMovements })
 
 function refreshTab() {
-  if (tab.value === 'abordo' || tab.value === 'bodega') return loadStock(tab.value)
-  if (tab.value === 'conteos') return loadCounts()
-  return loadMovements()
+  return tab.value === 'existencias' ? loadStock() : loadMovements()
 }
 
 watch(tab, refreshTab)
+watch(historyOf, () => {
+  if (tab.value === 'bitacora') void loadMovements()
+})
 
 onMounted(async () => {
   await catalogStore.load(true)
   await refreshTab()
 })
 
-function openModal(kind: Exclude<ModalKind, null>) {
-  Object.assign(form, {
-    productId: '',
-    qty: 1,
-    mode: 'envases',
-    reason: '',
-    location: tab.value === 'bodega' ? 'bodega' : 'abordo',
-  })
-  modal.value = kind
+function openHistory(p: Product) {
+  historyOf.value = p
+  tab.value = 'bitacora'
+  play('tap')
 }
 
-async function submitModal() {
+function openAdjust() {
+  Object.assign(form, { productId: '', qty: 1, mode: 'envases', reason: '', location: 'abordo' })
+  showAdjust.value = true
+}
+
+async function submitAdjust() {
   const p = selectedProduct.value
   if (!p || !form.qty) {
     toast.error('Elige el producto y la cantidad')
@@ -203,7 +187,7 @@ async function submitModal() {
   const amount = `${formatStock(Math.abs(baseQty.value), p.stockUnit, p.containerSize, p.containerLabel)}`
   const ok = await confirmStore.ask({
     title: '¿Registrar ajuste manual?',
-    message: `${p.name} (${form.location === 'bodega' ? 'bodega' : 'a bordo'}): ${baseQty.value < 0 ? '−' : '+'}${amount}. Motivo: ${form.reason.trim()}.`,
+    message: `${p.name} (${LOCATION_LABEL[form.location]}): ${baseQty.value < 0 ? '−' : '+'}${amount}. Motivo: ${form.reason.trim()}.`,
     confirmLabel: 'Registrar ajuste',
     danger: baseQty.value < 0,
     icon: 'fa-sliders',
@@ -215,7 +199,7 @@ async function submitModal() {
     await apiAdjustStock({ productId: p._id, qty: baseQty.value, reason: form.reason.trim(), location: form.location })
     play('success')
     toast.success('Movimiento registrado en la bitácora')
-    modal.value = null
+    showAdjust.value = false
     await refreshTab()
   } catch (err) {
     play('error')
@@ -225,52 +209,54 @@ async function submitModal() {
   }
 }
 
-async function createCount(location: StockLocation) {
-  showNewCount.value = false
+/** Gerencia cierra el saldo sin separar cuando Quito y Puerto ya se contaron. */
+async function closeUnsplit() {
+  const ok = await confirmStore.ask({
+    title: '¿Cerrar el saldo de la bodega sin separar?',
+    message:
+      'Úsalo después de aprobar un conteo físico de Quito y otro de Puerto: lo que hay en cada lugar ya entró con esos conteos. El saldo anterior se lleva a cero con un ajuste por producto que queda en la bitácora.',
+    confirmLabel: 'Cerrar saldo sin separar',
+    danger: true,
+    icon: 'fa-warehouse',
+  })
+  if (!ok) return
   try {
-    const count = await apiCreateCount(location)
+    const result = await apiCloseUnsplit()
     play('success')
-    toast.success(`Conteo ${count.code} abierto: el corte quedó registrado`)
-    openCountId.value = count._id
-    await loadCounts()
+    toast.success(`Saldo sin separar cerrado: ${result.closed} producto(s)`)
+    await loadStock()
   } catch (err) {
+    play('error')
     toast.error(apiErrorMessage(err))
   }
 }
 
 const TAB_META: Array<{ id: Tab; label: string; icon: string }> = [
-  { id: 'abordo', label: 'A bordo', icon: 'fa-ship' },
-  { id: 'bodega', label: 'Bodega', icon: 'fa-warehouse' },
-  { id: 'conteos', label: 'Conteos', icon: 'fa-clipboard-list' },
-  { id: 'bitacora', label: 'Bitácora', icon: 'fa-clock-rotate-left' },
+  { id: 'existencias', label: 'Existencias', icon: 'fa-boxes-stacked' },
+  { id: 'bitacora', label: 'Historial', icon: 'fa-clock-rotate-left' },
 ]
-
-const COUNT_STATUS: Record<string, string> = {
-  borrador: 'Borrador',
-  enviado: 'Por aprobar',
-  aprobado: 'Aprobado',
-  rechazado: 'Devuelto',
-}
+const FILTERS = computed<Array<{ id: Filter; label: string }>>(() => [
+  { id: 'todas', label: 'Todas' },
+  ...columns.value.map((l) => ({ id: l as Filter, label: `Con saldo: ${LOCATION_LABEL[l]}` })),
+  { id: 'alertas', label: `Alertas${alerts.value ? ` (${alerts.value})` : ''}` },
+])
 </script>
 
 <template>
   <div class="page inv">
     <header class="page-head">
       <div class="page-head-text">
-        <h1 class="page-title">Inventario</h1>
-        <p class="page-lead">Saldos de a bordo y bodega. Los licores se miden en ml: cada trago descuenta su medida.</p>
+        <h1 class="page-title">Existencias</h1>
+        <p class="page-lead">Cantidades por ubicación. Los licores se miden en ml: cada trago descuenta su medida.</p>
       </div>
       <div class="page-actions">
-        <button v-if="userStore.isOwner" type="button" class="btn btn-secondary" @click="openModal('ajuste')">
+        <button v-if="userStore.isOwner" type="button" class="btn btn-secondary" @click="openAdjust">
           <i class="fa-solid fa-sliders" aria-hidden="true" /> Ajuste manual
-        </button>
-        <button type="button" class="btn btn-primary" @click="showNewCount = true">
-          <i class="fa-solid fa-clipboard-check" aria-hidden="true" /> Conteo físico
         </button>
       </div>
     </header>
 
-    <div class="segs inv-tabs" role="tablist" aria-label="Vista del inventario">
+    <div class="segs inv-tabs" role="tablist" aria-label="Vista de existencias">
       <button
         v-for="t in TAB_META"
         :key="t.id"
@@ -285,24 +271,20 @@ const COUNT_STATUS: Record<string, string> = {
       </button>
     </div>
 
-    <!-- Atajos a los movimientos, que se hacen en la pantalla de Bodega -->
-    <nav class="shortcuts" aria-label="Movimientos en Bodega">
-      <span class="shortcuts-label">En Bodega:</span>
-      <RouterLink v-if="canPurchase" class="shortcut" :to="{ path: '/bodega', query: { flujo: 'compra' } }">
-        <i class="fa-solid fa-file-invoice-dollar" aria-hidden="true" /> Registrar compra
-      </RouterLink>
-      <RouterLink v-if="canPurchase" class="shortcut" :to="{ path: '/bodega', query: { flujo: 'recibir' } }">
-        <i class="fa-solid fa-box-open" aria-hidden="true" /> Recibir mercadería
-      </RouterLink>
-      <RouterLink v-if="canTransfer" class="shortcut" :to="{ path: '/bodega', query: { flujo: 'carga' } }">
-        <i class="fa-solid fa-dolly" aria-hidden="true" /> Cargar al barco
-      </RouterLink>
-      <RouterLink class="shortcut" :to="{ path: '/bodega', query: { flujo: 'merma' } }">
-        <i class="fa-solid fa-wine-glass-empty" aria-hidden="true" /> Merma
-      </RouterLink>
-    </nav>
+    <!-- Saldo anterior sin separar: se reparte con conteos, no por suposición -->
+    <p v-if="hasUnsplit && tab === 'existencias'" class="needs-count">
+      <i class="fa-solid fa-warehouse" aria-hidden="true" />
+      <span>
+        <strong>Hay saldo en «Bodega sin separar».</strong>
+        Es el saldo anterior a separar Quito y Puerto. Cuenta Quito y Puerto en Conteos; cuando ambos estén aprobados,
+        Gerencia cierra este saldo.
+        <button v-if="userStore.isOwner" type="button" class="link-btn btn btn-secondary" @click="closeUnsplit">
+          Cerrar saldo sin separar
+        </button>
+      </span>
+    </p>
 
-    <p v-if="negatives" class="needs-count">
+    <p v-if="negatives && tab === 'existencias'" class="needs-count">
       <i class="fa-solid fa-clipboard-question" aria-hidden="true" />
       <span>
         <strong>{{ negatives === 1 ? '1 producto tiene' : `${negatives} productos tienen` }} saldo bajo cero:
@@ -311,23 +293,19 @@ const COUNT_STATUS: Record<string, string> = {
       </span>
     </p>
 
-    <!-- Stock por ubicación -->
-    <section v-if="tab === 'abordo' || tab === 'bodega'" class="card table-card">
+    <!-- Existencias por ubicación -->
+    <section v-if="tab === 'existencias'" class="card table-card">
       <div class="tools">
         <label class="search">
           <i class="fa-solid fa-magnifying-glass" aria-hidden="true" />
-          <input v-model="query" type="search" placeholder="Buscar insumo" aria-label="Buscar insumo" />
+          <input v-model="query" type="search" placeholder="Buscar producto" aria-label="Buscar producto" />
         </label>
-        <button
-          type="button"
-          class="toggle"
-          :class="{ on: showOnlyAlerts }"
-          :aria-pressed="showOnlyAlerts"
-          @click="showOnlyAlerts = !showOnlyAlerts"
-        >
-          <i class="fa-solid fa-triangle-exclamation" aria-hidden="true" /> Solo alertas
-          <span v-if="alerts" class="badge num">{{ alerts }}</span>
-        </button>
+        <BaseSelect
+          :model-value="filter"
+          :options="FILTERS.map((f) => ({ value: f.id, label: f.label }))"
+          aria-label="Filtrar"
+          @update:model-value="filter = $event as Filter"
+        />
       </div>
 
       <SkeletonList v-if="loading" variant="row" :rows="8" />
@@ -335,46 +313,50 @@ const COUNT_STATUS: Record<string, string> = {
         <table class="table">
           <thead>
             <tr>
-              <th>Insumo</th>
-              <th class="num">Stock</th>
-              <th class="col-cost">Costo</th>
+              <th>Producto</th>
+              <th v-for="l in columns" :key="l" class="num">{{ LOCATION_LABEL[l] }}</th>
+              <th class="num">Total</th>
+              <th v-if="canSeeCosts" class="col-cost">Costo</th>
             </tr>
           </thead>
           <tbody>
             <tr
               v-for="item in visibleStock"
               :key="item.product._id"
-              :class="{ negative: item.negative, low: item.low && !item.negative }"
+              :class="{ negative: negativeIn(item), low: item.low && !negativeIn(item) }"
             >
               <td>
-                <span class="prod">
+                <button type="button" class="prod prod-btn" :aria-label="`Historial de ${item.product.name}`" @click="openHistory(item.product)">
                   <ProductIcon :icon="item.product.icon" :size="20" />
                   <span class="prod-text">
                     <span class="prod-name">{{ item.product.name }}</span>
-                    <small class="prod-cost">
-                      {{ costText(item.product.costPerUnit, item.product) || 'Sin costo' }}
+                    <small v-if="canSeeCosts" class="prod-cost">
+                      {{ costText(item.product.costPerUnit, item.product) || 'Falta registrar costo' }}
+                    </small>
+                    <small class="prod-cost prod-cost--always">
+                      <i class="fa-solid fa-clock-rotate-left" aria-hidden="true" /> Historial
                     </small>
                   </span>
-                </span>
+                </button>
               </td>
-              <td class="num">
-                <template v-if="item.negative">
+              <td v-for="l in columns" :key="l" class="num" :data-label="LOCATION_LABEL[l]">
+                <template v-if="item.byLocation[l] < 0">
                   <span class="pill pill--neg">Requiere conteo</span>
-                  <small class="sys">Sistema: {{ formatNumber(item.qty) }} {{ unitShort(item.product.stockUnit) }}</small>
+                  <small class="sys">Sistema: {{ formatNumber(item.byLocation[l]) }} {{ unitShort(item.product.stockUnit) }}</small>
                 </template>
                 <template v-else>
-                  <strong :class="{ zero: item.qty === 0 }">{{ stockText(item.qty, item.product) }}</strong>
-                  <span v-if="item.low" class="pill pill--low">Stock bajo</span>
-                  <span v-else-if="item.qty === 0" class="pill">Sin stock</span>
+                  <strong :class="{ zero: item.byLocation[l] === 0 }">{{ stockText(item.byLocation[l], item.product) }}</strong>
+                  <span v-if="l === 'abordo' && item.low" class="pill pill--low">Bajo</span>
                 </template>
               </td>
-              <td class="muted col-cost">
-                {{ costText(item.product.costPerUnit, item.product) || 'Sin costo' }}
+              <td class="num"><strong>{{ stockText(totalOf(item), item.product) }}</strong></td>
+              <td v-if="canSeeCosts" class="muted col-cost">
+                {{ costText(item.product.costPerUnit, item.product) || 'Falta registrar costo' }}
               </td>
             </tr>
             <tr v-if="!visibleStock.length">
-              <td colspan="3" class="empty">
-                {{ showOnlyAlerts ? 'Sin alertas: todo con stock suficiente.' : 'Ningún insumo con ese nombre.' }}
+              <td :colspan="columns.length + (canSeeCosts ? 3 : 2)" class="empty">
+                {{ filter === 'alertas' ? 'Sin alertas: todo con stock suficiente.' : 'Ningún producto con ese filtro.' }}
               </td>
             </tr>
           </tbody>
@@ -382,46 +364,14 @@ const COUNT_STATUS: Record<string, string> = {
       </div>
     </section>
 
-    <!-- Conteos físicos -->
-    <section v-else-if="tab === 'conteos'" class="card table-card">
-      <SkeletonList v-if="loading" variant="row" :rows="5" />
-      <div v-else-if="!counts.length" class="vacio">
-        <i class="fa-solid fa-clipboard-list" aria-hidden="true" />
-        <p>Aún no hay conteos. Usa «Conteo físico» para registrar lo que hay realmente.</p>
-      </div>
-      <div v-else class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Código</th>
-              <th>Ubicación</th>
-              <th>Corte</th>
-              <th>Contó</th>
-              <th>Estado</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="c in counts" :key="c._id">
-              <td><strong>{{ c.code }}</strong></td>
-              <td>{{ c.location === 'abordo' ? 'A bordo' : 'Bodega' }}<span v-if="c.cruise" class="muted"> · {{ c.cruise.code }}</span></td>
-              <td>{{ formatDateTime(c.cutAt) }}</td>
-              <td>{{ c.createdBy?.name }}</td>
-              <td><span class="pill" :class="`pill--${c.status}`">{{ COUNT_STATUS[c.status] }}</span></td>
-              <td>
-                <button type="button" class="btn btn-secondary link-btn" @click="openCountId = c._id">
-                  {{ c.status === 'enviado' && userStore.isOwner ? 'Revisar' : 'Abrir' }}
-                  <i class="fa-solid fa-chevron-right" aria-hidden="true" />
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- Bitácora -->
+    <!-- Historial (bitácora) -->
     <section v-else class="card table-card">
+      <p v-if="historyOf" class="history-of">
+        <span>Historial de <strong>{{ historyOf.name }}</strong></span>
+        <button type="button" class="btn btn-secondary link-btn" @click="historyOf = null">
+          <i class="fa-solid fa-xmark" aria-hidden="true" /> Ver todos los productos
+        </button>
+      </p>
       <SkeletonList v-if="loading" variant="row" :rows="8" />
       <div v-else class="table-wrap">
         <table class="table">
@@ -429,7 +379,7 @@ const COUNT_STATUS: Record<string, string> = {
             <tr>
               <th>Fecha</th>
               <th>Tipo</th>
-              <th>Insumo</th>
+              <th>Producto</th>
               <th>Dónde</th>
               <th class="num">Cantidad</th>
               <th>Persona</th>
@@ -441,7 +391,7 @@ const COUNT_STATUS: Record<string, string> = {
               <td class="nowrap">{{ formatDateTime(m.createdAt) }}</td>
               <td><span class="pill" :class="`pill--${m.type}`">{{ MOVEMENT_LABELS[m.type] }}</span></td>
               <td>{{ m.product?.name }}</td>
-              <td>{{ m.location === 'bodega' ? 'Bodega' : 'A bordo' }}</td>
+              <td>{{ LOCATION_LABEL[m.location] ?? m.location }}</td>
               <td class="num" :class="{ neg: m.qty < 0 }">
                 {{ m.qty > 0 ? '+' : '' }}{{ formatNumber(m.qty) }} {{ m.legacy ? 'u (antiguo)' : unitShort(m.product?.stockUnit ?? '') }}
               </td>
@@ -449,7 +399,7 @@ const COUNT_STATUS: Record<string, string> = {
               <td class="muted">
                 {{ m.reason }}
                 <template v-if="m.supplier"> · {{ m.supplier }} · Doc. {{ m.document }}</template>
-                <template v-if="m.unitCost"> · {{ formatMoney(m.unitCost) }} c/u</template>
+                <template v-if="m.unitCost && canSeeCosts"> · {{ formatMoney(m.unitCost) }} c/u</template>
               </td>
             </tr>
             <tr v-if="!movements.length">
@@ -463,16 +413,16 @@ const COUNT_STATUS: Record<string, string> = {
       </div>
     </section>
 
-    <!-- Movimiento -->
-    <BaseModal v-if="modal && userStore.isOwner" :title="MODAL_TITLES[modal]" @close="modal = null">
+    <!-- Ajuste manual (solo Gerencia) -->
+    <BaseModal v-if="showAdjust && userStore.isOwner" title="Ajuste manual de inventario" @close="showAdjust = false">
       <div class="modal-form">
         <div class="field">
-          <label>Insumo</label>
-          <BaseSelect v-model="form.productId" :options="physicalOptions" placeholder="Buscar insumo…" searchable />
+          <label>Producto</label>
+          <BaseSelect v-model="form.productId" :options="physicalOptions" placeholder="Buscar producto…" searchable />
         </div>
 
         <p class="count-intro">
-          Solo Gerencia registra ajustes manuales. Para diferencias de un conteo, usa Conteo físico: el ajuste queda con su corte.
+          Solo Gerencia registra ajustes manuales. Para diferencias de un conteo, usa Conteos: el ajuste queda con su corte.
         </p>
 
         <div class="field">
@@ -500,7 +450,7 @@ const COUNT_STATUS: Record<string, string> = {
           <label>Ubicación</label>
           <BaseSelect
             v-model="form.location"
-            :options="[{ value: 'abordo', label: 'A bordo' }, { value: 'bodega', label: 'Bodega' }]"
+            :options="locationOptions"
           />
         </div>
 
@@ -509,38 +459,11 @@ const COUNT_STATUS: Record<string, string> = {
           <input id="mv-reason" v-model="form.reason" type="text" placeholder="Ej. corrección autorizada tras revisión" />
         </div>
 
-        <button type="button" class="btn btn-primary btn-lg" :disabled="saving" @click="submitModal">
+        <button type="button" class="btn btn-primary btn-lg" :disabled="saving" @click="submitAdjust">
           <i class="fa-solid fa-check" aria-hidden="true" /> {{ saving ? 'Guardando…' : 'Registrar ajuste' }}
         </button>
       </div>
     </BaseModal>
-
-    <!-- Nuevo conteo -->
-    <BaseModal v-if="showNewCount" title="Nuevo conteo físico" @close="showNewCount = false">
-      <p class="count-intro">
-        Se toma una foto del stock digital en este instante (el corte). Cuenta lo que hay, guarda
-        las veces que quieras y envíalo para revisión. Guardar o enviar no cambia el stock: el ajuste se aplica solo cuando se aprueba.
-      </p>
-      <div class="count-choice">
-        <button type="button" class="choice" @click="createCount('abordo')">
-          <i class="fa-solid fa-ship" aria-hidden="true" />
-          <strong>A bordo</strong>
-          <span>Bar del barco, crucero en curso</span>
-        </button>
-        <button type="button" class="choice" @click="createCount('bodega')">
-          <i class="fa-solid fa-warehouse" aria-hidden="true" />
-          <strong>Bodega</strong>
-          <span>Inventario en tierra</span>
-        </button>
-      </div>
-    </BaseModal>
-
-    <CountEditor
-      v-if="openCountId"
-      :count-id="openCountId"
-      @close="openCountId = null"
-      @changed="loadCounts"
-    />
   </div>
 </template>
 
@@ -555,50 +478,8 @@ const COUNT_STATUS: Record<string, string> = {
   margin-bottom: 0.85rem;
 }
 
-// Atajos discretos: los movimientos viven en Bodega.
-.shortcuts {
-  display: flex;
-  align-items: center;
-  gap: 0 1.1rem;
-  margin-bottom: 1rem;
-  font-size: 0.95rem;
-  white-space: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
 
-  &::-webkit-scrollbar {
-    display: none;
-  }
 
-  @include tablet {
-    flex-wrap: wrap;
-    overflow: visible;
-  }
-}
-
-.shortcuts-label {
-  color: var(--ink-400);
-}
-
-.shortcut {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-height: 44px;
-  font-weight: 600;
-  color: var(--navy-700);
-  transition: color 0.15s ease;
-
-  i {
-    color: var(--gold-500);
-  }
-
-  &:hover {
-    color: var(--navy-900);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-  }
-}
 
 .table-card {
   padding: 0.75rem;
@@ -645,49 +526,7 @@ const COUNT_STATUS: Record<string, string> = {
   }
 }
 
-.toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  min-height: 48px;
-  padding: 0 1rem;
-  border-radius: 999px;
-  border: 1px solid var(--line-strong);
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--ink-600);
-  white-space: nowrap;
-  transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
 
-  i {
-    color: var(--warning);
-  }
-
-  &.on {
-    background: var(--navy-800);
-    border-color: var(--navy-800);
-    color: #fff;
-
-    i {
-      color: var(--powder-300);
-    }
-  }
-}
-
-.badge {
-  min-width: 24px;
-  height: 24px;
-  padding: 0 0.4rem;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--danger);
-  color: #fff;
-  font-size: 0.82rem;
-}
 
 .table-wrap {
   overflow-x: auto;
@@ -747,6 +586,37 @@ const COUNT_STATUS: Record<string, string> = {
 
 .nowrap {
   white-space: nowrap;
+}
+
+.prod-btn {
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+
+  &:hover .prod-name {
+    text-decoration: underline;
+  }
+}
+
+.prod-cost--always {
+  display: inline-flex !important;
+  gap: 0.3rem;
+  align-items: center;
+  color: var(--navy-700);
+}
+
+.history-of {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
 }
 
 .prod {
@@ -946,50 +816,5 @@ const COUNT_STATUS: Record<string, string> = {
   line-height: 1.5;
 }
 
-.count-choice {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-}
 
-.choice {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.3rem;
-  min-height: 112px;
-  padding: 1rem 1.1rem;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  text-align: left;
-  transition:
-    border-color 0.15s ease,
-    background-color 0.15s ease,
-    transform 0.12s var(--ease-out);
-
-  i {
-    font-size: 1.4rem;
-    color: var(--navy-700);
-    margin-bottom: 0.2rem;
-  }
-
-  strong {
-    font-size: 1.1rem;
-    font-weight: 600;
-  }
-
-  span {
-    font-size: 0.92rem;
-    color: var(--ink-600);
-  }
-
-  &:hover {
-    border-color: var(--navy-600);
-    background: var(--powder-100);
-  }
-
-  &:active {
-    transform: scale(0.98);
-  }
-}
 </style>
