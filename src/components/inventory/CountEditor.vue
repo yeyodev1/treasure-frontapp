@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LOCATION_LABEL } from '@/components/supply/units'
 import { computed, onMounted, ref, shallowRef } from 'vue'
 import type { CountLine, StockCount } from '@/types'
 import BaseModal from '@/components/ui/BaseModal.vue'
@@ -214,7 +215,7 @@ async function reject() {
 
     <div v-else-if="count" class="ct">
       <header class="ct-head">
-        <span><i class="fa-solid fa-location-dot" aria-hidden="true" /> {{ count.location === 'abordo' ? 'A bordo' : 'Bodega' }}</span>
+        <span><i class="fa-solid fa-location-dot" aria-hidden="true" /> {{ LOCATION_LABEL[count.location] }}</span>
         <span v-if="count.cruise"><i class="fa-solid fa-ship" aria-hidden="true" /> {{ count.cruise.code || count.cruise.name }}</span>
         <span><i class="fa-regular fa-clock" aria-hidden="true" /> Corte {{ formatDateTime(count.cutAt) }}</span>
         <span class="ct-status" :class="`ct-status--${count.status}`">{{ STATUS_LABEL[count.status] }}</span>
