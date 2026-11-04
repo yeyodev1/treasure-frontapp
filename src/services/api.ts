@@ -13,6 +13,8 @@ import type {
   FinishCheck,
   OwnerPanel,
   Purchase,
+  WeeklyOrder,
+  WeeklyOrderCurrent,
   Requisition,
   RequisitionStatus,
   PurchaseStatus,
@@ -136,9 +138,15 @@ export async function apiNewCruiseOptions() {
   return data
 }
 
-export async function apiCreatePlannedCruise(leg: string, startDate: string) {
-  const { data } = await http.post<{ cruise: Cruise }>('/cruises/plan', { leg, startDate })
+export async function apiCreatePlannedCruise(leg: string, startDate: string, bartender?: string) {
+  const { data } = await http.post<{ cruise: Cruise }>('/cruises/plan', { leg, startDate, bartender: bartender || undefined })
   return data.cruise
+}
+
+/** Bartenders activos para asignar a un crucero (comisiones). */
+export async function apiBartenders() {
+  const { data } = await http.get<{ bartenders: Array<{ _id: string; name: string }> }>('/users/bartenders')
+  return data.bartenders
 }
 
 export async function apiUpdateCruise(id: string, payload: Record<string, unknown>) {
@@ -386,13 +394,59 @@ export async function apiAdjustStock(payload: {
   await http.post('/inventory/adjust', payload)
 }
 
-/** Cargar al barco: bodega → a bordo. La clave evita trasladar dos veces. */
-export async function apiTransfer(items: Array<{ productId: string; qty: number }>, key?: string) {
+/** Traslado entre ubicaciones; se registra cuando la mercadería llega. */
+export async function apiTransfer(
+  items: Array<{ productId: string; qty: number }>,
+  key?: string,
+  from: StockLocation = 'puerto',
+  to: StockLocation = 'abordo',
+) {
   const { data } = await http.post<{ ok: boolean; transferId: string; duplicated?: boolean }>(
     '/inventory/transfer',
-    { items, key },
+    { items, key, from, to },
   )
   return data
+}
+
+/** Cierra el saldo de "Bodega sin separar" tras los conteos de Quito y Puerto (solo Gerencia). */
+export async function apiCloseUnsplit() {
+  const { data } = await http.post<{ ok: boolean; closed: number }>('/inventory/close-unsplit')
+  return data
+}
+
+// Pedido semanal
+export async function apiWeeklyOrderCurrent() {
+  const { data } = await http.get<WeeklyOrderCurrent>('/weekly-orders/current')
+  return data
+}
+
+export async function apiWeeklyOrder(id: string) {
+  const { data } = await http.get<{ order: WeeklyOrder }>(`/weekly-orders/${id}`)
+  return data.order
+}
+
+export async function apiSaveWeeklyOrder(
+  id: string,
+  version: number,
+  lines: Array<{ productId: string; qty: number; observation: string }>,
+) {
+  const { data } = await http.put<{ order: WeeklyOrder }>(`/weekly-orders/${id}/lines`, { version, lines })
+  return data.order
+}
+
+export async function apiSendWeeklyOrder(id: string, version: number) {
+  const { data } = await http.post<{ order: WeeklyOrder }>(`/weekly-orders/${id}/send`, { version })
+  return data.order
+}
+
+export async function apiApproveWeeklyOrder(id: string, version: number) {
+  const { data } = await http.post<{ order: WeeklyOrder }>(`/weekly-orders/${id}/approve`, { version })
+  return data.order
+}
+
+export async function apiCancelWeeklyOrder(id: string, reason: string) {
+  const { data } = await http.post<{ order: WeeklyOrder }>(`/weekly-orders/${id}/cancel`, { reason })
+  return data.order
 }
 
 export async function apiMovements(
@@ -622,11 +676,13 @@ export async function apiReceiveRequisition(
   key: string,
   lines: Array<{ index: number; qty: number }>,
   note?: string,
+  from: StockLocation = 'puerto',
 ) {
   const { data } = await http.post<{ requisition: Requisition }>(`/requisitions/${id}/receive`, {
     key,
     lines,
     note,
+    from,
   })
   return data.requisition
 }
@@ -642,9 +698,9 @@ export async function apiResolveRequisition(id: string, note: string) {
 }
 
 // Compras: factura (sin stock) → recepción física (suma con costo)
-export async function apiPurchases(params: { status?: PurchaseStatus[]; before?: string } = {}) {
+export async function apiPurchases(params: { status?: PurchaseStatus[]; before?: string; weeklyOrder?: string } = {}) {
   const { data } = await http.get<{ purchases: Purchase[]; hasMore: boolean }>('/purchases', {
-    params: { status: params.status?.join(',') || undefined, before: params.before },
+    params: { status: params.status?.join(',') || undefined, before: params.before, weeklyOrder: params.weeklyOrder },
   })
   return data
 }
@@ -657,6 +713,7 @@ export async function apiCreatePurchase(payload: {
   lines: Array<{ productId: string; containers: number; containerCost?: number }>
   note?: string
   idempotencyKey?: string
+  weeklyOrderId?: string
 }) {
   const { data } = await http.post<{ purchase: Purchase }>('/purchases', payload)
   return data.purchase
@@ -668,11 +725,13 @@ export async function apiReceivePurchase(
   key: string,
   lines: Array<{ index: number; containers: number }>,
   note?: string,
+  location?: StockLocation,
 ) {
   const { data } = await http.post<{ purchase: Purchase }>(`/purchases/${id}/receive`, {
     key,
     lines,
     note,
+    location,
   })
   return data.purchase
 }
@@ -694,7 +753,7 @@ export async function apiCommissions() {
   return data
 }
 
-export async function apiCreateCommissionPayment(payload: { amount: number; paidAt: string; note: string }) {
+export async function apiCreateCommissionPayment(payload: { cruiseIds: string[]; paidAt: string; note: string }) {
   const { data } = await http.post<CommissionSummary>('/commissions/payments', payload)
   return data
 }
