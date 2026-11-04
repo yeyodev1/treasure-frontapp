@@ -54,6 +54,7 @@ const form = reactive({
   containerSize: editing?.containerSize ?? 750,
   containerLabel: editing?.containerLabel ?? 'botella',
   lowStockThreshold: editing?.lowStockThreshold ?? 0,
+  stockTarget: editing?.stockTarget ?? 0,
   servingSize: editing?.servingSize ?? 60,
   servingPrice: editing?.servingPrice ?? 0,
   contificoId: editing?.contificoId ?? '',
@@ -134,6 +135,7 @@ async function save() {
       containerSize: form.containerSize,
       containerLabel: form.containerLabel,
       lowStockThreshold: form.lowStockThreshold,
+      stockTarget: form.stockTarget,
       servingSize: form.servingSize,
       servingPrice: form.servingPrice,
     })
@@ -240,6 +242,14 @@ async function save() {
               <span>{{ unitShort(form.stockUnit) }}</span>
             </div>
           </div>
+        </div>
+        <div class="field">
+          <label for="p-target">Objetivo a mantener (pedido semanal)</label>
+          <div class="suffix">
+            <input id="p-target" v-model.number="form.stockTarget" type="number" min="0" step="1" />
+            <span>{{ form.containerLabel || 'envases' }}</span>
+          </div>
+          <small class="field-hint">Cuánto tener en total entre Quito, Puerto y a bordo. El pedido sugiere lo que falta; 0 = se sugiere según el consumo.</small>
         </div>
         <label class="check">
           <input v-model="form.sellable" type="checkbox" />
