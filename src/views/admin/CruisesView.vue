@@ -7,16 +7,19 @@ import { useToastStore } from '@/stores/toast'
 import { useConfirmStore } from '@/stores/confirm'
 import { useSound } from '@/composables/useSound'
 import {
+  apiBartenders,
   apiCreatePlannedCruise,
   apiCruises,
   apiCycleSettings,
   apiGenerateCycle,
   apiNewCruiseOptions,
   apiPlanCruise,
+  apiUpdateCruise,
 } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatDate, formatLongDate } from '@/utils/format'
 import BaseDatePicker from '@/components/ui/BaseDatePicker.vue'
+import BaseSelect from '@/components/ui/BaseSelect.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import PassengersModal from '@/components/cruises/PassengersModal.vue'
 import CycleSettingsModal from '@/components/cruises/CycleSettingsModal.vue'
@@ -54,6 +57,29 @@ const showGenerator = shallowRef(false)
 // fecha libre: lo habitual es revisar y tocar Crear.
 const newLeg = shallowRef('')
 const newStart = shallowRef('')
+/** Bartender del crucero: se le acreditan las comisiones de sus ventas (4-nov-2026). */
+const newBartender = shallowRef('')
+const bartenderOptions = shallowRef<Array<{ value: string; label: string }>>([])
+
+async function loadBartenders() {
+  try {
+    bartenderOptions.value = (await apiBartenders()).map((b) => ({ value: b._id, label: b.name }))
+  } catch {
+    bartenderOptions.value = []
+  }
+}
+
+async function setBartender(cruise: Cruise, id: string) {
+  if (id === (cruise.bartender ?? '')) return
+  try {
+    await apiUpdateCruise(cruise._id, { bartender: id || null })
+    toast.success(id ? `Bartender de ${label(cruise)}: ${bartenderOptions.value.find((o) => o.value === id)?.label}` : 'Bartender quitado')
+    await refresh()
+  } catch (err) {
+    play('error')
+    toast.error(apiErrorMessage(err))
+  }
+}
 const options = shallowRef<NewCruiseOptions | null>(null)
 const plan = shallowRef<NewCruisePlan | null>(null)
 const planning = shallowRef(false)
@@ -149,7 +175,7 @@ async function createCruise() {
   if (!ok) return
   creating.value = true
   try {
-    const cruise = await apiCreatePlannedCruise(p.leg, newStart.value)
+    const cruise = await apiCreatePlannedCruise(p.leg, newStart.value, newBartender.value)
     play('success')
     toast.success(`Crucero ${cruise.code} creado: ${formatDate(cruise.startDate)} → ${formatDate(cruise.endDate ?? cruise.startDate)}`)
     tab.value = 'proximas'
@@ -227,6 +253,7 @@ async function refresh() {
 onMounted(() => {
   void refresh()
   void loadOptions(true)
+  void loadBartenders()
 })
 
 async function generate() {
@@ -423,6 +450,11 @@ async function onPassengersSaved() {
         <p v-else-if="planning" class="plan-hint"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true" /> Calculando…</p>
       </Transition>
 
+      <div class="field bartender-field">
+        <label>Bartender del crucero <small>(opcional: si no lo eliges, queda el primero que registre un consumo)</small></label>
+        <BaseSelect v-model="newBartender" :options="bartenderOptions" placeholder="Elegir bartender…" />
+      </div>
+
       <button type="button" class="btn btn-primary btn-lg create-btn" :disabled="!canCreate" @click="createCruise()">
         <i class="fa-solid" :class="creating ? 'fa-spinner fa-spin' : 'fa-plus'" aria-hidden="true" />
         {{ creating ? 'Creando…' : plan ? `Crear crucero ${plan.code}` : 'Crear crucero' }}
@@ -518,6 +550,18 @@ async function onPassengersSaved() {
               <i class="fa-regular fa-calendar" aria-hidden="true" />
               {{ formatDate(cruise.startDate) }}
               <template v-if="cruise.endDate"> → {{ formatDate(cruise.endDate) }}</template>
+            </p>
+            <div v-if="userStore.isDirector" class="cruise-bartender">
+              <i class="fa-solid fa-martini-glass" aria-hidden="true" />
+              <BaseSelect
+                :model-value="cruise.bartender ?? ''"
+                :options="[{ value: '', label: 'Sin bartender' }, ...bartenderOptions]"
+                placeholder="Bartender…"
+                @update:model-value="setBartender(cruise, $event)"
+              />
+            </div>
+            <p v-else-if="cruise.bartenderName" class="cruise-dates">
+              <i class="fa-solid fa-martini-glass" aria-hidden="true" /> {{ cruise.bartenderName }}
             </p>
           </div>
           <div class="cruise-side">
@@ -950,6 +994,25 @@ async function onPassengersSaved() {
   margin: 0 0 1.1rem;
   font-size: 1rem;
   color: var(--ink-600);
+}
+
+.bartender-field {
+  max-width: 420px;
+  margin-bottom: 1rem;
+
+  small {
+    font-weight: 400;
+    color: var(--ink-400);
+  }
+}
+
+.cruise-bartender {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 280px;
+  margin-top: 0.35rem;
+  color: var(--ink-400);
 }
 
 .create-btn {
