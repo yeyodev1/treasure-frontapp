@@ -15,7 +15,7 @@ const emit = defineEmits<{ back: []; go: [index: number] }>()
   <header class="flow-head">
     <div class="flow-top">
       <button type="button" class="back" @click="emit('back')">
-        <i class="fa-solid fa-arrow-left" aria-hidden="true" /> {{ backLabel ?? 'Bodega' }}
+        <i class="fa-solid fa-arrow-left" aria-hidden="true" /> {{ backLabel ?? 'Volver' }}
       </button>
       <h2 class="flow-title">
         <i class="fa-solid" :class="icon" aria-hidden="true" /> {{ title }}
