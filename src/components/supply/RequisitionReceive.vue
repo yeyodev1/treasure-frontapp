@@ -4,13 +4,17 @@ import { useSound } from '@/composables/useSound'
 import { useSaveAttempt } from '@/composables/useSaveAttempt'
 import { apiReceiveRequisition } from '@/services/api'
 import { formatDateTime } from '@/utils/format'
-import type { Requisition } from '@/types'
+import type { Requisition, StockLocation } from '@/types'
 import FlowHeader from './FlowHeader.vue'
 import StatusPill from './StatusPill.vue'
 import SummaryModal from './SummaryModal.vue'
 import UnitQty from './UnitQty.vue'
 import {
   baseText,
+  LOCATION_ICON,
+  LOCATION_IN,
+  LOCATION_LABEL,
+  stockAt,
   hasContainer,
   missingText,
   noStockError,
@@ -24,7 +28,8 @@ import {
 
 /**
  * Recepción física de un requerimiento aprobado: lo que llega se traslada
- * de bodega al barco. Se puede recibir en envases o ml; la API va en unidad base.
+ * del origen (Puerto por defecto, o Quito / bodega sin separar) al barco. Se
+ * puede recibir en envases o ml; la API va en unidad base.
  */
 const props = defineProps<{ requisition: Requisition; backLabel?: string }>()
 const emit = defineEmits<{ back: []; saved: [requisition: Requisition] }>()
@@ -38,6 +43,13 @@ interface Pick {
 }
 
 const current = shallowRef<Requisition>(props.requisition)
+const from = shallowRef<StockLocation>('puerto')
+/** La bodega sin separar solo se ofrece si alguna línea todavía tiene saldo ahí. */
+const fromOptions = computed<StockLocation[]>(() => {
+  const list: StockLocation[] = ['puerto', 'quito']
+  if (current.value.lines.some((l) => (requisitionUnit(l).warehouseStock ?? 0) > 0)) list.push('bodega')
+  return list
+})
 const note = shallowRef('')
 const reviewing = shallowRef(false)
 const failure = shallowRef('')
@@ -71,7 +83,8 @@ function baseOf(index: number): number {
 
 function warehouseOf(index: number): number | undefined {
   const line = current.value.lines[index]
-  return line ? requisitionUnit(line).warehouseStock : undefined
+  if (!line || typeof line.product === 'string') return undefined
+  return stockAt(requisitionUnit(line), from.value)
 }
 
 function shortOfStock(index: number): boolean {
@@ -109,6 +122,7 @@ async function confirm() {
       key,
       chosen.value.map((x) => ({ index: x.index, qty: x.qty })),
       note.value.trim() || undefined,
+      from.value,
     ),
   )
   if (result.ok) {
@@ -121,7 +135,7 @@ async function confirm() {
   if (missing) {
     reviewing.value = false
     missingId.value = missing.productId
-    failure.value = `${missing.message}. No se guardó nada: recibe lo que hay o carga primero la bodega.`
+    failure.value = `${missing.message}. No se guardó nada: recibe lo que hay o elige otro origen.`
   }
 }
 
@@ -154,7 +168,25 @@ function lineId(index: number): string {
         <StatusPill :status="current.status" />
       </div>
       <p v-if="current.note" class="lead">Nota del bar: {{ current.note }}</p>
-      <p class="lead">Marca lo que entregas al barco. Sale de bodega y llega a bordo.</p>
+      <div class="field">
+        <label>¿De dónde sale?</label>
+        <div class="dest">
+          <button
+            v-for="loc in fromOptions"
+            :key="loc"
+            type="button"
+            class="dest-btn"
+            :class="{ on: from === loc }"
+            :aria-pressed="from === loc"
+            @click="from = loc"
+          >
+            <i class="fa-solid" :class="LOCATION_ICON[loc]" aria-hidden="true" />
+            <strong>{{ LOCATION_LABEL[loc] }}</strong>
+            <i v-if="from === loc" class="fa-solid fa-circle-check tick" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+      <p class="lead">Marca lo que entregas al barco. Sale {{ LOCATION_IN[from] }} y llega a bordo.</p>
 
       <Transition name="status">
         <p v-if="failure" class="card alert" role="alert">
@@ -174,7 +206,7 @@ function lineId(index: number): string {
           </header>
           <span class="line-sub">
             Solicitado {{ stockText(line.qty, requisitionUnit(line)) }} · {{ line.receivedQty ? `recibido ${stockText(line.receivedQty, requisitionUnit(line))}` : 'nada recibido aún' }}
-            <template v-if="warehouseOf(i) !== undefined"> · en bodega {{ stockText(warehouseOf(i)!, requisitionUnit(line)) }}</template>
+            <template v-if="warehouseOf(i) !== undefined"> · {{ LOCATION_IN[from] }} {{ stockText(warehouseOf(i)!, requisitionUnit(line)) }}</template>
           </span>
           <template v-if="pendingBase(i) > 0 && ['aprobado', 'recibido_parcial'].includes(current.status)">
             <span class="mini-label">Llega ahora ({{ missingText(stockText(pendingBase(i), requisitionUnit(line)), toContainers(pendingBase(i), requisitionUnit(line))) }})</span>
@@ -188,7 +220,7 @@ function lineId(index: number): string {
               allow-zero
             />
             <small v-if="shortOfStock(i)" class="err">
-              Bodega no alcanza: solo hay {{ stockText(warehouseOf(i)!, requisitionUnit(line)) }}.
+              No alcanza: solo hay {{ stockText(warehouseOf(i)!, requisitionUnit(line)) }} {{ LOCATION_IN[from] }}.
             </small>
           </template>
           <p v-else class="done-line"><i class="fa-solid fa-circle-check" aria-hidden="true" /> Completo</p>
@@ -215,7 +247,7 @@ function lineId(index: number): string {
       :message="save.message.value"
       :offline="save.offline.value"
       :saved-text="`Guardado · ${current.code} ${current.status === 'recibido' ? 'recibido completo' : 'recibido parcial'}`"
-      :notice="`Bodega baja y a bordo sube lo mismo. ${completes ? 'La solicitud queda completa.' : 'Lo que falta queda pendiente.'}`"
+      :notice="`${LOCATION_LABEL[from]} baja y a bordo sube lo mismo. ${completes ? 'La solicitud queda completa.' : 'Lo que falta queda pendiente.'}`"
       @confirm="confirm"
       @close="reviewing = false"
       @done="done"
@@ -224,7 +256,7 @@ function lineId(index: number): string {
         <li v-for="x in chosen" :key="x.index">
           <span>
             <strong>{{ x.line.name }}</strong>
-            <small>Bodega −{{ baseText(x.qty, requisitionUnit(x.line).stockUnit) }} · A bordo +{{ baseText(x.qty, requisitionUnit(x.line).stockUnit) }}</small>
+            <small>{{ LOCATION_LABEL[from] }} −{{ baseText(x.qty, requisitionUnit(x.line).stockUnit) }} · A bordo +{{ baseText(x.qty, requisitionUnit(x.line).stockUnit) }}</small>
           </span>
           <span class="sum-money"><strong>{{ stockText(x.qty, requisitionUnit(x.line)) }}</strong></span>
         </li>
