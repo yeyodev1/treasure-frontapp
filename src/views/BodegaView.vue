@@ -1,24 +1,28 @@
 <script setup lang="ts">
 import { computed, onMounted, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import PurchaseFlow from '@/components/supply/PurchaseFlow.vue'
 import PurchaseReceive from '@/components/supply/PurchaseReceive.vue'
 import TransferFlow from '@/components/supply/TransferFlow.vue'
 import WasteFlow from '@/components/supply/WasteFlow.vue'
 import RequisitionReceive from '@/components/supply/RequisitionReceive.vue'
-import CountFlow from '@/components/inventory/CountFlow.vue'
 import { useUserStore } from '@/stores/user'
 import { useToastStore } from '@/stores/toast'
 import { useSound } from '@/composables/useSound'
-import { apiPurchases, apiRequisitions, apiStock } from '@/services/api'
+import { apiPurchases, apiRequisitions, apiWeeklyOrder, apiWeeklyOrderCurrent } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatDateTime } from '@/utils/format'
-import type { Requisition, StockItem, StockLocation } from '@/types'
-import { personName, requisitionUnit, stockText } from '@/components/supply/units'
+import type { Requisition, WeeklyOrder } from '@/types'
+import { containerText, personName, requisitionUnit, stockText } from '@/components/supply/units'
 
-type Flow = 'compra' | 'recibir' | 'carga' | 'requerimiento' | 'conteo' | 'merma'
-const FLOWS: Flow[] = ['compra', 'recibir', 'carga', 'requerimiento', 'conteo', 'merma']
+/**
+ * Compras y entregas (pestaña de Inventario y pedidos, 4-nov-2026): el pedido
+ * aprobado con lo comprado, recibido y pendiente por línea; registrar la
+ * compra desde ese pedido; recibir; trasladar entre Quito, Puerto y el barco;
+ * entregar lo que pidió el bar y registrar mermas.
+ */
+type Flow = 'compra' | 'recibir' | 'carga' | 'requerimiento' | 'merma'
+const FLOWS: Flow[] = ['compra', 'recibir', 'carga', 'requerimiento', 'merma']
 
 const userStore = useUserStore()
 const toast = useToastStore()
@@ -26,12 +30,12 @@ const route = useRoute()
 const router = useRouter()
 const { play } = useSound()
 
-const stock = shallowRef<Record<StockLocation, StockItem[]>>({ bodega: [], abordo: [] })
-const loadingStock = shallowRef(true)
 const pendingPurchases = shallowRef(0)
 const toReceive = shallowRef<Requisition[]>([])
 const revisions = shallowRef<Requisition[]>([])
 const receiving = shallowRef<Requisition | null>(null)
+/** Pedido semanal aprobado más reciente que sigue abierto. */
+const order = shallowRef<WeeklyOrder | null>(null)
 
 const canBuy = computed(() => userStore.isWarehouse)
 const canTransfer = computed(() => userStore.isWarehouse || userStore.isDirector)
@@ -45,56 +49,33 @@ const flow = computed<Flow | null>(() => {
   return value
 })
 const purchaseId = computed(() => (route.query.compra as string | undefined) ?? null)
+/** Compra desde el pedido: ?flujo=compra&pedido=1. */
+const buyingOrder = computed(() => (route.query.pedido && order.value ? order.value : null))
 
 function go(next: Flow | null, extra: Record<string, string> = {}) {
   play('tap')
   router.push({ query: next ? { flujo: next, ...extra } : {} })
 }
 
-function summary(items: StockItem[]) {
-  return {
-    total: items.length,
-    withStock: items.filter((i) => i.qty > 0).length,
-    low: items.filter((i) => i.low && !i.negative).length,
-    empty: items.filter((i) => i.qty === 0).length,
-    negative: items.filter((i) => i.negative).length,
-  }
-}
-
-const bodega = computed(() => summary(stock.value.bodega))
-const abordo = computed(() => summary(stock.value.abordo))
-
-const LOCATIONS = [
-  { key: 'bodega' as const, label: 'Bodega', icon: 'fa-warehouse' },
-  { key: 'abordo' as const, label: 'A bordo', icon: 'fa-ship' },
-]
-
-function sumFor(loc: StockLocation) {
-  return loc === 'bodega' ? bodega.value : abordo.value
-}
-
-/** Cuántas cosas esperan a bodega: lo primero que se ve al entrar. */
+/** Cuántas cosas esperan: lo primero que se ve al entrar. */
 const pendingCount = computed(
   () => toReceive.value.length + revisions.value.length + (canBuy.value ? pendingPurchases.value : 0),
 )
 
-/** Lo más bajo de cada almacén, para tenerlo a la vista. */
-function lowest(items: StockItem[]) {
-  return items
-    .filter((i) => i.negative || i.low || i.qty === 0)
-    .sort((a, b) => Number(b.negative) - Number(a.negative) || a.containers - b.containers)
-    .slice(0, 3)
-}
+const orderOpen = computed(() => order.value && order.value.phase !== 'recibido')
+const orderToBuy = computed(() => order.value?.lines.filter((l) => l.toBuy > 0).length ?? 0)
 
-async function loadStock() {
-  loadingStock.value = true
+async function loadOrder() {
   try {
-    const [b, a] = await Promise.all([apiStock('bodega'), apiStock('abordo')])
-    stock.value = { bodega: b, abordo: a }
+    const current = await apiWeeklyOrderCurrent()
+    if (current.order?.status === 'aprobado') {
+      order.value = current.order
+      return
+    }
+    const approved = current.others.find((o) => o.status === 'aprobado')
+    order.value = approved ? await apiWeeklyOrder(approved._id) : null
   } catch (err) {
     toast.error(apiErrorMessage(err))
-  } finally {
-    loadingStock.value = false
   }
 }
 
@@ -123,13 +104,13 @@ async function loadPending() {
 }
 
 function refresh() {
-  void loadStock()
   void loadPending()
+  void loadOrder()
 }
 
 onMounted(refresh)
 
-// Al volver al tablero se refrescan saldos y pendientes.
+// Al volver al tablero se refrescan pendientes y el avance del pedido.
 watch(flow, (next, prev) => {
   if (!next && prev) refresh()
 })
@@ -158,44 +139,85 @@ function linesShort(r: Requisition): string {
 <template>
   <div class="page">
     <Transition name="view" mode="out-in">
-      <PurchaseFlow v-if="flow === 'compra'" key="compra" @back="go(null)" @receive="receiveNow" />
+      <PurchaseFlow
+        v-if="flow === 'compra'"
+        :key="`compra-${buyingOrder?._id ?? ''}`"
+        :order="buyingOrder"
+        @back="go(null)"
+        @receive="receiveNow"
+      />
       <PurchaseReceive
         v-else-if="flow === 'recibir'"
         :key="`recibir-${purchaseId ?? ''}`"
         :initial-id="purchaseId"
         @back="go(null)"
-        @changed="loadStock"
       />
-      <TransferFlow v-else-if="flow === 'carga'" key="carga" @back="go(null)" @changed="loadStock" />
+      <TransferFlow v-else-if="flow === 'carga'" key="carga" @back="go(null)" />
       <RequisitionReceive
         v-else-if="flow === 'requerimiento' && receiving"
         key="requerimiento"
         :requisition="receiving"
-        back-label="Bodega"
+        back-label="Compras y entregas"
         @back="go(null)"
         @saved="onRequisitionSaved"
       />
-      <CountFlow v-else-if="flow === 'conteo'" key="conteo" @back="go(null)" />
-      <WasteFlow v-else-if="flow === 'merma'" key="merma" @back="go(null)" @changed="loadStock" />
+      <WasteFlow v-else-if="flow === 'merma'" key="merma" @back="go(null)" />
 
       <!-- Tablero -->
       <div v-else key="hub" class="hub">
         <header class="page-head">
           <div class="page-head-text">
-            <h1 class="page-title">Bodega</h1>
-            <p class="page-lead">Elige qué vas a hacer. Nada se guarda sin que confirmes.</p>
+            <h1 class="page-title">Compras y entregas</h1>
+            <p class="page-lead">Compra desde el pedido aprobado, recibe lo que llegó y lleva la mercadería al barco.</p>
           </div>
         </header>
 
-        <!-- Lo que espera a bodega: primero, porque es lo que hay que hacer hoy -->
+        <!-- Pedido aprobado: lo comprado, recibido y pendiente por línea -->
+        <section v-if="orderOpen && order" class="card order" aria-labelledby="order-title">
+          <header class="block-head">
+            <h2 id="order-title" class="section-title">
+              Pedido {{ order.code }}
+              <span class="estado" :class="order.phase === 'comprar' ? 'estado--warn' : ''">{{ order.phaseLabel }}</span>
+            </h2>
+            <button v-if="canBuy && orderToBuy" type="button" class="btn btn-primary" @click="go('compra', { pedido: '1' })">
+              <i class="fa-solid fa-file-invoice-dollar" aria-hidden="true" /> Registrar compra de este pedido
+            </button>
+          </header>
+          <p v-if="order.revision" class="order-rev">
+            <i class="fa-solid fa-pen-to-square" aria-hidden="true" />
+            La directora lo cambió después de aprobarlo (revisión {{ order.revision }}). Revisa las cantidades.
+          </p>
+          <div class="order-table" role="table" :aria-label="`Avance del pedido ${order.code}`">
+            <div class="order-row order-row--head" role="row">
+              <span role="columnheader">Producto</span>
+              <span role="columnheader" class="num">Pedido</span>
+              <span role="columnheader" class="num">Comprado</span>
+              <span role="columnheader" class="num">Recibido</span>
+              <span role="columnheader" class="num">Pendiente</span>
+            </div>
+            <div v-for="l in order.lines.filter((x) => x.qty > 0 || x.purchased > 0)" :key="l.product" class="order-row" role="row">
+              <span role="cell" class="order-name">{{ l.name }}</span>
+              <span role="cell" class="num" data-label="Pedido">{{ containerText(l.qty, l) }}</span>
+              <span role="cell" class="num" data-label="Comprado">{{ l.purchased ? containerText(l.purchased, l) : '—' }}</span>
+              <span role="cell" class="num" data-label="Recibido">{{ l.received ? containerText(l.received, l) : '—' }}</span>
+              <span role="cell" class="num" data-label="Pendiente">
+                <template v-if="l.toBuy > 0">{{ containerText(l.toBuy, l) }} por comprar</template>
+                <template v-else-if="l.toReceive > 0">{{ containerText(l.toReceive, l) }} por recibir</template>
+                <template v-else><i class="fa-solid fa-circle-check ok" aria-hidden="true" /> Listo</template>
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Lo que espera: primero, porque es lo que hay que hacer hoy -->
         <section v-if="canBuy" class="todo" aria-labelledby="todo-title">
           <header class="block-head">
             <h2 id="todo-title" class="section-title">
               Por atender
               <span v-if="pendingCount" class="estado estado--warn num">{{ pendingCount }}</span>
             </h2>
-            <RouterLink to="/abastecimiento?tab=recibir" class="link-action">
-              Todas las solicitudes <i class="fa-solid fa-arrow-right" aria-hidden="true" />
+            <RouterLink to="/inventario/compras/solicitudes?tab=recibir" class="link-action">
+              Solicitudes del bar <i class="fa-solid fa-arrow-right" aria-hidden="true" />
             </RouterLink>
           </header>
 
@@ -213,7 +235,7 @@ function linesShort(r: Requisition): string {
                     {{ pendingPurchases }}
                     {{ pendingPurchases === 1 ? 'compra por recibir' : 'compras por recibir' }}
                   </strong>
-                  <small>Marca lo que llegó del proveedor para sumarlo al stock.</small>
+                  <small>Marca lo que llegó y dónde (Quito, Puerto o a bordo).</small>
                 </span>
                 <span class="todo-go">Recibir <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
               </button>
@@ -226,11 +248,11 @@ function linesShort(r: Requisition): string {
                   <small>{{ linesShort(r) }}</small>
                   <small class="todo-meta">{{ personName(r.requestedBy) }} · {{ formatDateTime(r.createdAt) }}</small>
                 </span>
-                <span class="todo-go">Recibir <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
+                <span class="todo-go">Entregar <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
               </button>
             </li>
             <li v-for="r in revisions.slice(0, 3)" :key="r._id">
-              <RouterLink to="/abastecimiento?tab=revisiones" class="todo-row">
+              <RouterLink to="/inventario/compras/solicitudes?tab=revisiones" class="todo-row">
                 <i class="fa-solid fa-magnifying-glass todo-icon" aria-hidden="true" />
                 <span class="todo-text">
                   <strong>Revisión {{ r.code }}: {{ linesShort(r) }}</strong>
@@ -243,7 +265,7 @@ function linesShort(r: Requisition): string {
         </section>
 
         <!-- Acciones agrupadas por lo que pasa con la mercadería -->
-        <section class="tasks" aria-label="Acciones de bodega">
+        <section class="tasks" aria-label="Acciones de compras y entregas">
           <div v-if="canBuy" class="task-group">
             <h2 class="group-title">Entra mercadería</h2>
             <p class="group-note">El stock sube recién al recibir.</p>
@@ -259,7 +281,7 @@ function linesShort(r: Requisition): string {
               <i class="fa-solid fa-box-open task-icon" aria-hidden="true" />
               <span class="task-text">
                 <strong>Recibir mercadería</strong>
-                <small>Marca lo que llegó. Suma al almacén destino.</small>
+                <small>Marca lo que llegó y dónde. Lo que falta queda pendiente.</small>
               </span>
               <span v-if="pendingPurchases" class="estado estado--warn num">{{ pendingPurchases }} por recibir</span>
               <i class="fa-solid fa-chevron-right task-chev" aria-hidden="true" />
@@ -272,16 +294,8 @@ function linesShort(r: Requisition): string {
             <button v-if="canTransfer" type="button" class="task" @click="go('carga')">
               <i class="fa-solid fa-dolly task-icon" aria-hidden="true" />
               <span class="task-text">
-                <strong>Cargar al barco</strong>
-                <small>De bodega a bordo, con el saldo a la vista.</small>
-              </span>
-              <i class="fa-solid fa-chevron-right task-chev" aria-hidden="true" />
-            </button>
-            <button type="button" class="task" @click="go('conteo')">
-              <i class="fa-solid fa-clipboard-list task-icon" aria-hidden="true" />
-              <span class="task-text">
-                <strong>Conteo físico</strong>
-                <small>Cuenta lo que hay. Si hay diferencia, se revisa antes de ajustar.</small>
+                <strong>Trasladar o cargar al barco</strong>
+                <small>Quito → Puerto, Puerto → A bordo… Regístralo cuando llega.</small>
               </span>
               <i class="fa-solid fa-chevron-right task-chev" aria-hidden="true" />
             </button>
@@ -293,65 +307,14 @@ function linesShort(r: Requisition): string {
               </span>
               <i class="fa-solid fa-chevron-right task-chev" aria-hidden="true" />
             </button>
-            <RouterLink v-if="!canBuy && userStore.isDirector" to="/abastecimiento?tab=aprobar" class="task">
+            <RouterLink to="/inventario/compras/solicitudes" class="task">
               <i class="fa-solid fa-stamp task-icon" aria-hidden="true" />
               <span class="task-text">
-                <strong>Solicitudes por aprobar</strong>
-                <small>Lo que pidió el bar.</small>
+                <strong>Solicitudes del bar</strong>
+                <small>{{ userStore.isDirector ? 'Aprueba lo que pidió el bar durante el crucero.' : 'Lo que pidió el bar durante el crucero.' }}</small>
               </span>
               <i class="fa-solid fa-chevron-right task-chev" aria-hidden="true" />
             </RouterLink>
-          </div>
-        </section>
-
-        <!-- Saldos resumidos de los dos almacenes -->
-        <section class="stock" aria-labelledby="stock-title">
-          <header class="block-head">
-            <h2 id="stock-title" class="section-title">Saldos</h2>
-            <RouterLink to="/admin/inventario" class="link-action">
-              Ver todos los saldos <i class="fa-solid fa-arrow-right" aria-hidden="true" />
-            </RouterLink>
-          </header>
-
-          <div class="stock-grid">
-            <template v-if="loadingStock">
-              <SkeletonBlock height="148px" />
-              <SkeletonBlock height="148px" />
-            </template>
-            <template v-else>
-              <article v-for="loc in LOCATIONS" :key="loc.key" class="card stock-card">
-                <header class="stock-head">
-                  <h3><i class="fa-solid" :class="loc.icon" aria-hidden="true" /> {{ loc.label }}</h3>
-                  <span v-if="sumFor(loc.key).negative" class="estado estado--danger">
-                    {{ sumFor(loc.key).negative }}
-                    {{ sumFor(loc.key).negative === 1 ? 'requiere conteo' : 'requieren conteo' }}
-                  </span>
-                  <span v-else-if="!sumFor(loc.key).low && !sumFor(loc.key).empty" class="estado estado--ok">
-                    <i class="fa-solid fa-circle-check" aria-hidden="true" /> Sin alertas
-                  </span>
-                </header>
-                <p class="stock-big num">
-                  {{ sumFor(loc.key).withStock }}
-                  <small>de {{ sumFor(loc.key).total }} productos con stock</small>
-                </p>
-                <p v-if="sumFor(loc.key).low || sumFor(loc.key).empty" class="stock-flags">
-                  <span v-if="sumFor(loc.key).low" class="estado estado--warn">
-                    {{ sumFor(loc.key).low }} con stock bajo
-                  </span>
-                  <span v-if="sumFor(loc.key).empty" class="estado">
-                    {{ sumFor(loc.key).empty }} sin stock
-                  </span>
-                </p>
-                <ul v-if="lowest(stock[loc.key]).length" class="stock-low">
-                  <li v-for="item in lowest(stock[loc.key])" :key="item.product._id">
-                    <span>{{ item.product.name }}</span>
-                    <strong class="num" :class="{ neg: item.negative }">
-                      {{ item.negative ? 'Requiere conteo' : stockText(item.qty, item.product) }}
-                    </strong>
-                  </li>
-                </ul>
-              </article>
-            </template>
           </div>
         </section>
       </div>
@@ -574,91 +537,74 @@ function linesShort(r: Requisition): string {
     color 0.16s ease;
 }
 
-// ── Saldos ──
-.stock-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.75rem;
-  align-items: start;
-
-  @include tablet {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-.stock-card {
+// ── Pedido aprobado ──
+.order {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
 }
 
-.stock-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-
-  h3 {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 1.25rem;
-
-    i {
-      color: var(--gold-500);
-      font-size: 1rem;
-    }
-  }
+.order-rev {
+  margin: 0;
+  color: var(--ink-600);
 }
 
-.stock-big {
-  margin: 0;
-  font-size: 2rem;
-  font-weight: 600;
-  color: var(--navy-800);
-  line-height: 1.1;
+.order-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem 0.75rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--rule);
+  align-items: center;
 
-  small {
-    font-size: 0.95rem;
-    font-weight: 500;
+  > [data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.8rem;
     color: var(--ink-600);
   }
-}
 
-.stock-flags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin: 0;
-}
-
-.stock-low {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  font-size: 0.97rem;
-
-  li {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.5rem 0;
-    border-top: 1px solid var(--rule);
-    color: var(--ink-900);
+  &--head {
+    display: none;
   }
 
-  strong {
-    text-align: right;
-    flex-shrink: 0;
-    font-weight: 600;
+  @include tablet {
+    grid-template-columns: minmax(0, 2fr) repeat(3, minmax(0, 1fr)) minmax(0, 1.4fr);
+
+    > [data-label]::before {
+      display: none;
+    }
+
+    .num {
+      text-align: right;
+    }
+
+    &--head {
+      display: grid;
+      border-top: 0;
+      padding-top: 0;
+      font-size: 0.875rem;
+      color: var(--ink-600);
+    }
+  }
+
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ok {
+    color: var(--ok, #1d6b43);
   }
 }
 
-.neg {
-  color: var(--danger-ink);
+.order-name {
+  grid-column: 1 / -1;
+  font-weight: 600;
+  color: var(--ink-900);
+
+  @include tablet {
+    grid-column: auto;
+  }
 }
 
 @include tablet {
