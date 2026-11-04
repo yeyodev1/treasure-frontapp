@@ -9,12 +9,23 @@ import { useSaveAttempt } from '@/composables/useSaveAttempt'
 import { apiCancelPurchase, apiPurchases, apiReceivePurchase } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatDate, formatDateTime, formatMoney } from '@/utils/format'
-import type { Purchase, PurchaseLine, PurchaseStatus } from '@/types'
+import type { ActiveLocation, Purchase, PurchaseLine, PurchaseStatus } from '@/types'
 import FlowHeader from './FlowHeader.vue'
 import QtyStepper from './QtyStepper.vue'
 import StatusPill from './StatusPill.vue'
 import SummaryModal from './SummaryModal.vue'
-import { containerText, conversionText, LOCATION_LABEL, missingText, personName, plural, toContainers } from './units'
+import {
+  ACTIVE_LOCATIONS,
+  containerText,
+  conversionText,
+  LOCATION_ICON,
+  LOCATION_IN,
+  LOCATION_LABEL,
+  missingText,
+  personName,
+  plural,
+  toContainers,
+} from './units'
 
 /** Recibir mercadería: lo que llegó (en envases) suma al almacén destino. */
 const props = defineProps<{ initialId?: string | null }>()
@@ -33,6 +44,8 @@ const current = shallowRef<Purchase | null>(null)
 const arrived = ref<number[]>([])
 const note = shallowRef('')
 const reviewing = shallowRef(false)
+/** Dónde llegó esta entrega: una misma factura puede llegar parte a Quito y parte al puerto. */
+const arrivedAt = shallowRef<ActiveLocation | null>(null)
 
 const OPEN: PurchaseStatus[] = ['registrada', 'recibida_parcial']
 
@@ -81,6 +94,7 @@ function open(p: Purchase) {
   if (!save.offline.value || current.value?._id !== p._id) save.reset()
   current.value = p
   arrived.value = p.lines.map((l) => pendingOf(l))
+  arrivedAt.value = p.destination === 'bodega' ? null : (p.destination as ActiveLocation)
   note.value = ''
   play('tap')
 }
@@ -116,6 +130,11 @@ function review() {
     toast.error('Marca al menos un producto que haya llegado')
     return
   }
+  if (!arrivedAt.value) {
+    play('error')
+    toast.error('Elige dónde llegó: Quito, Puerto o a bordo')
+    return
+  }
   if (!save.offline.value) save.reset()
   reviewing.value = true
 }
@@ -129,6 +148,7 @@ async function confirm() {
       key,
       picks.value.map((x) => ({ index: x.index, containers: x.containers })),
       note.value.trim() || undefined,
+      arrivedAt.value ?? undefined,
     ),
   )
   if (result.ok) {
@@ -219,7 +239,7 @@ function receiptLines(p: Purchase, r: Purchase['receipts'][number]): string {
       icon="fa-box-open"
       :steps="current ? ['Elegir compra', 'Marcar lo que llegó', 'Confirmar'] : undefined"
       :current="reviewing ? 2 : current ? 1 : 0"
-      :back-label="current ? 'Compras' : 'Bodega'"
+      :back-label="current ? 'Compras' : 'Compras y entregas'"
       @back="current ? closeDetail() : emit('back')"
       @go="(i) => i === 0 && closeDetail()"
     />
@@ -256,7 +276,8 @@ function receiptLines(p: Purchase, r: Purchase['receipts'][number]): string {
             <span class="purchase-meta">
               <span><i class="fa-solid fa-file-lines" aria-hidden="true" /> {{ p.document }}</span>
               <span v-if="p.documentDate"><i class="fa-regular fa-calendar" aria-hidden="true" /> {{ formatDate(p.documentDate) }}</span>
-              <span><i class="fa-solid" :class="p.destination === 'bodega' ? 'fa-warehouse' : 'fa-ship'" aria-hidden="true" /> {{ LOCATION_LABEL[p.destination] }}</span>
+              <span><i class="fa-solid" :class="LOCATION_ICON[p.destination]" aria-hidden="true" /> {{ LOCATION_LABEL[p.destination] }}</span>
+              <span v-if="p.weeklyOrder && typeof p.weeklyOrder === 'object'"><i class="fa-solid fa-list-check" aria-hidden="true" /> Pedido {{ p.weeklyOrder.code }}</span>
               <span v-if="p.total"><i class="fa-solid fa-dollar-sign" aria-hidden="true" /> {{ formatMoney(p.total) }}</span>
             </span>
             <span class="purchase-items">
@@ -276,7 +297,7 @@ function receiptLines(p: Purchase, r: Purchase['receipts'][number]): string {
           <strong>{{ current.code }}</strong>
           <span><i class="fa-solid fa-truck" aria-hidden="true" /> {{ current.supplier }}</span>
           <span><i class="fa-solid fa-file-lines" aria-hidden="true" /> {{ current.document }}</span>
-          <span><i class="fa-solid fa-location-dot" aria-hidden="true" /> Llega a {{ LOCATION_LABEL[current.destination].toLowerCase() }}</span>
+          <span><i class="fa-solid fa-location-dot" aria-hidden="true" /> Iba a: {{ LOCATION_LABEL[current.destination] }}</span>
           <StatusPill :status="current.status" />
         </div>
 
@@ -288,8 +309,26 @@ function receiptLines(p: Purchase, r: Purchase['receipts'][number]): string {
         </p>
 
         <template v-if="canReceive">
+          <div class="field">
+            <label>¿Dónde llegó esta entrega?</label>
+            <div class="dest">
+              <button
+                v-for="loc in ACTIVE_LOCATIONS"
+                :key="loc"
+                type="button"
+                class="dest-btn"
+                :class="{ on: arrivedAt === loc }"
+                :aria-pressed="arrivedAt === loc"
+                @click="arrivedAt = loc"
+              >
+                <i class="fa-solid" :class="LOCATION_ICON[loc]" aria-hidden="true" />
+                <strong>{{ LOCATION_LABEL[loc] }}</strong>
+                <i v-if="arrivedAt === loc" class="fa-solid fa-circle-check tick" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
           <p class="lead">
-            Cuenta lo que llegó físicamente. Ya viene marcado lo pendiente; baja la cantidad si llegó menos.
+            Cuenta lo que llegó físicamente. Ya viene marcado lo pendiente; baja la cantidad si llegó menos. La factura no significa que llegó todo.
           </p>
           <div class="chips">
             <button type="button" class="chip" @click="setAll(true)">
@@ -381,7 +420,7 @@ function receiptLines(p: Purchase, r: Purchase['receipts'][number]): string {
       :message="save.message.value"
       :offline="save.offline.value"
       :saved-text="`Guardado · ${current.code} ${current.status === 'recibida' ? 'recibida completa' : 'recibida parcial'}`"
-      :notice="`Se suma a ${LOCATION_LABEL[current.destination].toLowerCase()} con su costo. ${willComplete ? 'La compra queda completa.' : 'Lo que falta queda pendiente para otra recepción.'}`"
+      :notice="`Se suma ${LOCATION_IN[arrivedAt ?? 'puerto']} con su costo. ${willComplete ? 'La compra queda completa.' : 'Lo que falta queda pendiente para otra recepción.'}`"
       @confirm="confirm"
       @close="reviewing = false"
       @done="done"
