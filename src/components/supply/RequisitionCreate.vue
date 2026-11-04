@@ -148,7 +148,7 @@ function finish() {
         >
           <i class="fa-solid fa-dolly" aria-hidden="true" />
           <strong>Solicitar producto</strong>
-          <small>Falta en el bar y lo debe subir bodega</small>
+          <small>Falta en el bar y hay que subirlo desde el puerto</small>
           <i v-if="!isRevision" class="fa-solid fa-circle-check tick" aria-hidden="true" />
         </button>
         <button
@@ -258,7 +258,7 @@ function finish() {
           <p v-if="note.trim()" class="resume-note">Nota: {{ note }}</p>
           <p v-if="!saved" class="resume-hint">
             <i class="fa-solid fa-circle-info" aria-hidden="true" />
-            {{ isRevision ? 'Se revisará con un conteo físico.' : 'Dirección de crucero la aprueba y bodega la sube al barco. Hasta entonces el stock no cambia.' }}
+            {{ isRevision ? 'Se revisará con un conteo físico.' : 'Dirección de crucero la aprueba y se sube al barco desde el puerto. Hasta entonces el stock no cambia.' }}
           </p>
         </section>
       </Transition>
