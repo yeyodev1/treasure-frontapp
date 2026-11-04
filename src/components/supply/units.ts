@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { formatNumber, unitShort } from '@/utils/format'
-import type { PurchaseStatus, RequisitionLine, RequisitionStatus, StockUnit } from '@/types'
+import type { ActiveLocation, PurchaseStatus, RequisitionLine, RequisitionStatus, StockLocation, StockUnit } from '@/types'
 
 /** Lo mínimo para convertir envases ↔ unidad base. */
 export interface UnitInfo {
@@ -106,7 +106,47 @@ export const REQUISITION_STATUS: Record<RequisitionStatus, string> = {
   cancelado: 'Cancelada',
 }
 
-export const LOCATION_LABEL = { bodega: 'Bodega', abordo: 'A bordo' } as const
+/**
+ * Ubicaciones (guía Inventario y pedidos, 4-nov-2026): Quito, Puerto en
+ * Galápagos y A bordo. "Bodega sin separar" es el saldo anterior: no recibe
+ * mercadería nueva y se cierra tras contar Quito y Puerto.
+ */
+export const LOCATION_LABEL: Record<StockLocation, string> = {
+  quito: 'Quito',
+  puerto: 'Puerto',
+  abordo: 'A bordo',
+  bodega: 'Bodega sin separar',
+}
+/** "en Quito", "en el puerto"… para frases. */
+export const LOCATION_IN: Record<StockLocation, string> = {
+  quito: 'en Quito',
+  puerto: 'en el puerto',
+  abordo: 'a bordo',
+  bodega: 'en la bodega sin separar',
+}
+export const LOCATION_HINT: Record<StockLocation, string> = {
+  quito: 'Quito (UIO)',
+  puerto: 'Puerto en Galápagos',
+  abordo: 'Bar del barco',
+  bodega: 'Saldo anterior, aún sin separar',
+}
+export const LOCATION_ICON: Record<StockLocation, string> = {
+  quito: 'fa-city',
+  puerto: 'fa-anchor',
+  abordo: 'fa-ship',
+  bodega: 'fa-warehouse',
+}
+export const ACTIVE_LOCATIONS: ActiveLocation[] = ['quito', 'puerto', 'abordo']
+export const ALL_LOCATIONS: StockLocation[] = ['quito', 'puerto', 'abordo', 'bodega']
+
+type Stocked = { warehouseStock?: number; quitoStock?: number; puertoStock?: number; onboardStock?: number }
+/** Existencias de un producto en una ubicación (unidad base). */
+export function stockAt(p: Stocked, loc: StockLocation): number {
+  if (loc === 'quito') return p.quitoStock ?? 0
+  if (loc === 'puerto') return p.puertoStock ?? 0
+  if (loc === 'abordo') return p.onboardStock ?? 0
+  return p.warehouseStock ?? 0
+}
 
 /** Falta de stock que devuelve el servidor (409 · sin_stock). */
 export interface NoStockError {
@@ -135,7 +175,7 @@ export function personName(value: { name: string } | string | null | undefined):
 }
 
 /** Línea de requerimiento → datos de unidad del producto (poblado o no). */
-export function requisitionUnit(line: RequisitionLine): UnitInfo & { warehouseStock?: number; onboardStock?: number; icon?: string; _id?: string } {
+export function requisitionUnit(line: RequisitionLine): UnitInfo & Stocked & { icon?: string; _id?: string } {
   if (typeof line.product === 'string') return { stockUnit: 'unidad', containerSize: 1, containerLabel: 'unidad', _id: line.product }
   return line.product
 }
