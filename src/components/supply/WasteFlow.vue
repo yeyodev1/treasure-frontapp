@@ -13,7 +13,18 @@ import FlowHeader from './FlowHeader.vue'
 import ProductPicker from './ProductPicker.vue'
 import SummaryModal from './SummaryModal.vue'
 import UnitQty from './UnitQty.vue'
-import { baseText, LOCATION_LABEL, noStockError, stockText, toBase, type QtyMode } from './units'
+import {
+  ALL_LOCATIONS,
+  baseText,
+  LOCATION_ICON,
+  LOCATION_IN,
+  LOCATION_LABEL,
+  noStockError,
+  stockAt,
+  stockText,
+  toBase,
+  type QtyMode,
+} from './units'
 
 /** Merma o rotura: resta con motivo obligatorio, separada del consumo. */
 const emit = defineEmits<{ back: []; changed: [] }>()
@@ -27,7 +38,7 @@ const save = useSaveAttempt('la merma')
 const REASONS = ['Botella rota', 'Lata abierta y no usada', 'Producto vencido', 'Derrame', 'Sobrante de lata']
 
 const form = reactive({
-  location: 'bodega' as StockLocation,
+  location: 'abordo' as StockLocation,
   product: null as Product | null,
   qty: 1,
   mode: 'envase' as QtyMode,
@@ -50,14 +61,18 @@ onMounted(async () => {
 const onHand = computed(() => {
   const p = form.product
   if (!p) return 0
-  return form.location === 'bodega' ? p.warehouseStock : p.onboardStock
+  return stockAt(p, form.location)
 })
 const base = computed(() => (form.product ? toBase(form.qty, form.mode, form.product) : 0))
 const exceeds = computed(() => base.value > onHand.value + 1e-9)
 const ready = computed(() => Boolean(form.product) && base.value > 0 && !exceeds.value && form.reason.trim().length > 0)
 
 const productsHere = computed(() =>
-  catalog.physical.filter((p) => (form.location === 'bodega' ? p.warehouseStock : p.onboardStock) > 0),
+  catalog.physical.filter((p) => stockAt(p, form.location) > 0),
+)
+/** La bodega sin separar solo aparece mientras tenga saldo. */
+const locations = computed(() =>
+  ALL_LOCATIONS.filter((l) => l !== 'bodega' || catalog.physical.some((p) => p.warehouseStock > 0)),
 )
 
 function setLocation(loc: StockLocation) {
@@ -152,7 +167,7 @@ function done() {
         <label>¿Dónde pasó?</label>
         <div class="dest">
           <button
-            v-for="loc in ['bodega', 'abordo'] as const"
+            v-for="loc in locations"
             :key="loc"
             type="button"
             class="dest-btn"
@@ -160,7 +175,7 @@ function done() {
             :aria-pressed="form.location === loc"
             @click="setLocation(loc)"
           >
-            <i class="fa-solid" :class="loc === 'bodega' ? 'fa-warehouse' : 'fa-ship'" aria-hidden="true" />
+            <i class="fa-solid" :class="LOCATION_ICON[loc]" aria-hidden="true" />
             <strong>{{ LOCATION_LABEL[loc] }}</strong>
             <i v-if="form.location === loc" class="fa-solid fa-circle-check tick" aria-hidden="true" />
           </button>
@@ -174,7 +189,7 @@ function done() {
             <ProductIcon :icon="form.product.icon" :size="26" />
             <span class="pick-text">
               <strong>{{ form.product.name }}</strong>
-              <small>En {{ LOCATION_LABEL[form.location].toLowerCase() }}: {{ stockText(onHand, form.product) }}</small>
+              <small>{{ LOCATION_LABEL[form.location] }}: {{ stockText(onHand, form.product) }}</small>
             </span>
             <span class="pick-change">Cambiar</span>
           </template>
@@ -196,7 +211,7 @@ function done() {
           :max-base="onHand"
           allow-base
         />
-        <small v-if="exceeds" class="err">Solo hay {{ stockText(onHand, form.product) }} en {{ LOCATION_LABEL[form.location].toLowerCase() }}.</small>
+        <small v-if="exceeds" class="err">Solo hay {{ stockText(onHand, form.product) }} {{ LOCATION_IN[form.location] }}.</small>
       </div>
 
       <div class="field">
@@ -232,7 +247,7 @@ function done() {
 
     <ProductPicker
       v-if="picking"
-      :title="`Producto en ${LOCATION_LABEL[form.location].toLowerCase()}`"
+      :title="`Producto ${LOCATION_IN[form.location]}`"
       :products="productsHere"
       :show="form.location"
       @pick="pick"
