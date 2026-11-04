@@ -703,12 +703,17 @@ function onEmptyCabin(number: number) {
     <!-- Menú del bar: abastecimiento -->
     <BaseModal v-if="showMenu" title="Atajos del bar" @close="showMenu = false">
       <div class="menu-grid">
-        <RouterLink to="/abastecimiento?nuevo=1" class="menu-tile" @click="showMenu = false">
+        <RouterLink to="/inventario/pedido" class="menu-tile" @click="showMenu = false">
+          <i class="fa-solid fa-calendar-week" aria-hidden="true" />
+          <strong>Pedido semanal</strong>
+          <small>Revisa la propuesta del miércoles y envíala a revisión.</small>
+        </RouterLink>
+        <RouterLink to="/inventario/compras/solicitudes?nuevo=1" class="menu-tile" @click="showMenu = false">
           <i class="fa-solid fa-dolly" aria-hidden="true" />
           <strong>Solicitar producto</strong>
           <small>Producto, cantidad y unidad. Dirección de crucero la aprueba.</small>
         </RouterLink>
-        <RouterLink to="/abastecimiento" class="menu-tile" @click="showMenu = false">
+        <RouterLink to="/inventario/compras/solicitudes" class="menu-tile" @click="showMenu = false">
           <i class="fa-solid fa-list-check" aria-hidden="true" />
           <strong>Mis solicitudes</strong>
           <small>Solicitada, aprobada, recibida.</small>
