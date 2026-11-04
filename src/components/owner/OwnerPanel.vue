@@ -226,7 +226,7 @@ const ALERT_ICON: Record<OwnerAlert['kind'], string> = {
 function act(alert: OwnerAlert) {
   if (alert.kind === 'costos') detail.value = 'costo'
   else if (alert.kind === 'cuentas') detail.value = 'porCobrar'
-  else if (alert.kind === 'conteos') router.push({ path: '/admin/inventario', query: { tab: 'conteos' } })
+  else if (alert.kind === 'conteos') router.push('/inventario/conteos')
   else if (alert.kind === 'facturas') router.push({ path: '/admin/pagos', query: { factura: 'pendiente' } })
   else openHeld()
 }
