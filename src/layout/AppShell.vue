@@ -254,6 +254,17 @@ async function logout() {
       </div>
 
       <div class="session">
+        <!-- Quién tiene la sesión iniciada en esta tablet (4-nov-2026). -->
+        <span v-if="userStore.user" class="session-who" :title="`Sesión de ${userStore.user.name}`">
+          <i class="fa-solid fa-circle-user" aria-hidden="true" />
+          <span class="session-who-text">
+            <strong>{{ userStore.user.name }}</strong>
+            <small>
+              {{ userStore.realRole ? ROLE_LABELS[userStore.realRole] : '' }}
+              <template v-if="userStore.viewAs"> · viendo como {{ ROLE_LABELS[userStore.viewAs] }}</template>
+            </small>
+          </span>
+        </span>
         <button
           class="icon-btn"
           type="button"
@@ -653,6 +664,39 @@ async function logout() {
 
   @include tablet {
     padding: 0.38rem 0.8rem;
+  }
+}
+
+.session-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  color: var(--ink-900);
+
+  > i {
+    font-size: 1.35rem;
+  }
+}
+
+.session-who-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+
+  strong {
+    max-width: 22ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.92rem;
+  }
+
+  small {
+    font-size: 0.75rem;
+    color: var(--ink-600);
+    white-space: nowrap;
   }
 }
 

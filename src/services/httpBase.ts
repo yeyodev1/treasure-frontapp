@@ -28,9 +28,16 @@ export function tokenTimes(token: string | null): { iat: number; exp: number } |
   }
 }
 
+/** "Ver como": el servidor aplica los permisos del rol que Gerencia está mirando. */
+let viewAsRole: string | null = null
+export function setViewAsHeader(role: string | null) {
+  viewAsRole = role
+}
+
 http.interceptors.request.use((config) => {
   const token = getToken()
   if (token) config.headers.Authorization = `Bearer ${token}`
+  if (viewAsRole) config.headers['X-View-As'] = viewAsRole
   return config
 })
 

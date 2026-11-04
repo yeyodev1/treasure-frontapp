@@ -3,7 +3,7 @@ import { computed, ref, shallowRef, watch } from 'vue'
 import type { SessionUser, UserRole } from '@/types'
 import { apiLogin, apiMe, apiRefresh } from '@/services/api'
 import axios from 'axios'
-import { getToken, setToken, tokenTimes } from '@/services/httpBase'
+import { getToken, setToken, setViewAsHeader, tokenTimes } from '@/services/httpBase'
 
 export const useUserStore = defineStore('user', () => {
   const user = ref<SessionUser | null>(null)
@@ -11,8 +11,8 @@ export const useUserStore = defineStore('user', () => {
 
   /**
    * "Ver como": administración puede mirar la app exactamente como la ve
-   * otro rol y volver cuando quiera. Solo cambia lo que se muestra; los
-   * permisos reales del backend siguen siendo los de la sesión.
+   * otro rol y volver cuando quiera. Desde el 4-nov-2026 el servidor también
+   * le aplica los permisos de ese rol (encabezado X-View-As).
    */
   const viewAs = shallowRef<UserRole | null>(null)
 
@@ -92,6 +92,8 @@ export const useUserStore = defineStore('user', () => {
     user.value = null
     viewAs.value = null
   }
+
+  watch(viewAs, (value) => setViewAsHeader(value), { immediate: true })
 
   watch(user, (value) => {
     if (value) localStorage.setItem('treasure.user', JSON.stringify(value))
