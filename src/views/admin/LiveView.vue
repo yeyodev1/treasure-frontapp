@@ -94,7 +94,7 @@ const pendingChips = computed(() => {
     { n: p.deliveries, label: 'bebidas por entregar', icon: 'fa-hourglass-half', to: '/' },
     { n: p.reviews, label: 'cuentas en revisión', icon: 'fa-file-invoice-dollar', to: '/cuentas' },
     { n: p.annulments, label: 'anulaciones por revisar', icon: 'fa-rotate-left', to: '/cuentas' },
-    { n: p.counts, label: 'conteos por aprobar', icon: 'fa-clipboard-check', to: '/admin/inventario' },
+    { n: p.counts, label: 'conteos por aprobar', icon: 'fa-clipboard-check', to: '/inventario/conteos' },
   ]
 })
 
