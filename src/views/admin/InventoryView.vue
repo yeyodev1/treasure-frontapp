@@ -73,6 +73,15 @@ const columns = computed<StockLocation[]>(() => (hasUnsplit.value ? ALL_LOCATION
 
 const locationOptions = computed(() => columns.value.map((l) => ({ value: l, label: LOCATION_LABEL[l] })))
 
+/** Elegida una bodega, la tabla muestra solo esa columna (en tablet no caben todas, 4-nov-2026). */
+const shownColumns = computed<StockLocation[]>(() =>
+  (columns.value as string[]).includes(filter.value) ? [filter.value as StockLocation] : columns.value,
+)
+/** Tarjetas de arriba: cuántos productos tiene cada bodega. */
+const places = computed(() =>
+  columns.value.map((l) => ({ id: l, label: LOCATION_LABEL[l], count: stock.value.filter((s) => s.byLocation[l] > 0).length })),
+)
+
 const physicalOptions = computed(() =>
   catalogStore.physical.map((p) => ({ value: p._id, label: p.name, hint: unitShort(p.stockUnit) })),
 )
@@ -275,9 +284,10 @@ const FILTERS = computed<Array<{ id: Filter; label: string }>>(() => [
     <p v-if="hasUnsplit && tab === 'existencias'" class="needs-count">
       <i class="fa-solid fa-warehouse" aria-hidden="true" />
       <span>
-        <strong>Hay saldo en «Bodega sin separar».</strong>
-        Es el saldo anterior a separar Quito y Puerto. Cuenta Quito y Puerto en Conteos; cuando ambos estén aprobados,
-        Gerencia cierra este saldo.
+        <strong>Tu bodega todavía no está separada en Quito y Puerto.</strong>
+        Lo que había en bodega está junto en «Bodega sin separar» (por eso Quito y Puerto salen en 0). Para separarlo:
+        en <strong>Conteos</strong> cuenta la Bodega Quito y la Bodega Puerto; al aprobar cada conteo, esa bodega queda con lo
+        contado. Cuando ambos estén aprobados, Gerencia cierra el saldo sin separar.
         <button v-if="userStore.isOwner" type="button" class="link-btn btn btn-secondary" @click="closeUnsplit">
           Cerrar saldo sin separar
         </button>
@@ -292,6 +302,34 @@ const FILTERS = computed<Array<{ id: Filter; label: string }>>(() => [
         No se corrige solo; el ajuste se aplica cuando se aprueba el conteo.
       </span>
     </p>
+
+    <!-- Bodegas: toca una para ver solo lo que tiene -->
+    <div v-if="tab === 'existencias' && !loading" class="places" role="radiogroup" aria-label="Ver bodega">
+      <button
+        type="button"
+        role="radio"
+        class="place"
+        :class="{ 'place--on': shownColumns.length > 1 }"
+        :aria-checked="shownColumns.length > 1"
+        @click="filter = 'todas'"
+      >
+        <strong>Todas</strong>
+        <small>{{ stock.length }} productos</small>
+      </button>
+      <button
+        v-for="p in places"
+        :key="p.id"
+        type="button"
+        role="radio"
+        class="place"
+        :class="{ 'place--on': filter === p.id }"
+        :aria-checked="filter === p.id"
+        @click="filter = p.id"
+      >
+        <strong>{{ p.label }}</strong>
+        <small>{{ p.count }} {{ p.count === 1 ? 'producto' : 'productos' }} con stock</small>
+      </button>
+    </div>
 
     <!-- Existencias por ubicación -->
     <section v-if="tab === 'existencias'" class="card table-card">
@@ -314,7 +352,7 @@ const FILTERS = computed<Array<{ id: Filter; label: string }>>(() => [
           <thead>
             <tr>
               <th>Producto</th>
-              <th v-for="l in columns" :key="l" class="num">{{ LOCATION_LABEL[l] }}</th>
+              <th v-for="l in shownColumns" :key="l" class="num">{{ LOCATION_LABEL[l] }}</th>
               <th class="num">Total</th>
               <th v-if="canSeeCosts" class="col-cost">Costo</th>
             </tr>
@@ -339,7 +377,7 @@ const FILTERS = computed<Array<{ id: Filter; label: string }>>(() => [
                   </span>
                 </button>
               </td>
-              <td v-for="l in columns" :key="l" class="num" :data-label="LOCATION_LABEL[l]">
+              <td v-for="l in shownColumns" :key="l" class="num" :data-label="LOCATION_LABEL[l]">
                 <template v-if="item.byLocation[l] < 0">
                   <span class="pill pill--neg">Requiere conteo</span>
                   <small class="sys">Sistema: {{ formatNumber(item.byLocation[l]) }} {{ unitShort(item.product.stockUnit) }}</small>
@@ -355,7 +393,7 @@ const FILTERS = computed<Array<{ id: Filter; label: string }>>(() => [
               </td>
             </tr>
             <tr v-if="!visibleStock.length">
-              <td :colspan="columns.length + (canSeeCosts ? 3 : 2)" class="empty">
+              <td :colspan="shownColumns.length + (canSeeCosts ? 3 : 2)" class="empty">
                 {{ filter === 'alertas' ? 'Sin alertas: todo con stock suficiente.' : 'Ningún producto con ese filtro.' }}
               </td>
             </tr>
@@ -711,6 +749,41 @@ const FILTERS = computed<Array<{ id: Filter; label: string }>>(() => [
   &--venta {
     background: var(--pill-info-bg);
     color: var(--pill-info-ink);
+  }
+}
+
+.places {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+.place {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  min-height: 56px;
+  padding: 0.6rem 0.85rem;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  text-align: left;
+
+  small {
+    color: var(--ink-400);
+    font-size: 0.8rem;
+  }
+
+  &--on {
+    border-color: var(--navy-700);
+    background: var(--navy-700);
+    color: #fff;
+
+    small {
+      color: rgba(255, 255, 255, 0.8);
+    }
   }
 }
 

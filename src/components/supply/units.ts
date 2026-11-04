@@ -112,8 +112,8 @@ export const REQUISITION_STATUS: Record<RequisitionStatus, string> = {
  * mercadería nueva y se cierra tras contar Quito y Puerto.
  */
 export const LOCATION_LABEL: Record<StockLocation, string> = {
-  quito: 'Quito',
-  puerto: 'Puerto',
+  quito: 'Bodega Quito',
+  puerto: 'Bodega Puerto',
   abordo: 'A bordo',
   bodega: 'Bodega sin separar',
 }
