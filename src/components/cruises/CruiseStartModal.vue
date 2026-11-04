@@ -99,7 +99,7 @@ async function start() {
           <div v-if="showWarnings" class="box-body">
             <p v-if="check.warnings.unavailable.length"><strong>No disponibles en el bar:</strong> {{ check.warnings.unavailable.join(' · ') }}</p>
             <p v-if="check.warnings.low.length"><strong>Stock bajo:</strong> {{ check.warnings.low.join(' · ') }}</p>
-            <p class="hint">Cárgalos desde Bodega o envía una solicitud. El bar verá "No disponible" solo en esos productos.</p>
+            <p class="hint">Súbelos desde el puerto (Inventario y pedidos) o envía una solicitud. El bar verá "No disponible" solo en esos productos.</p>
           </div>
         </Transition>
       </div>
