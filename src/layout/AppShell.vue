@@ -57,6 +57,42 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ]
 
+/**
+ * Pestañas superiores por perfil (guía "Cuatro personas, un mismo flujo",
+ * 4-nov-2026). Siempre arriba y con texto, también en tableta horizontal. Lo
+ * demás que el rol puede abrir queda en «Más». Los permisos no cambian.
+ */
+const PEDIDOS: NavItem = { to: '/inventario/pedido', label: 'Pedido semanal', short: 'Pedidos', icon: 'fa-list-check', roles: [] }
+const ROLE_TABS: Partial<Record<UserRole, NavItem[]>> = {
+  bartender: [
+    { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: [] },
+    { ...PEDIDOS, short: 'Pedido semanal' },
+  ],
+  direccion: [
+    { to: '/admin/salidas', label: 'Cruceros', icon: 'fa-ship', roles: [] },
+    { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: [] },
+    PEDIDOS,
+    { to: '/inventario/existencias', label: 'Existencias', icon: 'fa-boxes-stacked', roles: [] },
+    { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: [] },
+    { to: '/admin/pagos', label: 'Cobros', icon: 'fa-cash-register', roles: [] },
+  ],
+  admin: [
+    PEDIDOS,
+    { to: '/inventario/existencias?ubicacion=puerto', label: 'Bodega de puerto', icon: 'fa-anchor', roles: [] },
+    { to: '/inventario/conteos', label: 'Conteo del barco', icon: 'fa-clipboard-list', roles: [] },
+    { to: '/inventario/conteos?vista=diferencias', label: 'Diferencias', icon: 'fa-scale-unbalanced', roles: [] },
+    { to: '/inventario/compras', label: 'Compras', icon: 'fa-truck-ramp-box', roles: [], prefix: true },
+  ],
+  duena: [
+    { to: '/admin', label: 'Resumen del negocio', short: 'Resumen', icon: 'fa-chart-line', roles: [] },
+    PEDIDOS,
+    { to: '/inventario/existencias?ubicacion=quito', label: 'Bodega de Quito', icon: 'fa-city', roles: [] },
+    { to: '/inventario/existencias', label: 'Inventario', icon: 'fa-boxes-stacked', roles: [] },
+    { to: '/inventario/compras', label: 'Compras', icon: 'fa-truck-ramp-box', roles: [], prefix: true },
+    { to: '/admin/equipo', label: 'Equipo', icon: 'fa-users', roles: [] },
+  ],
+}
+
 const ROLE_LABELS: Record<UserRole, string> = {
   duena: 'Gerencia',
   admin: 'Administración',
@@ -85,9 +121,30 @@ const sections = computed(() =>
   })).filter((section) => section.items.length),
 )
 
-// Tableta y celular: las secciones van siempre arriba, a la vista (la
-// tripulación no encontraba el menú escondido tras el botón de tres rayas).
-const topItems = computed(() => sections.value.flatMap((section) => section.items))
+// Las pestañas van siempre arriba, a la vista (la tripulación no encontraba
+// el menú escondido tras el botón de tres rayas). Bodega conserva sus secciones.
+const topItems = computed(
+  () => (userStore.role && ROLE_TABS[userStore.role]) || sections.value.flatMap((section) => section.items),
+)
+/** «Más»: secciones que el rol puede abrir y no están en sus pestañas (y, para Gerencia, Ver como). */
+const hasMore = computed(
+  () =>
+    userStore.isRealAdmin ||
+    sections.value.some((sec) => sec.items.some((i) => !topItems.value.some((t) => t.to.split('?')[0] === i.to))),
+)
+
+function matches(item: NavItem): boolean {
+  const [path, qs] = item.to.split('?')
+  const pathOk = item.prefix ? route.path.startsWith(path!) : route.path === path
+  if (!pathOk) return false
+  return [...new URLSearchParams(qs ?? '')].every(([k, v]) => route.query[k] === v)
+}
+
+/** Activa: la pestaña más específica que coincide (Bodega de Quito antes que Inventario). */
+function isOn(item: NavItem): boolean {
+  if (!matches(item)) return false
+  return !topItems.value.some((o) => o !== item && o.to.length > item.to.length && o.to.startsWith(item.to.split('?')[0]!) && matches(o))
+}
 const topnav = useTemplateRef<HTMLElement>('topnav')
 
 // Si las secciones no caben, un desvanecido en el borde avisa que hay más.
@@ -114,21 +171,39 @@ function revealActiveTab() {
  * revisar; a la directora, si a las 18h00 el bar no la revisó (abre ese pedido).
  * Se consulta al entrar y cada 10 minutos; nunca aprueba nada.
  */
-const orderNotice = shallowRef<{ text: string; tone: 'warn' | 'info' } | null>(null)
+const orderNotice = shallowRef<{ text: string; tone: 'warn' | 'info'; id: string; action: string } | null>(null)
 /** Desde el día 28 de cada mes: factura mensual a la agencia pendiente (solo Gerencia). */
 const agencyNotice = shallowRef<string | null>(null)
 let orderTimer: ReturnType<typeof setInterval> | null = null
 
+/**
+ * Aviso según el perfil, con el pedido exacto que nombra: bar → revisar;
+ * directora → revisar/aprobar (y alerta si el bar no revisó); administración
+ * y dueña → atender su parte del aprobado. Nadie recibe una tarea ajena.
+ */
 async function checkWeeklyOrder() {
-  const isBar = userStore.role === 'bartender'
-  if (!isBar && !userStore.isDirector) return
+  const r = userStore.role
+  if (r !== 'bartender' && r !== 'direccion' && r !== 'admin' && r !== 'duena') return
   try {
     const { order, others } = await apiWeeklyOrderCurrent()
-    const overdue = [order, ...others].find((o) => o?.overdue)
-    if (userStore.isDirector && overdue) {
-      orderNotice.value = { text: `El bar no revisó el pedido ${overdue.code}. Revísalo y apruébalo tú.`, tone: 'warn' }
-    } else if (isBar && order?.status === 'bar') {
-      orderNotice.value = { text: `El pedido semanal ${order.code} está listo para que lo revises.`, tone: 'info' }
+    const all = [order, ...others].filter((o): o is NonNullable<typeof o> => Boolean(o))
+    const overdue = all.find((o) => o.overdue)
+    const toReview = all.find((o) => o.status === 'directora')
+    const toServe = all.find((o) => o.phase === 'atender' || o.phase === 'en_curso')
+    const forBar = all.find((o) => o.status === 'bar')
+    if (r === 'direccion' && overdue) {
+      orderNotice.value = { id: overdue._id, tone: 'warn', action: 'Revisar y aprobar', text: `El bar no revisó el pedido ${overdue.code}.` }
+    } else if (r === 'direccion' && toReview) {
+      orderNotice.value = { id: toReview._id, tone: 'info', action: 'Revisar y aprobar', text: `El bar envió el pedido ${toReview.code} a revisión.` }
+    } else if (r === 'bartender' && forBar) {
+      orderNotice.value = { id: forBar._id, tone: forBar.overdue ? 'warn' : 'info', action: 'Revisar pedido', text: `El pedido semanal ${forBar.code} está listo para que lo revises.` }
+    } else if ((r === 'admin' || r === 'duena') && toServe) {
+      orderNotice.value = {
+        id: toServe._id,
+        tone: 'info',
+        action: r === 'admin' ? 'Confirmar mi entrega' : 'Confirmar mi envío',
+        text: `El pedido ${toServe.code} está aprobado: atiende tu parte.`,
+      }
     } else {
       orderNotice.value = null
     }
@@ -234,15 +309,16 @@ async function logout() {
     <div class="masthead">
     <header class="topbar">
       <div class="topbar-left">
-        <!-- Las pestañas de arriba ya son el menú; el lateral queda para Gerencia (Ver la app como, Registros ISM). -->
+        <!-- Las pestañas de arriba son el menú; «Más» abre lo demás que el rol puede usar. -->
         <button
-          v-if="userStore.isRealAdmin"
+          v-if="hasMore"
           class="menu-btn"
           type="button"
           :aria-label="drawerOpen ? 'Cerrar menú' : 'Abrir menú'"
           @click="drawerOpen = !drawerOpen"
         >
           <i class="fa-solid" :class="drawerOpen ? 'fa-xmark' : 'fa-bars'" aria-hidden="true" />
+          <span class="menu-btn-label">Más</span>
         </button>
         <div class="brand">
           <BrandSeal :size="44" class="brand-seal" />
@@ -288,7 +364,10 @@ async function logout() {
           :key="item.to"
           :to="item.to"
           class="topnav-item"
-          :class="{ 'router-link-exact-active': item.prefix && route.path.startsWith(item.to) }"
+          active-class=""
+          exact-active-class=""
+          :class="{ 'router-link-exact-active': isOn(item) }"
+          :aria-current="isOn(item) ? 'page' : undefined"
           :aria-label="item.label"
         >
           <i class="fa-solid" :class="item.icon" aria-hidden="true" />
@@ -355,13 +434,13 @@ async function logout() {
         <Transition name="fade">
           <RouterLink
             v-if="orderNotice && route.path !== '/inventario/pedido'"
-            to="/inventario/pedido"
+            :to="{ path: '/inventario/pedido', query: { id: orderNotice.id } }"
             class="order-notice"
             :class="`order-notice--${orderNotice.tone}`"
           >
             <i class="fa-solid" :class="orderNotice.tone === 'warn' ? 'fa-bell' : 'fa-list-check'" aria-hidden="true" />
             <span>{{ orderNotice.text }}</span>
-            <strong>Abrir pedido <i class="fa-solid fa-arrow-right" aria-hidden="true" /></strong>
+            <strong>{{ orderNotice.action }} <i class="fa-solid fa-arrow-right" aria-hidden="true" /></strong>
           </RouterLink>
         </Transition>
         <Transition name="fade">
@@ -431,12 +510,8 @@ async function logout() {
 .shell {
   --bar-h: 64px;
   --nav-h: 66px;
-  // Alto total de lo fijo arriba: barra + secciones (solo la barra en escritorio).
+  // Alto total de lo fijo arriba: barra + pestañas (en todos los tamaños, guía 4 perfiles).
   --header-h: calc(var(--bar-h) + var(--nav-h));
-
-  @include desktop {
-    --header-h: var(--bar-h);
-  }
 }
 
 .masthead {
@@ -478,10 +553,6 @@ async function logout() {
   &--left::before,
   &--right::after {
     opacity: 1;
-  }
-
-  @include desktop {
-    display: none;
   }
 }
 
@@ -552,8 +623,12 @@ async function logout() {
 
 .menu-btn {
   @include touch-target;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0 0.5rem;
+  font-weight: 600;
   border-radius: var(--radius-sm);
   color: var(--ink-900);
   font-size: 1.1rem;
@@ -565,10 +640,6 @@ async function logout() {
 
   &:active {
     transform: scale(0.94);
-  }
-
-  @include desktop {
-    display: none;
   }
 }
 
@@ -719,10 +790,6 @@ async function logout() {
   inset: 0;
   background: rgba(15, 29, 22, 0.5);
   z-index: 24;
-
-  @include desktop {
-    display: none;
-  }
 }
 
 // Sidebar en todos los dispositivos: drawer deslizante en pantallas
@@ -748,15 +815,6 @@ async function logout() {
   &--open {
     transform: translateX(0);
     box-shadow: var(--shadow-lg);
-  }
-
-  @include desktop {
-    position: sticky;
-    top: var(--header-h);
-    height: calc(100dvh - var(--header-h));
-    transform: none;
-    box-shadow: none;
-    padding-top: 1.1rem;
   }
 }
 
