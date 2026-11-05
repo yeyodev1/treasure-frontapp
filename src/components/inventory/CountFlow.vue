@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, shallowRef } from 'vue'
+import { useRoute } from 'vue-router'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import FlowHeader from '@/components/supply/FlowHeader.vue'
 import CountEditor from './CountEditor.vue'
@@ -15,8 +16,10 @@ import { ACTIVE_LOCATIONS, LOCATION_HINT, LOCATION_ICON, LOCATION_IN, LOCATION_L
 
 /**
  * Conteos físicos por ubicación (pestaña Conteos de Inventario y pedidos).
- * Guardar, enviar para revisión y aplicar el ajuste son pasos distintos; lo no
- * contado no cuenta como cero. `embedded`: dentro de la pestaña, sin botón de volver.
+ * Guía 4 perfiles (4-nov-2026): se guarda y se sigue después; al pulsar
+ * «Confirmar inventario» el conteo físico pasa a ser la referencia y queda el
+ * informe de diferencias (?vista=diferencias). Lo no contado no cuenta como
+ * cero. `embedded`: dentro de la pestaña, sin botón de volver.
  */
 defineProps<{ embedded?: boolean }>()
 const emit = defineEmits<{ back: [] }>()
@@ -24,7 +27,10 @@ const emit = defineEmits<{ back: [] }>()
 const confirmStore = useConfirmStore()
 const toast = useToastStore()
 const userStore = useUserStore()
+const route = useRoute()
 const { play } = useSound()
+/** Pestaña «Diferencias»: informe de los conteos confirmados. */
+const report = computed(() => route.query.vista === 'diferencias')
 
 const counts = shallowRef<StockCount[]>([])
 const loading = shallowRef(true)
@@ -34,7 +40,7 @@ const creating = shallowRef(false)
 const STATUS: Record<string, string> = {
   borrador: 'Borrador',
   enviado: 'Pendiente de aprobación',
-  aprobado: 'Aprobado',
+  aprobado: 'Confirmado',
   rechazado: 'Devuelto',
 }
 
@@ -51,13 +57,14 @@ async function load() {
 onMounted(load)
 
 const open = computed(() => counts.value.filter((c) => c.status !== 'aprobado'))
-const recent = computed(() => counts.value.filter((c) => c.status === 'aprobado').slice(0, 5))
+const confirmed = computed(() => counts.value.filter((c) => c.status === 'aprobado'))
+const recent = computed(() => confirmed.value.slice(0, 5))
 
 async function create(location: StockLocation) {
   const ok = await confirmStore.ask({
     title: `¿Abrir conteo ${LOCATION_IN[location]}?`,
     message:
-      'Se guarda una foto del stock del sistema en este momento (el corte). Guardar o enviar el conteo no cambia el stock: el ajuste se aplica solo cuando se aprueba.',
+      'Se guarda una foto del stock del sistema en este momento (el corte). Puedes guardar y seguir después: el stock cambia solo al confirmar el inventario.',
     confirmLabel: 'Abrir conteo',
     icon: 'fa-clipboard-list',
   })
@@ -83,14 +90,44 @@ async function create(location: StockLocation) {
     <FlowHeader v-if="!embedded" title="Conteo físico" icon="fa-clipboard-list" @back="emit('back')" />
     <header v-else class="page-head">
       <div class="page-head-text">
-        <h1 class="page-title">Conteos</h1>
-        <p class="page-lead">Compara lo físico con el sistema en cada ubicación. Guardar, enviar para revisión y aplicar el ajuste son pasos distintos.</p>
+        <h1 class="page-title">{{ report ? 'Diferencias' : 'Conteos' }}</h1>
+        <p class="page-lead">
+          {{
+            report
+              ? 'Lo que no coincidió con el sistema en cada conteo confirmado: quién contó, cuándo y cuánto.'
+              : 'Cuenta lo que hay, guarda cuando quieras y pulsa «Confirmar inventario»: lo contado pasa a ser la referencia.'
+          }}
+        </p>
       </div>
     </header>
 
-    <div class="pane">
+    <!-- Informe de diferencias: automático para Administración y la dueña -->
+    <div v-if="report" class="pane">
+      <SkeletonList v-if="loading" variant="card" :rows="3" />
+      <div v-else-if="!confirmed.length" class="vacio">
+        <i class="fa-solid fa-scale-balanced" aria-hidden="true" />
+        <p>Aún no hay conteos confirmados. Al confirmar uno, su informe aparece aquí.</p>
+      </div>
+      <div v-else class="lines">
+        <button v-for="c in confirmed" :key="c._id" type="button" class="card count" @click="openId = c._id">
+          <span class="count-top">
+            <strong>{{ c.code }} · {{ LOCATION_LABEL[c.location] }}</strong>
+            <span class="pill" :class="c.differences ? 'pill--enviado' : 'pill--aprobado'">
+              {{ c.differences ? `${c.differences} con diferencia` : 'Sin diferencias' }}
+            </span>
+          </span>
+          <small>
+            Corte {{ formatDateTime(c.cutAt) }} · {{ c.countedLines ?? 0 }} contados · confirmó {{ c.reviewedBy?.name }}
+            {{ c.reviewedAt ? `el ${formatDateTime(c.reviewedAt)}` : '' }}
+          </small>
+          <span class="count-go">Ver informe <i class="fa-solid fa-chevron-right" aria-hidden="true" /></span>
+        </button>
+      </div>
+    </div>
+
+    <div v-else class="pane">
       <p class="lead">
-        Cuenta lo que hay en el lugar y anótalo. Si hay diferencia, se revisa antes de ajustar.
+        Cuenta lo que hay en el lugar y anótalo. Puedes guardar y seguir después.
       </p>
 
       <div class="dest">
@@ -130,14 +167,14 @@ async function create(location: StockLocation) {
         </TransitionGroup>
 
         <template v-if="recent.length">
-          <h3 class="sub">Aprobados recientes</h3>
+          <h3 class="sub">Confirmados recientes</h3>
           <div class="lines">
             <button v-for="c in recent" :key="c._id" type="button" class="card count" @click="openId = c._id">
               <span class="count-top">
                 <strong>{{ c.code }} · {{ LOCATION_LABEL[c.location] }}</strong>
-                <span class="pill pill--aprobado">Aprobado</span>
+                <span class="pill pill--aprobado">{{ c.differences ? `${c.differences} con diferencia` : 'Sin diferencias' }}</span>
               </span>
-              <small>Corte {{ formatDateTime(c.cutAt) }} · aprobó {{ c.reviewedBy?.name }}</small>
+              <small>Corte {{ formatDateTime(c.cutAt) }} · confirmó {{ c.reviewedBy?.name }}</small>
             </button>
           </div>
         </template>

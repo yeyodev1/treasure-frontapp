@@ -35,9 +35,16 @@ const REASONS = ['Rotura', 'Medida', 'Error de registro', 'Consumo interno', 'P�
 const STATUS_LABEL: Record<string, string> = {
   borrador: 'Borrador',
   enviado: 'Pendiente de aprobación',
-  aprobado: 'Aprobado',
+  aprobado: 'Confirmado',
   rechazado: 'Devuelto',
 }
+
+/**
+ * Guía 4 perfiles (4-nov-2026): quien cuenta (Administración, Bodega o la
+ * dueña) confirma y el conteo físico pasa a ser la referencia, sin enviarlo a
+ * otra persona. Dirección aún lo envía para revisión.
+ */
+const canConfirm = computed(() => userStore.isOwner || userStore.role === 'admin' || userStore.role === 'bodega')
 
 const editable = computed(() => count.value?.status === 'borrador' || count.value?.status === 'rechazado')
 const canApprove = computed(() => userStore.isOwner && count.value?.status === 'enviado')
@@ -124,7 +131,7 @@ async function save(silent = false) {
     )
     if (!silent) {
       play('success')
-      toast.success('Conteo guardado. El stock no cambia hasta que se apruebe el ajuste.')
+      toast.success('Conteo guardado. Puedes seguir después; el stock no cambia hasta confirmar.')
     }
     emit('changed')
     return true
@@ -151,6 +158,33 @@ async function submit() {
     count.value = await apiCountAction(props.countId, 'submit')
     play('success')
     toast.success('Conteo enviado para revisión')
+    emit('changed')
+  } catch (err) {
+    play('error')
+    toast.error(apiErrorMessage(err))
+  } finally {
+    busy.value = false
+  }
+}
+
+async function confirmCount() {
+  if (!(await save(true))) return
+  if (!summary.value.counted) {
+    toast.error('Cuenta al menos un producto antes de confirmar')
+    return
+  }
+  const ok = await confirmStore.ask({
+    title: `¿Confirmar el inventario ${count.value ? `de ${LOCATION_LABEL[count.value.location]}` : ''}?`,
+    message: `${summary.value.counted} producto(s) contados, ${summary.value.withDiff} con diferencia. Lo contado pasa a ser la referencia; se conservan los movimientos posteriores al corte. Lo no contado no cambia.`,
+    confirmLabel: count.value?.location === 'abordo' ? 'Confirmar inventario del barco' : 'Confirmar inventario',
+    icon: 'fa-clipboard-check',
+  })
+  if (!ok) return
+  busy.value = true
+  try {
+    count.value = await apiCountAction(props.countId, 'confirm')
+    play('success')
+    toast.success('Inventario confirmado: el informe de diferencias ya está en Diferencias')
     emit('changed')
   } catch (err) {
     play('error')
@@ -207,7 +241,7 @@ async function reject() {
 <template>
   <BaseModal
     :title="count ? `Conteo ${count.code}` : 'Conteo'"
-    :subtitle="editable ? 'Anota lo que cuentas. El stock no cambia hasta que se apruebe el ajuste.' : undefined"
+    :subtitle="editable ? 'Anota lo que cuentas y guarda cuando quieras. El stock no cambia hasta confirmar. Lo no contado no cuenta como cero.' : undefined"
     size="xl"
     @close="emit('close')"
   >
@@ -297,7 +331,11 @@ async function reject() {
           <button type="button" class="btn btn-secondary" :disabled="busy" @click="save()">
             <i class="fa-solid fa-floppy-disk" aria-hidden="true" /> Guardar conteo
           </button>
-          <button type="button" class="btn btn-primary" :disabled="busy" @click="submit">
+          <button v-if="canConfirm" type="button" class="btn btn-gold" :disabled="busy" @click="confirmCount">
+            <i class="fa-solid fa-clipboard-check" aria-hidden="true" />
+            {{ count.location === 'abordo' ? 'Confirmar inventario del barco' : 'Confirmar inventario' }}
+          </button>
+          <button v-else type="button" class="btn btn-primary" :disabled="busy" @click="submit">
             <i class="fa-solid fa-shield-halved" aria-hidden="true" /> Enviar para revisión
           </button>
         </template>
@@ -314,12 +352,10 @@ async function reject() {
         </p>
         <p v-else-if="count.status === 'aprobado'" class="done">
           <i class="fa-solid fa-circle-check" aria-hidden="true" />
-          Aprobado por {{ count.reviewedBy?.name }} · {{ count.reviewedAt ? formatDateTime(count.reviewedAt) : '' }}
+          Confirmado por {{ count.reviewedBy?.name }} · {{ count.reviewedAt ? formatDateTime(count.reviewedAt) : '' }}
         </p>
       </div>
-      <p v-if="editable && userStore.isOwner" class="ct-hint">
-        Para aprobar el ajuste, primero envía el conteo para revisión.
-      </p>
+
     </template>
   </BaseModal>
 </template>
