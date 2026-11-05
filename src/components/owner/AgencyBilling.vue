@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, shallowRef } from 'vue'
+import BaseModal from '@/components/ui/BaseModal.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import { useToastStore } from '@/stores/toast'
 import { useConfirmStore } from '@/stores/confirm'
@@ -25,6 +26,8 @@ const selected = shallowRef<Set<string>>(new Set())
 const month = shallowRef(todayKey().slice(0, 7))
 const email = shallowRef('')
 const invoiceNumber = shallowRef('')
+/** Prefactura abierta: lo que se le va a facturar a la agencia, antes de registrar. */
+const preview = shallowRef(false)
 
 const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 const monthName = (m: string) => `${MONTHS[Number(m.slice(5, 7)) - 1] ?? m} ${m.slice(0, 4)}`
@@ -69,16 +72,8 @@ const emailBad = computed(() => Boolean(email.value.trim()) && !EMAIL_RE.test(em
 
 async function register() {
   if (!selectedRows.value.length || emailBad.value || busy.value) return
+  // La prefactura ya mostró el detalle: confirmar ahí es la aprobación.
   const to = email.value.trim()
-  const ok = await confirmStore.ask({
-    title: `¿Registrar la factura de ${monthName(month.value)} por ${formatMoney(selectedTotal.value)}?`,
-    message: `${selectedRows.value.map((c) => `${cruiseLabel(c)} (${formatMoney(c.pending)})`).join(', ')}. ${
-      to ? `Se le envía el detalle por crucero a ${to}.` : 'Sin correo: no se envía nada, solo queda registrada.'
-    } Después emite la factura en Contífico por ese total.`,
-    confirmLabel: to ? 'Registrar y enviar' : 'Registrar',
-    icon: 'fa-file-invoice-dollar',
-  })
-  if (!ok) return
   busy.value = true
   try {
     const result = await apiCreateAgencyInvoice({
@@ -89,6 +84,7 @@ async function register() {
       note: '',
     })
     data.value = result
+    preview.value = false
     selected.value = new Set()
     invoiceNumber.value = ''
     toast.success(`Factura de ${monthName(month.value)} registrada`)
@@ -138,7 +134,7 @@ const history = computed(() => {
       </h2>
       <p class="a-rule">
         Las cortesías de agencia no se cobran a la cabina (sí descuentan inventario). Cada mes:
-        <strong>1)</strong> marca los cruceros que le facturas, <strong>2)</strong> toca «Registrar y enviar»: le llega el detalle por crucero a su correo,
+        <strong>1)</strong> marca los cruceros que le facturas, <strong>2)</strong> toca «Ver prefactura», revísala y apruébala: le llega el detalle por crucero a su correo,
         <strong>3)</strong> emite la factura en Contífico por ese total. Desde el día {{ data?.reminderDay ?? 28 }} la app te avisa.
       </p>
     </header>
@@ -238,9 +234,8 @@ const history = computed(() => {
           </div>
           <div class="a-actions">
             <button type="button" class="btn-text" @click="selected = new Set()">Quitar selección</button>
-            <button type="button" class="btn btn-primary" :disabled="busy || emailBad" @click="register">
-              <i class="fa-solid" :class="busy ? 'fa-spinner fa-spin' : 'fa-paper-plane'" aria-hidden="true" />
-              {{ email.trim() ? 'Registrar y enviar a la agencia' : 'Registrar sin enviar' }}
+            <button type="button" class="btn btn-primary" :disabled="busy || emailBad" @click="preview = true">
+              <i class="fa-solid fa-file-invoice-dollar" aria-hidden="true" /> Ver prefactura
             </button>
           </div>
         </div>
@@ -274,6 +269,53 @@ const history = computed(() => {
         </ul>
       </div>
     </template>
+
+    <!-- Prefactura: lo que se le factura a la agencia, antes de registrar y enviar -->
+    <BaseModal
+      v-if="preview && selectedRows.length"
+      title="Prefactura de la agencia"
+      :subtitle="`${monthName(month)} · cortesías de agencia`"
+      size="lg"
+      @close="preview = false"
+    >
+      <div class="p-sheet">
+        <section v-for="c in selectedRows" :key="c.id" class="p-cruise">
+          <header class="p-head">
+            <span>
+              <strong>{{ cruiseLabel(c) }}</strong>
+              <small>
+                {{ formatDate(c.startDate) }}<template v-if="c.routeFrom"> · {{ c.routeFrom }} → {{ c.routeTo }}</template>
+                · {{ c.count }} {{ c.count === 1 ? 'cortesía' : 'cortesías' }}
+              </small>
+              <small v-if="c.invoiced > 0">Ya se facturó {{ formatMoney(c.invoiced) }} de {{ formatMoney(c.total) }}: va lo que falta.</small>
+            </span>
+            <strong class="p-amount">{{ formatMoney(c.pending) }}</strong>
+          </header>
+          <ul class="p-items">
+            <li v-for="i in c.items" :key="`${i.orderId}-${i.name}`">
+              <span>Cabina {{ i.cabinNumber }} · {{ i.qty }} × {{ i.name }}</span>
+              <span class="p-amount">{{ formatMoney(i.total) }}</span>
+            </li>
+          </ul>
+        </section>
+        <p class="p-total">
+          <span>Total a facturar a la agencia</span>
+          <strong>{{ formatMoney(selectedTotal) }}</strong>
+        </p>
+        <p class="p-meta">
+          <template v-if="email.trim()">Al aprobar se le envía este detalle a <strong>{{ email.trim() }}</strong>.</template>
+          <template v-else>Sin correo: no se envía nada, solo queda registrada.</template>
+          Después emite la factura en Contífico por este total.
+        </p>
+      </div>
+      <template #footer>
+        <button type="button" class="btn btn-secondary" @click="preview = false">Volver</button>
+        <button type="button" class="btn btn-primary" :disabled="busy || emailBad" @click="register">
+          <i class="fa-solid" :class="busy ? 'fa-spinner fa-spin' : 'fa-check'" aria-hidden="true" />
+          {{ busy ? 'Guardando…' : email.trim() ? 'Aprobar y enviar a la agencia' : 'Aprobar sin enviar' }}
+        </button>
+      </template>
+    </BaseModal>
   </section>
 </template>
 
@@ -476,5 +518,64 @@ const history = computed(() => {
   margin: 0.9rem 0 0.2rem;
   font-size: 0.9rem;
   color: var(--ink-600);
+}
+
+.p-sheet {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.p-cruise {
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.p-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+
+  small {
+    display: block;
+    color: var(--ink-400);
+    font-size: 0.82rem;
+  }
+}
+
+.p-items {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  font-size: 0.9rem;
+  color: var(--ink-600);
+
+  li {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.15rem 0;
+  }
+}
+
+.p-amount {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.p-total {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  font-size: 1.1rem;
+
+  strong {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.p-meta {
+  margin: 0;
+  color: var(--ink-600);
+  font-size: 0.9rem;
 }
 </style>
