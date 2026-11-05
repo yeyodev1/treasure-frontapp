@@ -293,7 +293,7 @@ function removeLine(l: WeeklyOrderLine) {
 }
 
 function addProduct(p: Product) {
-  picking.value = false
+  // El selector queda abierto para agregar varios seguidos; el elegido sale de la lista.
   if (removed.value.has(p._id)) {
     removed.value = new Set([...removed.value].filter((id) => id !== p._id))
   } else {
