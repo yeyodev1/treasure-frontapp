@@ -82,15 +82,9 @@ function pick(line: IngredientLine, productId: string) {
   if (p) line.qty = defaultQty(p)
 }
 
-/** Mismo cálculo que el servidor: medida / medida de referencia × precio de referencia. */
-const suggested = computed(() => {
-  let total = 0
-  for (const ing of ingredients.value) {
-    const p = byId.value.get(ing.productId)
-    if (p && p.servingSize > 0) total += (ing.qty / p.servingSize) * p.servingPrice
-  }
-  return Math.ceil(total * 2) / 2
-})
+/** Sugerido $14 (pedido del cliente, 5-nov-2026); el bar lo sube o lo baja según el trago. */
+const SUGGESTED_PRICE = 14
+const price = shallowRef<number | ''>(SUGGESTED_PRICE)
 
 function unitOf(line: IngredientLine): string {
   const p = byId.value.get(line.productId)
@@ -129,10 +123,14 @@ async function save() {
     error.value = 'Agrega al menos un ingrediente con su medida'
     return
   }
+  if (typeof price.value !== 'number' || !(price.value > 0) || price.value > 500) {
+    error.value = 'Pon el precio del cóctel (entre $0,01 y $500)'
+    return
+  }
 
   saving.value = true
   try {
-    const product = await apiCreateCustomCocktail(name.value.trim(), recipe)
+    const product = await apiCreateCustomCocktail(name.value.trim(), recipe, price.value)
     emit('created', product)
   } catch (err) {
     error.value = apiErrorMessage(err)
@@ -203,13 +201,16 @@ async function remove(product: Product) {
         </button>
       </div>
 
-      <div class="price">
+      <label class="price">
         <span>
-          Precio sugerido
-          <small>según la medida de cada licor</small>
+          Precio del cóctel
+          <small>Sugerido {{ formatMoney(SUGGESTED_PRICE) }}: súbelo o bájalo según el trago</small>
         </span>
-        <strong>{{ formatMoney(suggested) }}</strong>
-      </div>
+        <span class="price-input">
+          <span aria-hidden="true">$</span>
+          <input v-model.number="price" type="number" inputmode="decimal" min="0.5" max="500" step="0.5" aria-label="Precio del cóctel en dólares" />
+        </span>
+      </label>
 
       <p v-if="error" class="builder-error">{{ error }}</p>
 
@@ -326,9 +327,27 @@ async function remove(product: Product) {
     color: var(--ink-400);
   }
 
-  strong {
-    font-size: 1.3rem;
-    color: var(--navy-800);
+  gap: 1rem;
+}
+
+.price-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--navy-800);
+
+  input {
+    width: 6.5rem;
+    min-height: 48px;
+    padding: 0 0.6rem;
+    border: 1px solid var(--line-strong, var(--line));
+    border-radius: var(--radius-sm);
+    background: var(--surface, #fff);
+    font: inherit;
+    color: inherit;
+    text-align: right;
   }
 }
 

@@ -83,10 +83,12 @@ export async function apiUpdateProduct(id: string, payload: Record<string, unkno
 export async function apiCreateCustomCocktail(
   name: string,
   recipe: Array<{ product: string; qty: number }>,
+  price: number,
 ) {
   const { data } = await http.post<{ product: Product }>('/products/custom-cocktail', {
     name,
     recipe,
+    price,
   })
   return data.product
 }
@@ -620,6 +622,15 @@ export interface ConsumptionPayload {
   courtesyKind?: CourtesyKind
   idempotencyKey: string
   clientAt?: string
+}
+
+/** Wetsuit con el precio del trayecto del crucero (A y B, o C); null si el crucero no tiene trayecto. */
+export async function apiWetsuit(cruiseId: string) {
+  const { data } = await http.get<{ product: Pick<Product, '_id' | 'name' | 'price' | 'legs'> | null; leg: string }>(
+    '/wetsuits',
+    { params: { cruiseId } },
+  )
+  return data
 }
 
 export async function apiConsume(payload: ConsumptionPayload) {

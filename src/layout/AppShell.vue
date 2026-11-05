@@ -36,6 +36,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/admin/salidas', label: 'Cruceros', icon: 'fa-ship', roles: ['duena', 'admin', 'direccion'] },
       { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: ['duena', 'direccion', 'bartender'] },
+      { to: '/wetsuits', label: 'Wetsuits', icon: 'fa-person-swimming', roles: ['duena', 'direccion', 'bartender'] },
       { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: ['duena', 'direccion'] },
       { to: '/inventario', label: 'Inventario y pedidos', short: 'Inventario', icon: 'fa-boxes-stacked', roles: ['duena', 'admin', 'direccion', 'bartender', 'bodega'], prefix: true },
     ],
@@ -66,6 +67,7 @@ const PEDIDOS: NavItem = { to: '/inventario/pedido', label: 'Pedido semanal', sh
 const ROLE_TABS: Partial<Record<UserRole, NavItem[]>> = {
   bartender: [
     { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: [] },
+    { to: '/wetsuits', label: 'Wetsuits', icon: 'fa-person-swimming', roles: [] },
     { ...PEDIDOS, short: 'Pedido semanal' },
   ],
   direccion: [
@@ -74,6 +76,7 @@ const ROLE_TABS: Partial<Record<UserRole, NavItem[]>> = {
     PEDIDOS,
     { to: '/inventario/existencias', label: 'Existencias', icon: 'fa-boxes-stacked', roles: [] },
     { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: [] },
+    { to: '/wetsuits', label: 'Wetsuits', icon: 'fa-person-swimming', roles: [] },
     { to: '/admin/pagos', label: 'Cobros', icon: 'fa-cash-register', roles: [] },
   ],
   admin: [

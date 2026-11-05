@@ -51,9 +51,9 @@ export function drinkFormat(p: Product): DrinkFormat | null {
   return null
 }
 
-/** Lo que se puede vender en el bar (las botellas-insumo no aparecen). */
+/** Lo que se puede vender en el bar (las botellas-insumo no aparecen; los wetsuits van en su pestaña). */
 export function isSellable(p: Product): boolean {
-  return p.active && (p.kind !== 'fisico' || p.sellable)
+  return p.active && (p.kind !== 'fisico' || p.sellable) && !p.legs?.length
 }
 
 export const useCatalogStore = defineStore('catalog', () => {

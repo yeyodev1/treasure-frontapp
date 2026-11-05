@@ -97,6 +97,8 @@ export interface Product {
   /** Solo vinos; vacío = sin clasificar. */
   wineStyle?: WineStyle | ''
   isCustom: boolean
+  /** Trayectos donde se cobra (A, B, C); vacío = todos. Los wetsuits tienen precio por trayecto. */
+  legs?: string[]
   active: boolean
   priceHistory: PriceChange[]
   /** Costo por unidad base (promedio de recepciones). */
