@@ -4,6 +4,8 @@ import ProductIcon from '@/components/ui/ProductIcon.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import QtyStepper from '@/components/supply/QtyStepper.vue'
 import ProductPicker from '@/components/supply/ProductPicker.vue'
+import OrderFulfillment from '@/components/inventory/OrderFulfillment.vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useCatalogStore } from '@/stores/catalog'
 import { useConfirmStore } from '@/stores/confirm'
 import { useToastStore } from '@/stores/toast'
@@ -26,10 +28,14 @@ import type { Product, WeeklyOrder, WeeklyOrderCurrent, WeeklyOrderLine } from '
  * Pedido semanal (guía Inventario y pedidos, 4-nov-2026). El miércoles a las
  * 15h00 el sistema prepara la propuesta; el bar corrige y pulsa "Enviar a
  * revisión"; la directora agrega, quita o cambia y pulsa "Aprobar y enviar
- * pedido". Nada de esto compra ni mueve stock. Antes de aprobar, cada cambio
+ * pedido". Aprobar no mueve stock: después cada responsable confirma su
+ * parte en el mismo pedido (OrderFulfillment). Antes de aprobar, cada cambio
  * se guarda solo (y queda en la tableta si no hay señal); después de aprobar,
- * los cambios de la directora se guardan como revisión con aviso a compras.
+ * los cambios de la directora se guardan como revisión.
+ * `?id=` abre un pedido exacto (los avisos enlazan al pedido que nombran).
  */
+const route = useRoute()
+const router = useRouter()
 const catalog = useCatalogStore()
 const confirmStore = useConfirmStore()
 const toast = useToastStore()
@@ -52,6 +58,9 @@ const added = ref<WeeklyOrderLine[]>([])
 const removed = ref<Set<string>>(new Set())
 /** Línea con "Hay otra cantidad" abierto. */
 const noting = shallowRef<string | null>(null)
+/** Línea con el detalle abierto (otras bodegas y cómo se calculó). */
+const detail = shallowRef<string | null>(null)
+const search = shallowRef('')
 const showHistory = shallowRef(false)
 
 type SyncState = 'idle' | 'pending' | 'saving' | 'saved' | 'error'
@@ -122,7 +131,13 @@ async function load(id?: string) {
   }
 }
 
-onMounted(() => load())
+onMounted(() => load(typeof route.query.id === 'string' ? route.query.id : undefined))
+
+/** Abrir otro pedido deja su ID en la dirección (se puede compartir y recargar). */
+function openOrder(id?: string) {
+  void router.replace({ query: id && id !== current.value?.order?._id ? { id } : {} })
+  void load(id)
+}
 onBeforeUnmount(() => {
   if (timer) clearTimeout(timer)
 })
@@ -146,10 +161,10 @@ function addedLine(p: Product): WeeklyOrderLine {
     observation: '',
     editedByName: '',
     editedAt: null,
-    purchased: 0,
-    received: 0,
-    toBuy: 0,
-    toReceive: 0,
+    delivered: 0,
+    inTransit: 0,
+    pending: 0,
+    contributions: [],
   }
 }
 
@@ -157,6 +172,21 @@ const lines = computed(() => [
   ...(order.value?.lines ?? []).filter((l) => !removed.value.has(l.product)),
   ...added.value,
 ])
+
+/** Primero lo que hay que revisar, luego lo que se pide; búsqueda por nombre. */
+const RANK: Record<WeeklyOrderLine['basis'], number> = { revisar: 0, objetivo: 1, consumo: 1, agregado: 1 }
+const shownLines = computed(() => {
+  const q = search.value.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  return lines.value
+    .filter((l) => !q || l.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(q))
+    .map((l, i) => ({ l, i }))
+    .sort((a, b) => {
+      const qa = (edits.value[a.l.product]?.qty ?? 0) > 0 ? 0 : 1
+      const qb = (edits.value[b.l.product]?.qty ?? 0) > 0 ? 0 : 1
+      return RANK[a.l.basis] - RANK[b.l.basis] || (approved.value ? 0 : qa - qb) || a.i - b.i
+    })
+    .map((x) => x.l)
+})
 
 function payload() {
   return lines.value.map((l) => ({
@@ -171,9 +201,14 @@ const invalid = computed(() => lines.value.find((l) => {
   return q === undefined || !Number.isInteger(q) || q < 0
 }))
 
-/** Aprobado: no se pide menos de lo ya comprado. */
+/** Ya entregado o enviado: no se puede pedir menos. */
+function covered(l: WeeklyOrderLine): number {
+  return l.delivered + l.inTransit
+}
+
+/** Aprobado: no se pide menos de lo ya entregado o enviado. */
 function belowBought(l: WeeklyOrderLine): boolean {
-  return approved.value && (edits.value[l.product]?.qty ?? 0) < l.purchased
+  return approved.value && (edits.value[l.product]?.qty ?? 0) < covered(l)
 }
 
 const changedSinceSave = computed(() => {
@@ -247,8 +282,8 @@ function setObservation(l: WeeklyOrderLine, text: string) {
 
 function removeLine(l: WeeklyOrderLine) {
   if (approved.value) {
-    // Aprobado: quitar = cancelar lo pendiente (queda lo comprado).
-    setQty(l, Math.ceil(l.purchased))
+    // Aprobado: quitar = cancelar lo pendiente (queda lo entregado o enviado).
+    setQty(l, covered(l))
     return
   }
   if (added.value.some((a) => a.product === l.product)) added.value = added.value.filter((a) => a.product !== l.product)
@@ -271,18 +306,28 @@ function addProduct(p: Product) {
 const pickable = computed(() => catalog.physical.filter((p) => !lines.value.some((l) => l.product === p._id)))
 
 // ---- Explicación de cada línea ----
+// ¿Qué necesita el barco? Solo cuenta lo que hay a bordo. ¿De dónde sale? Puerto, Quito o compra nueva.
 function onHand(l: WeeklyOrderLine): number {
-  return Object.values(l.atCut).reduce((s, q) => s + Math.max(0, q), 0)
+  return Math.max(0, l.atCut.abordo)
 }
 
-function breakdown(l: WeeklyOrderLine): string {
-  const parts = ACTIVE_LOCATIONS.map((loc) => `${LOCATION_LABEL[loc]} ${stockText(l.atCut[loc], l)}`)
-  if (l.atCut.bodega) parts.push(`Sin separar ${stockText(l.atCut.bodega, l)}`)
+/** Dónde se puede conseguir: las bodegas (tenerlo en Quito no es tenerlo en el barco). */
+function sources(l: WeeklyOrderLine): string {
+  const parts = ACTIVE_LOCATIONS.filter((loc) => loc !== 'abordo').map((loc) => `${LOCATION_LABEL[loc]} ${stockText(l.atCut[loc], l)}`)
+  if (l.atCut.bodega) parts.push(`Sin separar ${stockText(l.atCut.bodega, l)} (por verificar)`)
   return parts.join(' · ')
 }
 
+/** "Administración 10 de puerto + 6 de compra nueva · dueña 8 de Quito (en camino)". */
+function contributionText(l: WeeklyOrderLine): string {
+  const SOURCE = { puerto: 'puerto', quito: 'Quito', compra: 'compra nueva' } as const
+  return l.contributions
+    .map((c) => `${c.byName}: ${c.qty} de ${SOURCE[c.source]}${c.arrived ? '' : ' (en camino)'}`)
+    .join(' · ')
+}
+
 function why(l: WeeklyOrderLine): string {
-  const hay = stockText(onHand(l), l)
+  const hay = `a bordo ${stockText(onHand(l), l)}`
   const vienen = l.incoming > 0 ? ` · vienen ${stockText(l.incoming, l)}` : ''
   if (l.basis === 'objetivo') return `Objetivo ${containerText(l.target, l)} · hay ${hay}${vienen} → sugerido ${containerText(l.suggested ?? 0, l)}`
   if (l.basis === 'consumo') return `Se consumió ${stockText(l.consumption, l)} la última semana · hay ${hay}${vienen} → sugerido ${containerText(l.suggested ?? 0, l)}`
@@ -326,22 +371,31 @@ async function sendToReview() {
   }
 }
 
-async function approve() {
+async function approve(noNeeds = false) {
   if (!order.value || busy.value) return
   if (!(await flush())) return
-  const ok = await confirmStore.ask({
-    title: `¿Aprobar y enviar el pedido ${order.value.code}?`,
-    message: `Llega a Compras (Administración y Bodega) en Inventario y pedidos, con ${withQty.value} producto(s). No se envía correo ni WhatsApp, y nada se da por recibido.${order.value.status === 'bar' ? ' El bar aún no lo revisó.' : ''}`,
-    confirmLabel: 'Aprobar y enviar pedido',
-    icon: 'fa-stamp',
-  })
+  const ok = await confirmStore.ask(
+    noNeeds
+      ? {
+          title: `¿Cerrar el pedido ${order.value.code} sin necesidades?`,
+          message: `El barco no necesita reposición esta semana. Queda cerrado en el historial y no queda pendiente.${order.value.status === 'bar' ? ' El bar aún no lo revisó.' : ''}`,
+          confirmLabel: 'Cerrar sin necesidades',
+          icon: 'fa-circle-check',
+        }
+      : {
+          title: `¿Aprobar y enviar el pedido ${order.value.code}?`,
+          message: `Lo ven Administración y la dueña en Pedido semanal, con ${withQty.value} producto(s): cada una confirma su parte. No se envía correo ni WhatsApp, y nada se da por entregado.${order.value.status === 'bar' ? ' El bar aún no lo revisó.' : ''}`,
+          confirmLabel: 'Aprobar y enviar pedido',
+          icon: 'fa-stamp',
+        },
+  )
   if (!ok) return
   busy.value = true
   try {
-    order.value = await apiApproveWeeklyOrder(order.value._id, order.value.version)
+    order.value = await apiApproveWeeklyOrder(order.value._id, order.value.version, noNeeds)
     resetLocal(order.value)
     play('success')
-    toast.success('Pedido aprobado: queda listo para comprar')
+    toast.success(noNeeds ? 'Pedido cerrado sin necesidades' : 'Pedido aprobado: Administración y la dueña atienden su parte')
   } catch (err) {
     play('error')
     toast.error(apiErrorMessage(err))
@@ -355,12 +409,12 @@ async function saveRevision() {
   if (!order.value || busy.value) return
   const bad = lines.value.find(belowBought)
   if (bad) {
-    toast.error(`${bad.name}: ya se compraron ${containerText(bad.purchased, bad)}; no puedes pedir menos.`)
+    toast.error(`${bad.name}: ya se entregaron o enviaron ${containerText(covered(bad), bad)}; no puedes pedir menos.`)
     return
   }
   const ok = await confirmStore.ask({
     title: `¿Guardar la revisión ${order.value.revision + 1}?`,
-    message: 'El pedido ya está aprobado: el cambio queda identificado y Compras lo ve al entrar. Lo ya comprado o recibido no se borra.',
+    message: 'El pedido ya está aprobado: el cambio queda identificado y Administración y la dueña lo ven al entrar. Lo ya entregado o enviado no se borra.',
     confirmLabel: 'Guardar revisión',
     icon: 'fa-pen-to-square',
   })
@@ -377,9 +431,9 @@ async function saveRevision() {
 async function cancel() {
   if (!order.value || busy.value) return
   const reason = await confirmStore.askReason({
-    title: approved.value ? '¿Cancelar lo pendiente de comprar?' : `¿Cancelar el pedido ${order.value.code}?`,
+    title: approved.value ? '¿Cancelar lo pendiente de entregar?' : `¿Cancelar el pedido ${order.value.code}?`,
     message: approved.value
-      ? 'Cada producto queda en lo que ya se compró. Las compras y entregas hechas no se borran.'
+      ? 'Cada producto queda en lo que ya se entregó o envió. Las entregas hechas no se borran.'
       : 'El pedido se descarta y queda en el historial con el motivo.',
     confirmLabel: approved.value ? 'Cancelar lo pendiente' : 'Cancelar pedido',
     danger: true,
@@ -404,6 +458,7 @@ watch(
   () => order.value?._id,
   () => {
     noting.value = null
+    detail.value = null
     showHistory.value = false
   },
 )
@@ -423,7 +478,8 @@ const SYNC_TEXT: Record<SyncState, string> = {
       <div class="page-head-text">
         <h1 class="page-title">Pedido semanal</h1>
         <p class="page-lead">
-          El sistema lo prepara cada miércoles a las 15h00 (hora de Galápagos). El bar lo revisa y la directora lo aprueba.
+          El sistema lo prepara cada miércoles a las 15h00 (hora de Galápagos). El bar lo revisa, la directora lo aprueba y
+          cada responsable confirma su entrega aquí mismo.
         </p>
       </div>
     </header>
@@ -445,7 +501,7 @@ const SYNC_TEXT: Record<SyncState, string> = {
           type="button"
           class="chip"
           :class="{ on: order._id === current.order?._id }"
-          @click="load(current.order?._id)"
+          @click="openOrder(current.order?._id)"
         >
           {{ current.order?.code }} · esta semana
         </button>
@@ -455,9 +511,9 @@ const SYNC_TEXT: Record<SyncState, string> = {
           type="button"
           class="chip"
           :class="{ on: order._id === o._id, warn: o.overdue }"
-          @click="load(o._id)"
+          @click="openOrder(o._id)"
         >
-          {{ o.code }} · corte {{ o.week.split('-').reverse().slice(0, 2).join('/') }}
+          {{ o.code }} · semana del {{ o.week.split('-').reverse().slice(0, 2).join('/') }}
         </button>
       </nav>
 
@@ -465,15 +521,20 @@ const SYNC_TEXT: Record<SyncState, string> = {
         <div class="head-main">
           <h2>
             Pedido {{ order.code }}
-            <span class="estado" :class="{ 'estado--warn': order.phase === 'bar' || order.phase === 'directora' || order.phase === 'comprar', 'estado--ok': order.phase === 'recibido' }">
+            <span class="estado" :class="{ 'estado--warn': order.phase === 'bar' || order.phase === 'directora' || order.phase === 'atender', 'estado--ok': order.phase === 'completo' || order.phase === 'sin_necesidades' }">
               {{ order.phaseLabel }}
             </span>
             <span v-if="order.revision" class="estado">Revisión {{ order.revision }}</span>
           </h2>
+          <!-- La semana que representa y cuándo se generó de verdad son datos distintos -->
           <p class="muted">
-            Corte {{ formatDateTime(order.cutAt) }}<template v-if="order.generatedLate"> (se preparó tarde: la tarea automática no corrió a tiempo)</template>
+            Semana del corte: miércoles {{ order.week.split('-').reverse().join('/') }}, 15h00 ·
+            existencias tomadas el {{ formatDateTime(order.cutAt) }}
           </p>
-          <p v-if="approved" class="muted">Enviado a: {{ order.recipient }}</p>
+          <p v-if="order.generatedLate" class="muted">
+            Se generó el {{ formatDateTime(order.createdAt) }}, después del corte: la tarea automática no corrió a tiempo.
+          </p>
+          <p v-if="approved && order.recipient" class="muted">Lo atienden: {{ order.recipient }}</p>
         </div>
         <p v-if="sync !== 'idle'" class="sync" :class="`sync--${sync}`" role="status">
           <i
@@ -495,25 +556,55 @@ const SYNC_TEXT: Record<SyncState, string> = {
       <p v-if="order.overdue && isLead" class="alert" role="alert">
         <i class="fa-solid fa-bell" aria-hidden="true" />
         <span>
-          <strong>El bar no revisó este pedido.</strong> Puedes revisarlo y aprobarlo tú: nada se envía a compras por sí solo.
+          <strong>El bar no revisó el pedido {{ order.code }}.</strong> Revísalo y apruébalo: nada se aprueba ni se envía solo.
         </span>
+      </p>
+      <p v-else-if="order.overdue && isBar" class="alert" role="alert">
+        <i class="fa-solid fa-bell" aria-hidden="true" />
+        <span><strong>Se pasó el plazo de revisión de {{ order.code }}.</strong> Revísalo y pulsa Enviar a revisión.</span>
       </p>
       <p v-else-if="order.status === 'directora' && isBar" class="info">
         <i class="fa-solid fa-hourglass-half" aria-hidden="true" /> Enviado a revisión: ahora lo revisa la directora.
       </p>
       <p v-if="approved && isLead && editable" class="info">
         <i class="fa-solid fa-pen-to-square" aria-hidden="true" />
-        Ya está aprobado. Si cambias algo, guárdalo como revisión: Compras lo verá. No se puede pedir menos de lo ya comprado.
+        Ya está aprobado. Si cambias algo, guárdalo como revisión: Administración y la dueña lo verán. No se puede pedir menos
+        de lo ya entregado o enviado.
       </p>
 
-      <!-- Lista del pedido -->
+      <OrderFulfillment
+        v-if="approved && !order.noNeeds"
+        :order="order"
+        @updated="(o) => { order = o; resetLocal(o) }"
+      />
+
+      <p v-if="order.noNeeds" class="info">
+        <i class="fa-solid fa-circle-check" aria-hidden="true" /> Cerrado sin necesidades: esta semana el barco no necesitó reposición.
+      </p>
+
+      <!-- Pedido en cero: cómo seguir, sin dejarlo pendiente para siempre -->
+      <p v-if="editable && !approved && !withQty" class="info">
+        <i class="fa-solid fa-circle-info" aria-hidden="true" />
+        <span>
+          El pedido está en cero. Sube la cantidad de un producto o toca «Agregar producto».
+          <template v-if="isLead"> Si el barco no necesita nada, ciérralo con «Sin necesidades».</template>
+          <template v-else> Si no hace falta nada, envíalo a revisión igual: la directora lo cierra.</template>
+        </span>
+      </p>
+
+      <!-- Lista del pedido: compacta; otras bodegas y el cálculo van en el detalle -->
+      <label v-if="lines.length > 8" class="search">
+        <i class="fa-solid fa-magnifying-glass" aria-hidden="true" />
+        <input v-model="search" type="search" placeholder="Buscar producto" aria-label="Buscar producto en el pedido" />
+      </label>
       <section class="lines" aria-label="Productos del pedido">
         <div v-if="!lines.length" class="vacio">
           <i class="fa-solid fa-box-open" aria-hidden="true" />
           <p>Sin productos. {{ editable ? 'Agrega lo que haga falta.' : '' }}</p>
         </div>
+        <p v-else-if="!shownLines.length" class="muted">Ningún producto coincide con «{{ search }}».</p>
         <article
-          v-for="l in lines"
+          v-for="l in shownLines"
           :key="l.product"
           class="card line"
           :class="{ 'line--zero': (edits[l.product]?.qty ?? 0) === 0, 'line--bad': belowBought(l) }"
@@ -523,8 +614,8 @@ const SYNC_TEXT: Record<SyncState, string> = {
               <ProductIcon :icon="catalog.physical.find((p) => p._id === l.product)?.icon ?? 'bottle'" :size="22" />
               <span>
                 <strong>{{ l.name }}</strong>
-                <small class="hay">Hay según sistema: <b>{{ stockText(onHand(l), l) }}</b></small>
-                <small class="muted">{{ breakdown(l) }}</small>
+                <small class="hay">Hay a bordo: <b>{{ stockText(onHand(l), l) }}</b></small>
+                <small v-if="l.basis === 'revisar'" class="check">Revisa esta cantidad</small>
               </span>
             </div>
 
@@ -544,17 +635,31 @@ const SYNC_TEXT: Record<SyncState, string> = {
             </div>
           </div>
 
-          <p class="why" :class="{ 'why--check': l.basis === 'revisar' }">
-            <i class="fa-solid" :class="l.basis === 'revisar' ? 'fa-circle-question' : 'fa-lightbulb'" aria-hidden="true" />
-            {{ why(l) }}
+          <p v-if="approved && !order.noNeeds" class="progress">
+            En el barco {{ containerText(l.delivered, l) }}
+            <template v-if="l.inTransit > 0"> · en camino {{ containerText(l.inTransit, l) }}</template>
+            <template v-if="l.pending > 0"> · <b>faltan {{ containerText(l.pending, l) }}</b></template>
+            <template v-else-if="!l.inTransit"> · <i class="fa-solid fa-circle-check" aria-hidden="true" /> completo</template>
+            <small v-if="l.contributions.length">{{ contributionText(l) }}</small>
           </p>
-          <p v-if="trail(l)" class="trail">{{ trail(l) }}</p>
 
-          <p v-if="approved" class="progress">
-            Comprado {{ containerText(l.purchased, l) }} · recibido {{ containerText(l.received, l) }}
-            <template v-if="l.toBuy > 0"> · <b>faltan {{ containerText(l.toBuy, l) }} por comprar</b></template>
-            <template v-else-if="l.toReceive > 0"> · <b>{{ containerText(l.toReceive, l) }} por recibir</b></template>
-          </p>
+          <button
+            type="button"
+            class="btn-text detail-toggle"
+            :aria-expanded="detail === l.product"
+            @click="detail = detail === l.product ? null : l.product"
+          >
+            <i class="fa-solid" :class="detail === l.product ? 'fa-chevron-up' : 'fa-chevron-down'" aria-hidden="true" />
+            {{ detail === l.product ? 'Ocultar detalle' : 'Ver otras bodegas y cálculo' }}
+          </button>
+          <div v-if="detail === l.product" class="detail">
+            <p class="muted">De dónde se consigue: {{ sources(l) }}</p>
+            <p class="why" :class="{ 'why--check': l.basis === 'revisar' }">
+              <i class="fa-solid" :class="l.basis === 'revisar' ? 'fa-circle-question' : 'fa-lightbulb'" aria-hidden="true" />
+              {{ why(l) }}
+            </p>
+            <p v-if="trail(l)" class="trail">{{ trail(l) }}</p>
+          </div>
 
           <!-- "Hay otra cantidad": avisa de una diferencia; no cambia el inventario -->
           <div v-if="noting === l.product" class="note">
@@ -590,7 +695,7 @@ const SYNC_TEXT: Record<SyncState, string> = {
       </section>
 
       <!-- Acción principal visible -->
-      <footer v-if="editable || (isLead && order.status !== 'cancelado')" class="actions">
+      <footer v-if="(editable || (isLead && order.status !== 'cancelado')) && order.phase !== 'sin_necesidades'" class="actions">
         <button
           v-if="order.status === 'bar' && isBar"
           type="button"
@@ -601,13 +706,22 @@ const SYNC_TEXT: Record<SyncState, string> = {
           <i class="fa-solid fa-paper-plane" aria-hidden="true" /> Enviar a revisión
         </button>
         <button
-          v-if="isLead && (order.status === 'directora' || order.status === 'bar')"
+          v-if="isLead && (order.status === 'directora' || order.status === 'bar') && withQty"
           type="button"
           class="btn btn-gold btn-lg"
-          :disabled="busy || !!invalid || !withQty"
-          @click="approve"
+          :disabled="busy || !!invalid"
+          @click="approve()"
         >
           <i class="fa-solid fa-stamp" aria-hidden="true" /> Aprobar y enviar pedido
+        </button>
+        <button
+          v-else-if="isLead && (order.status === 'directora' || order.status === 'bar')"
+          type="button"
+          class="btn btn-primary btn-lg"
+          :disabled="busy"
+          @click="approve(true)"
+        >
+          <i class="fa-solid fa-circle-check" aria-hidden="true" /> Sin necesidades
         </button>
         <button
           v-if="approved && isLead"
@@ -618,7 +732,7 @@ const SYNC_TEXT: Record<SyncState, string> = {
         >
           <i class="fa-solid fa-floppy-disk" aria-hidden="true" /> Guardar revisión
         </button>
-        <button v-if="isLead && order.phase !== 'recibido'" type="button" class="btn btn-secondary" :disabled="busy" @click="cancel">
+        <button v-if="isLead && order.phase !== 'completo'" type="button" class="btn btn-secondary" :disabled="busy" @click="cancel">
           <i class="fa-solid fa-ban" aria-hidden="true" /> {{ approved ? 'Cancelar lo pendiente' : 'Cancelar pedido' }}
         </button>
       </footer>
@@ -654,6 +768,41 @@ const SYNC_TEXT: Record<SyncState, string> = {
 
 <style scoped lang="scss">
 @use '@/styles/mixins' as *;
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+  padding: 0 0.8rem;
+  min-height: 48px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface);
+
+  input {
+    flex: 1;
+    min-height: 44px;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    outline: none;
+  }
+}
+
+.check {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.detail-toggle {
+  justify-self: start;
+}
+
+.detail {
+  display: grid;
+  gap: 0.35rem;
+}
 
 .weekly {
   max-width: 980px;
@@ -836,6 +985,7 @@ const SYNC_TEXT: Record<SyncState, string> = {
 .progress,
 .obs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.4rem;
   align-items: baseline;
   margin: 0;
