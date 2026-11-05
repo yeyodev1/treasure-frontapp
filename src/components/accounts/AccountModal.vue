@@ -18,6 +18,7 @@ import {
   apiCollectCabin,
   apiOrders,
   apiResendSummary,
+  apiProforma,
   apiReviewAnnulment,
 } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
@@ -548,6 +549,31 @@ const settlingPayment = computed(() => {
   return [...list].reverse().find((p) => p.settled && p.invoiceStatus !== 'parcial') ?? null
 })
 
+/** Prefactura completa en inglés: no envía correo ni emite factura. */
+async function proforma(download: boolean) {
+  // La ventana se abre antes de esperar al servidor: si no, la tableta la bloquea.
+  const win = download ? null : window.open('', '_blank')
+  busy.value = true
+  try {
+    const { blob, fileName } = await apiProforma(props.cruiseId, props.cabin.number, download)
+    const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }))
+    if (win) {
+      win.location.href = url
+    } else {
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fileName
+      a.click()
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  } catch (err) {
+    win?.close()
+    toast.error(apiErrorMessage(err))
+  } finally {
+    busy.value = false
+  }
+}
+
 async function resendSummary() {
   const target = settlingPayment.value
   if (!target) return
@@ -620,6 +646,16 @@ async function resendSummary() {
             <small class="qr-top-hint">{{ qrBig ? 'Toca para achicar' : 'Toca para ampliar' }}</small>
           </span>
         </button>
+
+        <!-- Prefactura en inglés antes y después de pagar: solo el PDF, sin correo ni factura (guía 4 perfiles) -->
+        <div v-if="userStore.isDirector" class="proforma">
+          <button type="button" class="tool" :disabled="busy" @click="proforma(false)">
+            <i class="fa-solid fa-file-lines" aria-hidden="true" /> Ver prefactura
+          </button>
+          <button type="button" class="tool" :disabled="busy" @click="proforma(true)">
+            <i class="fa-solid fa-download" aria-hidden="true" /> Descargar prefactura (PDF, inglés)
+          </button>
+        </div>
 
         <!-- Cuenta completa: lo pagado no desaparece (checklist 29-oct, 01) -->
         <dl v-if="!isBar && !neverCharged" class="sums">
@@ -830,6 +866,7 @@ async function resendSummary() {
               Correo no enviado: {{ settlingPayment.summaryEmail.error }}
             </template>
             <template v-else-if="settlingPayment.summaryEmail.status === 'enviando'">Enviando resumen…</template>
+            <template v-else-if="!settlingPayment.summaryEmail.to && !payer?.email">No se ingresó correo</template>
             <template v-else>Resumen por correo sin enviar</template>
           </p>
           <button v-if="userStore.canCollect" type="button" class="tool" :disabled="busy" @click="resendSummary">
@@ -1083,6 +1120,7 @@ async function resendSummary() {
 </style>
 
 <style scoped lang="scss">
+
 @use '@/styles/mixins' as *;
 
 .acc-sheet {
@@ -2225,5 +2263,11 @@ async function resendSummary() {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+.proforma {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 </style>
