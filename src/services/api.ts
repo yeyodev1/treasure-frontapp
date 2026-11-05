@@ -16,6 +16,7 @@ import type {
   Purchase,
   WeeklyOrder,
   WeeklyOrderCurrent,
+  DeliverySource,
   Requisition,
   RequisitionStatus,
   PurchaseStatus,
@@ -461,8 +462,23 @@ export async function apiSendWeeklyOrder(id: string, version: number) {
   return data.order
 }
 
-export async function apiApproveWeeklyOrder(id: string, version: number) {
-  const { data } = await http.post<{ order: WeeklyOrder }>(`/weekly-orders/${id}/approve`, { version })
+export async function apiApproveWeeklyOrder(id: string, version: number, noNeeds = false) {
+  const { data } = await http.post<{ order: WeeklyOrder }>(`/weekly-orders/${id}/approve`, { version, noNeeds })
+  return data.order
+}
+
+/** "Confirmar mi entrega" (administradora) o "Confirmar mi envío" (dueña). `key` evita duplicar. */
+export async function apiFulfillWeeklyOrder(
+  id: string,
+  kind: 'deliver' | 'ship',
+  body: { key: string; document: string; items: Array<{ productId: string; source: DeliverySource; qty: number; cost?: number }> },
+) {
+  const { data } = await http.post<{ order: WeeklyOrder }>(`/weekly-orders/${id}/${kind}`, body)
+  return data.order
+}
+
+export async function apiArriveWeeklyOrder(id: string, key: string) {
+  const { data } = await http.post<{ order: WeeklyOrder }>(`/weekly-orders/${id}/deliveries/${encodeURIComponent(key)}/arrive`)
   return data.order
 }
 
@@ -513,7 +529,7 @@ export async function apiSaveCount(
   return data.count
 }
 
-export async function apiCountAction(id: string, action: 'submit' | 'approve' | 'reject', note?: string) {
+export async function apiCountAction(id: string, action: 'submit' | 'approve' | 'reject' | 'confirm', note?: string) {
   const { data } = await http.post<{ count: StockCount }>(
     `/counts/${id}/${action}`,
     note ? { note } : {},

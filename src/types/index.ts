@@ -766,6 +766,9 @@ export interface StockCount {
   reviewedAt: string | null
   reviewNote: string
   createdAt: string
+  /** Solo en la lista: productos contados y cuántos no coincidieron con el sistema. */
+  countedLines?: number
+  differences?: number
 }
 
 export interface TeamUser {
@@ -920,7 +923,30 @@ export interface CommissionSummary {
 
 /** Pedido semanal (guía Inventario y pedidos, 4-nov-2026). */
 export type WeeklyOrderStatus = 'bar' | 'directora' | 'aprobado' | 'cancelado'
-export type WeeklyOrderPhase = 'bar' | 'directora' | 'comprar' | 'recibir' | 'recibido' | 'cancelado'
+export type WeeklyOrderPhase = 'bar' | 'directora' | 'atender' | 'en_curso' | 'completo' | 'sin_necesidades' | 'cancelado'
+/** De dónde sale lo que se entrega al barco. */
+export type DeliverySource = 'puerto' | 'quito' | 'compra'
+
+export interface WeeklyOrderContribution {
+  key: string
+  kind: 'entrega' | 'envio'
+  source: DeliverySource
+  qty: number
+  byName: string
+  at: string
+  arrived: boolean
+}
+
+export interface WeeklyOrderDelivery {
+  key: string
+  kind: 'entrega' | 'envio'
+  at: string
+  byName: string
+  items: Array<{ product: string; name: string; source: DeliverySource; qty: number; cost: number }>
+  document: string
+  arrivedAt: string | null
+  arrivedByName: string
+}
 
 export interface WeeklyOrderLine {
   product: string
@@ -940,11 +966,11 @@ export interface WeeklyOrderLine {
   observation: string
   editedByName: string
   editedAt: string | null
-  /** Avance en envases, según las compras ligadas al pedido. */
-  purchased: number
-  received: number
-  toBuy: number
-  toReceive: number
+  /** Avance en envases: ya en el barco, enviado sin llegar y lo que falta atender. */
+  delivered: number
+  inTransit: number
+  pending: number
+  contributions: WeeklyOrderContribution[]
 }
 
 export interface WeeklyOrder {
@@ -961,12 +987,15 @@ export interface WeeklyOrder {
   revision: number
   changedAt: string | null
   recipient: string
+  noNeeds: boolean
   lines: WeeklyOrderLine[]
+  deliveries: WeeklyOrderDelivery[]
   history: Array<{ at: string; byName: string; action: string; detail: string }>
+  createdAt: string
 }
 
 export interface WeeklyOrderCurrent {
   order: WeeklyOrder | null
-  others: Array<{ _id: string; code: string; week: string; status: WeeklyOrderStatus; overdue: boolean }>
+  others: Array<{ _id: string; code: string; week: string; cutAt: string; status: WeeklyOrderStatus; phase: WeeklyOrderPhase; overdue: boolean }>
   nextCut: string
 }
