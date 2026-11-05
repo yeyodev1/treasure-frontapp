@@ -41,6 +41,14 @@ const loading = shallowRef(true)
 const loadingMore = shallowRef(false)
 const query = shallowRef('')
 const filter = shallowRef<Filter>('todas')
+// Pestañas «Bodega de puerto» / «Bodega de Quito» abren esta vista con ?ubicacion= (guía 4 perfiles).
+watch(
+  () => route.query.ubicacion,
+  (loc) => {
+    filter.value = loc === 'quito' || loc === 'puerto' || loc === 'abordo' ? loc : 'todas'
+  },
+  { immediate: true },
+)
 const sentinel = shallowRef<HTMLElement | null>(null)
 /** Historial de un solo producto (se abre desde su fila). */
 const historyOf = shallowRef<Product | null>(null)
