@@ -62,8 +62,7 @@ const pendingCount = computed(
   () => toReceive.value.length + revisions.value.length + (canBuy.value ? pendingPurchases.value : 0),
 )
 
-const orderOpen = computed(() => order.value && order.value.phase !== 'recibido')
-const orderToBuy = computed(() => order.value?.lines.filter((l) => l.toBuy > 0).length ?? 0)
+const orderOpen = computed(() => order.value && (order.value.phase === 'atender' || order.value.phase === 'en_curso'))
 
 async function loadOrder() {
   try {
@@ -168,20 +167,21 @@ function linesShort(r: Requisition): string {
         <header class="page-head">
           <div class="page-head-text">
             <h1 class="page-title">Compras y entregas</h1>
-            <p class="page-lead">Compra desde el pedido aprobado, recibe lo que llegó y lleva la mercadería al barco.</p>
+            <p class="page-lead">El pedido aprobado se atiende en Pedido semanal. Aquí: compras para guardar en bodega, recepciones, traslados y mermas.</p>
           </div>
         </header>
 
-        <!-- Pedido aprobado: lo comprado, recibido y pendiente por línea -->
+        <!-- Pedido aprobado: en el barco, en camino y pendiente por línea -->
         <section v-if="orderOpen && order" class="card order" aria-labelledby="order-title">
           <header class="block-head">
             <h2 id="order-title" class="section-title">
               Pedido {{ order.code }}
-              <span class="estado" :class="order.phase === 'comprar' ? 'estado--warn' : ''">{{ order.phaseLabel }}</span>
+              <span class="estado" :class="order.phase === 'atender' ? 'estado--warn' : ''">{{ order.phaseLabel }}</span>
             </h2>
-            <button v-if="canBuy && orderToBuy" type="button" class="btn btn-primary" @click="go('compra', { pedido: '1' })">
-              <i class="fa-solid fa-file-invoice-dollar" aria-hidden="true" /> Registrar compra de este pedido
-            </button>
+            <!-- La entrega se confirma dentro del pedido: sin registrar compra, recibirla y trasladarla aparte -->
+            <RouterLink :to="{ path: '/inventario/pedido', query: { id: order._id } }" class="btn btn-primary">
+              <i class="fa-solid fa-ship" aria-hidden="true" /> Atender en el pedido
+            </RouterLink>
           </header>
           <p v-if="order.revision" class="order-rev">
             <i class="fa-solid fa-pen-to-square" aria-hidden="true" />
@@ -191,18 +191,17 @@ function linesShort(r: Requisition): string {
             <div class="order-row order-row--head" role="row">
               <span role="columnheader">Producto</span>
               <span role="columnheader" class="num">Pedido</span>
-              <span role="columnheader" class="num">Comprado</span>
-              <span role="columnheader" class="num">Recibido</span>
+              <span role="columnheader" class="num">En el barco</span>
+              <span role="columnheader" class="num">En camino</span>
               <span role="columnheader" class="num">Pendiente</span>
             </div>
-            <div v-for="l in order.lines.filter((x) => x.qty > 0 || x.purchased > 0)" :key="l.product" class="order-row" role="row">
+            <div v-for="l in order.lines.filter((x) => x.qty > 0)" :key="l.product" class="order-row" role="row">
               <span role="cell" class="order-name">{{ l.name }}</span>
               <span role="cell" class="num" data-label="Pedido">{{ containerText(l.qty, l) }}</span>
-              <span role="cell" class="num" data-label="Comprado">{{ l.purchased ? containerText(l.purchased, l) : '—' }}</span>
-              <span role="cell" class="num" data-label="Recibido">{{ l.received ? containerText(l.received, l) : '—' }}</span>
+              <span role="cell" class="num" data-label="En el barco">{{ l.delivered ? containerText(l.delivered, l) : '—' }}</span>
+              <span role="cell" class="num" data-label="En camino">{{ l.inTransit ? containerText(l.inTransit, l) : '—' }}</span>
               <span role="cell" class="num" data-label="Pendiente">
-                <template v-if="l.toBuy > 0">{{ containerText(l.toBuy, l) }} por comprar</template>
-                <template v-else-if="l.toReceive > 0">{{ containerText(l.toReceive, l) }} por recibir</template>
+                <template v-if="l.pending > 0">{{ containerText(l.pending, l) }}</template>
                 <template v-else><i class="fa-solid fa-circle-check ok" aria-hidden="true" /> Listo</template>
               </span>
             </div>

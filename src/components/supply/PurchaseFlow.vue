@@ -56,10 +56,10 @@ onMounted(async () => {
     toast.error(apiErrorMessage(err))
   }
   if (props.order) {
-    // Lo pendiente de comprar del pedido: se ajusta a lo que realmente se compró.
-    for (const l of props.order.lines.filter((x) => x.toBuy > 0)) {
+    // Lo pendiente de atender del pedido: se ajusta a lo que realmente se compró.
+    for (const l of props.order.lines.filter((x) => x.pending > 0)) {
       const product = catalog.physical.find((p) => p._id === l.product)
-      if (product) addProduct(product, l.toBuy)
+      if (product) addProduct(product, l.pending)
     }
   }
   try {
