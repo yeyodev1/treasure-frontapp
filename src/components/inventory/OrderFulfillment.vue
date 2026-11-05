@@ -41,7 +41,6 @@ const STORE_LABEL: Record<'puerto' | 'quito', string> = { puerto: 'Bodega de pue
 interface Row {
   fromStore: number
   bought: number
-  cost: number
 }
 const rows = ref<Record<string, Row>>({})
 const documentRef = shallowRef('')
@@ -65,13 +64,13 @@ watch(
 watch(
   open,
   (lines) => {
-    for (const l of lines) rows.value[l.product] ??= { fromStore: 0, bought: 0, cost: 0 }
+    for (const l of lines) rows.value[l.product] ??= { fromStore: 0, bought: 0 }
   },
   { immediate: true },
 )
 
 function row(l: WeeklyOrderLine): Row {
-  return rows.value[l.product] ?? { fromStore: 0, bought: 0, cost: 0 }
+  return rows.value[l.product] ?? { fromStore: 0, bought: 0 }
 }
 
 /** Existencia actual en mi bodega (no la del corte). */
@@ -89,9 +88,9 @@ const items = computed(() =>
   open.value.flatMap((l) => {
     const r = rows.value[l.product]
     if (!r) return []
-    const list: Array<{ productId: string; source: DeliverySource; qty: number; cost?: number }> = []
+    const list: Array<{ productId: string; source: DeliverySource; qty: number }> = []
     if (r.fromStore > 0) list.push({ productId: l.product, source: store.value, qty: r.fromStore })
-    if (r.bought > 0) list.push({ productId: l.product, source: 'compra', qty: r.bought, cost: r.cost || 0 })
+    if (r.bought > 0) list.push({ productId: l.product, source: 'compra', qty: r.bought })
     return list
   }),
 )
@@ -206,10 +205,6 @@ const SOURCE: Record<DeliverySource, string> = { puerto: 'puerto', quito: 'Quito
           <label class="mine-field">
             <span>Compra nueva</span>
             <QtyStepper v-model="row(l).bought" :min="0" :step="1" allow-zero :label="`${l.name} de compra nueva`" />
-          </label>
-          <label v-if="row(l).bought > 0" class="mine-field mine-cost">
-            <span>Costo por envase (opcional)</span>
-            <input v-model.number="row(l).cost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0,00" />
           </label>
         </div>
       </div>
