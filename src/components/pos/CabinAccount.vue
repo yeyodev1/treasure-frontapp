@@ -3,7 +3,7 @@ import { computed, shallowRef, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import type { Cabin, CabinConsumption, CabinSummary } from '@/types'
 import type { QueueEntry } from '@/composables/useConsumptionQueue'
-import { formatMoney } from '@/utils/format'
+import { formatMoney, formatTime } from '@/utils/format'
 
 /**
  * Cuenta de la cabina dentro del Bar (pedido del cliente, 31-oct-2026: "la
@@ -47,9 +47,13 @@ watch(
 /** Dirección y Gerencia saltan a la cuenta de la cabina para aprobar y cobrar. */
 const userStore = useUserStore()
 
-/** Plegado en tableta vertical y celular; se recuerda en esta tableta. */
+/**
+ * Guía 4 perfiles (4-nov-2026): resumen compacto (cabina, último registro y
+ * saldo) en cualquier tamaño; los consumos se abren al tocar. Se recuerda en
+ * esta tableta.
+ */
 const COLLAPSE_KEY = 'treasure.bar.accountCollapsed'
-const collapsed = shallowRef(localStorage.getItem(COLLAPSE_KEY) === '1')
+const collapsed = shallowRef(localStorage.getItem(COLLAPSE_KEY) !== '0')
 watch(collapsed, (v) => localStorage.setItem(COLLAPSE_KEY, v ? '1' : '0'))
 
 interface AccountLine {
@@ -187,6 +191,13 @@ function names(c: Cabin) {
         <i class="fa-solid fa-chevron-down" :class="{ 'collapse-icon--up': !collapsed }" aria-hidden="true" />
       </button>
     </div>
+
+    <p v-if="collapsed" class="account-last">
+      <template v-if="summary?.last">
+        Último registro: <strong>{{ summary.last.qty }} × {{ summary.last.name }}</strong> · {{ formatTime(summary.last.at) }}
+      </template>
+      <template v-else-if="summary">Sin consumos todavía. Toca una bebida para agregarla.</template>
+    </p>
 
     <div class="account-body" :class="{ 'account-body--collapsed': collapsed }">
       <p v-if="statusNote" class="account-note">
@@ -415,10 +426,14 @@ function names(c: Cabin) {
     transform: rotate(180deg);
   }
 
-  // Con la cuenta al costado (escritorio y tableta horizontal) no se pliega.
-  @include desktop {
-    display: none;
-  }
+}
+
+.account-last {
+  margin: 0;
+  padding: 0.5rem 0.9rem;
+  font-size: 0.95rem;
+  color: var(--ink-600);
+  border-top: 1px solid var(--powder-200);
 }
 
 .account-body {
@@ -439,8 +454,9 @@ function names(c: Cabin) {
     max-height: none;
 
     &--collapsed {
-      max-height: none;
-      overflow-y: auto;
+      flex: 0 0 auto;
+      max-height: 0;
+      overflow: hidden;
     }
   }
 }
@@ -637,7 +653,9 @@ function names(c: Cabin) {
 .account-totals {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
+  // Al faltar ancho los importes bajan de línea en vez de montarse (guía 4 perfiles).
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
   padding: 0.7rem 0.9rem;
   border-top: 1px solid var(--powder-200);
   background: var(--powder-100);
@@ -650,7 +668,6 @@ function names(c: Cabin) {
   }
 
   span {
-    white-space: nowrap;
     font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.06em;
@@ -713,5 +730,18 @@ function names(c: Cabin) {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+// Columna angosta (tableta horizontal): importes más chicos y uno debajo del otro.
+@container account (max-width: 340px) {
+  .account-totals strong {
+    font-size: 1.15rem;
+  }
+
+  .account-trip {
+    align-items: flex-start;
+    text-align: left;
+    margin-left: 0;
+  }
 }
 </style>
