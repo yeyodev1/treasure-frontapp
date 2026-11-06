@@ -158,6 +158,15 @@ export async function apiUpdateCruise(id: string, payload: Record<string, unknow
   return data.cruise
 }
 
+/** Crucero unido: de qué cabina de un crucero anterior sigue cada cabina (fromCruise null = desunir). */
+export async function apiUpdateContinuations(
+  cruiseId: string,
+  links: Array<{ to: number; fromCruise: string | null; fromCabin?: number }>,
+) {
+  const { data } = await http.put<{ cruise: Cruise }>(`/cruises/${cruiseId}/continuations`, { links })
+  return data.cruise
+}
+
 export async function apiUpdatePassengers(
   cruiseId: string,
   cabinNumber: number,

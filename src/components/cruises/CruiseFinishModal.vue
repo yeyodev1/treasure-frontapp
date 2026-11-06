@@ -36,6 +36,7 @@ const ACCOUNT_LABELS: Record<string, string> = {
   aprobada: 'Aprobada',
   cobrada: 'Pagada',
   sin_consumos: 'Sin consumos',
+  continua: 'Sigue en otro crucero',
 }
 
 async function load() {
@@ -93,7 +94,7 @@ async function finish() {
           <span class="cabin-name"><strong>Cabina {{ c.number }}</strong> {{ c.guestName }}</span>
           <span class="cabin-money">{{ formatMoney(c.consumed) }} · pagado {{ formatMoney(c.paid) }}</span>
           <span class="estado cabin-status" :class="c.due > 0 ? 'estado--warn' : c.accountStatus === 'cobrada' ? 'estado--ok' : ''">
-            {{ c.due > 0 ? `Debe ${formatMoney(c.due)}` : ACCOUNT_LABELS[c.accountStatus] }}
+            {{ c.due > 0 ? `Debe ${formatMoney(c.due)}` : c.continuesTo ? `Sigue en ${c.continuesTo}` : ACCOUNT_LABELS[c.accountStatus] }}
           </span>
         </li>
       </ul>

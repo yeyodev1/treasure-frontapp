@@ -25,6 +25,7 @@ import PassengersModal from '@/components/cruises/PassengersModal.vue'
 import CycleSettingsModal from '@/components/cruises/CycleSettingsModal.vue'
 import CruiseStartModal from '@/components/cruises/CruiseStartModal.vue'
 import CruiseFinishModal from '@/components/cruises/CruiseFinishModal.vue'
+import ContinuationsModal from '@/components/cruises/ContinuationsModal.vue'
 import { useUserStore } from '@/stores/user'
 import type { Cabin, Cruise, CruiseStatus, CycleSettings, NewCruiseOptions, NewCruisePlan } from '@/types'
 
@@ -43,6 +44,7 @@ const showSettings = shallowRef(false)
 const paxTarget = shallowRef<{ cruise: Cruise; cabin: Cabin } | null>(null)
 const startTarget = shallowRef<Cruise | null>(null)
 const finishTarget = shallowRef<Cruise | null>(null)
+const joinTarget = shallowRef<Cruise | null>(null)
 const userStore = useUserStore()
 
 const startDate = shallowRef('')
@@ -298,6 +300,31 @@ async function onLifecycleDone() {
 async function onStarted() {
   await onLifecycleDone()
   await router.push('/')
+}
+
+// ---- Crucero unido (6-nov-2026): de dónde viene y a dónde sigue cada cabina ----
+const cruiseById = computed(() => new Map(cruises.value.map((c) => [c._id, c])))
+const continuesTo = computed(() => {
+  const map = new Map<string, string>()
+  for (const c of cruises.value) {
+    for (const cab of c.cabins) {
+      if (cab.continuesFrom) map.set(`${cab.continuesFrom.cruise}:${cab.continuesFrom.cabinNumber}`, `Sigue en ${c.code || c.name} · ${cab.number}`)
+    }
+  }
+  return map
+})
+function linkNote(cruise: Cruise, cabin: Cabin) {
+  const from = cabin.continuesFrom
+  if (from) {
+    const c = cruiseById.value.get(from.cruise)
+    return `Viene de ${c?.code || c?.name || 'otro crucero'} · ${from.cabinNumber}`
+  }
+  return continuesTo.value.get(`${cruise._id}:${cabin.number}`) ?? ''
+}
+
+async function onJoined() {
+  joinTarget.value = null
+  await refresh()
 }
 
 async function onPassengersSaved() {
@@ -590,6 +617,9 @@ async function onPassengersSaved() {
             <strong>{{ cabin.number }}</strong>
             <span>{{ cabin.passengers.length ? cabin.guestName : 'Sin pasajeros' }}</span>
             <small v-if="cabin.passengers.length > 1">{{ cabin.passengers.length }} pax</small>
+            <small v-if="linkNote(cruise, cabin)" class="cabin-link">
+              <i class="fa-solid fa-link" aria-hidden="true" /> {{ linkNote(cruise, cabin) }}
+            </small>
           </button>
         </div>
 
@@ -613,6 +643,14 @@ async function onPassengersSaved() {
           >
             <i class="fa-solid fa-anchor" aria-hidden="true" /> Finalizar operación del crucero
           </button>
+          <button
+            v-if="cruise.status !== 'cerrado' && userStore.isDirector"
+            type="button"
+            class="btn btn-secondary"
+            @click="joinTarget = cruise"
+          >
+            <i class="fa-solid fa-link" aria-hidden="true" /> Unir con crucero anterior
+          </button>
           <p v-if="cruise.closeReason" class="close-reason">
             <i class="fa-solid fa-circle-info" aria-hidden="true" /> Cierre excepcional: {{ cruise.closeReason }}
           </p>
@@ -622,6 +660,7 @@ async function onPassengersSaved() {
 
     <CruiseStartModal v-if="startTarget" :cruise="startTarget" @close="startTarget = null" @started="onStarted" />
     <CruiseFinishModal v-if="finishTarget" :cruise="finishTarget" @close="finishTarget = null" @finished="onLifecycleDone" />
+    <ContinuationsModal v-if="joinTarget" :cruise="joinTarget" :cruises="cruises" @close="joinTarget = null" @saved="onJoined" />
 
     <PassengersModal
       v-if="paxTarget"
@@ -1306,6 +1345,10 @@ async function onPassengersSaved() {
     font-size: 0.85rem;
     font-weight: 600;
     color: var(--gold-600);
+  }
+
+  .cabin-link {
+    color: var(--navy-600);
   }
 
   &--filled {

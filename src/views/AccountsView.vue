@@ -86,6 +86,8 @@ const filters = computed(() => {
 /** Lo siguiente que toca en cada cuenta, según el rol. */
 function nextStep(row: CabinAccountRow): { text: string; tone: 'act' | 'wait' | 'done' } {
   if (row.status === 'cobrada') return { text: 'Ver cuenta pagada', tone: 'done' }
+  // Crucero unido: la cuenta sigue abierta en el otro crucero y se cobra allá.
+  if (row.continuesTo) return { text: `Se cobra en ${row.continuesTo}`, tone: 'wait' }
   if (isBar.value) {
     if (row.status === 'aprobada') return { text: 'Aprobada, lista para cobrar', tone: 'wait' }
     return { text: 'Ver consumos', tone: 'act' }
@@ -420,6 +422,9 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
             </span>
           </span>
           <span class="account-guest">{{ row.guestName || 'Sin pasajeros' }}</span>
+          <span v-if="row.continuesTo" class="account-guest">
+            <i class="fa-solid fa-link" aria-hidden="true" /> Sigue en {{ row.continuesTo }}
+          </span>
 
           <span class="account-figure">
             <template v-if="isBar">

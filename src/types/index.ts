@@ -141,6 +141,8 @@ export interface Cabin {
   guestName: string
   accountToken: string
   capacity?: number
+  /** Crucero unido: viene de esta cabina de un crucero anterior (una sola cuenta). */
+  continuesFrom?: { cruise: string; cabinNumber: number } | null
 }
 
 export interface Cruise {
@@ -177,7 +179,9 @@ export interface FinishCabin {
   consumed: number
   paid: number
   due: number
-  accountStatus: AccountStatus | 'sin_consumos'
+  accountStatus: AccountStatus | 'sin_consumos' | 'continua'
+  /** Crucero unido: "B-006 · cabina 3", se cobra allá. */
+  continuesTo?: string | null
 }
 
 export interface FinishCheck {
@@ -679,6 +683,8 @@ export interface CabinAccountRow {
   /** Pagos parciales sobre la cuenta abierta. */
   partialPaid: number
   due: number
+  /** Crucero unido: "B-006 · cabina 3", se cobra allá. */
+  continuesTo?: string | null
 }
 
 export type PaymentMethod = 'efectivo' | 'tarjeta' | 'transferencia' | 'online'
