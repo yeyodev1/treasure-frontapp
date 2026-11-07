@@ -27,7 +27,7 @@ const routes: Array<RouteRecordRaw> = [
     path: '/wetsuits',
     name: 'Wetsuits',
     component: () => import('@/views/WetsuitsView.vue'),
-    meta: { title: 'Wetsuits', roles: ['direccion', 'bartender'] },
+    meta: { title: 'Wetsuits', roles: ['direccion'] },
   },
   {
     path: '/cuentas',

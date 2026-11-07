@@ -73,6 +73,21 @@ export interface PriceChange {
   at: string
 }
 
+/** Vaso o envase del icono del Bar (Especificación de color e iconos, 7-nov-2026). */
+export type ServingIconKind =
+  | 'martini'
+  | 'alto'
+  | 'corto'
+  | 'copa'
+  | 'flauta'
+  | 'botvino'
+  | 'botlicor'
+  | 'mini'
+  | 'cerveza'
+  | 'lata'
+  | 'agua'
+  | 'descorche'
+
 export interface Product {
   _id: string
   name: string
@@ -96,6 +111,8 @@ export interface Product {
   recipe: RecipeItem[]
   /** Solo vinos; vacío = sin clasificar. */
   wineStyle?: WineStyle | ''
+  /** Icono de cómo se sirve en el Bar; vacío = regla por categoría. */
+  servingIcon?: ServingIconKind | ''
   isCustom: boolean
   /** Trayectos donde se cobra (A, B, C); vacío = todos. Los wetsuits tienen precio por trayecto. */
   legs?: string[]

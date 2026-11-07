@@ -36,7 +36,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/admin/salidas', label: 'Cruceros', icon: 'fa-ship', roles: ['duena', 'admin', 'direccion'] },
       { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: ['duena', 'direccion', 'bartender'] },
-      { to: '/wetsuits', label: 'Wetsuits', icon: 'fa-person-swimming', roles: ['duena', 'direccion', 'bartender'] },
+      { to: '/wetsuits', label: 'Wetsuits', icon: 'fa-person-swimming', roles: ['duena', 'direccion'] },
       { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: ['duena', 'direccion'] },
       { to: '/inventario', label: 'Inventario y pedidos', short: 'Inventario', icon: 'fa-boxes-stacked', roles: ['duena', 'admin', 'direccion', 'bartender', 'bodega'], prefix: true },
     ],
@@ -66,8 +66,8 @@ const NAV_SECTIONS: NavSection[] = [
 const PEDIDOS: NavItem = { to: '/inventario/pedido', label: 'Pedido semanal', short: 'Pedidos', icon: 'fa-list-check', roles: [] }
 const ROLE_TABS: Partial<Record<UserRole, NavItem[]>> = {
   bartender: [
+    // Los wetsuits los cobra la directora de crucero, no el bar (pedido del cliente, 6-nov-2026).
     { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: [] },
-    { to: '/wetsuits', label: 'Wetsuits', icon: 'fa-person-swimming', roles: [] },
     { ...PEDIDOS, short: 'Pedido semanal' },
   ],
   direccion: [

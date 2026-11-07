@@ -404,6 +404,16 @@ const queuedForCabin = computed(() =>
   queue.entries.value.filter((e) => e.cabinNumber === selectedCabin.value && e.cruiseId === cruise.value?._id),
 )
 
+/** Unidades de hoy en la cabina por bebida: la tarjeta dice «×2 hoy» (7-nov-2026). */
+const todayCounts = computed(() => {
+  const counts: Record<string, number> = {}
+  for (const c of summary.value?.recent ?? []) {
+    if (c.today && c.productId && c.qty > 0) counts[c.productId] = (counts[c.productId] ?? 0) + c.qty
+  }
+  for (const e of queuedForCabin.value) counts[e.productId] = (counts[e.productId] ?? 0) + 1
+  return counts
+})
+
 const sellableById = computed(() => new Map(sellable.value.map((p) => [p._id, p])))
 
 /** + en la cuenta: la bebida sigue en la carta y no está agotada. */
@@ -650,6 +660,8 @@ function onEmptyCabin(number: number) {
             :pulse="pulse"
             :confirmed="confirmed?.productId ?? ''"
             :disabled="Boolean(blockedReason)"
+            :today-counts="todayCounts"
+            :target="cabin ? `la Cabina ${cabin.number}` : ''"
             @add="tap"
             @toggle-favorite="toggleFavorite"
             @request-review="requestReview"

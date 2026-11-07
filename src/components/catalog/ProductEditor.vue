@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
 import type { ContificoProduct, Product, ProductKind, RecipeIngredient } from '@/types'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
-import { CATEGORY_LABELS, WINE_STYLE_LABELS } from '@/stores/catalog'
+import { CATEGORY_LABELS, SERVING_ICON_LABELS, WINE_STYLE_LABELS } from '@/stores/catalog'
 import { useUserStore } from '@/stores/user'
 import { useToastStore } from '@/stores/toast'
 import { useSound } from '@/composables/useSound'
@@ -59,6 +59,7 @@ const form = reactive({
   servingPrice: editing?.servingPrice ?? 0,
   contificoId: editing?.contificoId ?? '',
   wineStyle: (editing?.wineStyle ?? '') as string,
+  servingIcon: (editing?.servingIcon ?? '') as string,
 })
 
 const recipe = ref(
@@ -106,6 +107,11 @@ const wineStyleOptions = [
   ...Object.entries(WINE_STYLE_LABELS).map(([value, label]) => ({ value, label })),
 ]
 const iconOptions = Object.entries(ICONS).map(([value, label]) => ({ value, label }))
+/** Vaso o envase de la tarjeta del Bar; Automático usa la regla por categoría. */
+const servingIconOptions = [
+  { value: '', label: 'Automático (según la categoría)' },
+  ...Object.entries(SERVING_ICON_LABELS).map(([value, label]) => ({ value, label })),
+]
 
 const byId = computed(() => new Map(props.physical.map((p) => [p._id, p])))
 
@@ -125,6 +131,7 @@ async function save() {
     category: form.category,
     icon: form.icon,
     wineStyle: form.category === 'vino' ? form.wineStyle : '',
+    servingIcon: form.servingIcon,
   }
   if (isAdmin.value) payload.price = form.price
   if (isAdmin.value && contificoReady.value) payload.contificoId = form.contificoId
@@ -205,6 +212,12 @@ async function save() {
           <label>Icono</label>
           <BaseSelect v-model="form.icon" :options="iconOptions" />
         </div>
+      </div>
+
+      <div class="field">
+        <label>Vaso en el Bar</label>
+        <BaseSelect v-model="form.servingIcon" :options="servingIconOptions" />
+        <small class="help">Cómo se sirve: el icono de la tarjeta en la pantalla del Bar.</small>
       </div>
 
       <Transition name="fade">
