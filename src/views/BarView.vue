@@ -90,6 +90,29 @@ const CONFIRM_SPACE = 104
 
 let availabilityTimer: ReturnType<typeof setInterval> | null = null
 
+/**
+ * Modo noche opcional (Especificación de color e iconos, 7-nov-2026): apagado,
+ * encendido o automático de 19:00 a 06:00 (hora de Galápagos). Se recuerda en
+ * esta tableta.
+ */
+type NightMode = 'off' | 'on' | 'auto'
+const NIGHT_KEY = 'treasure.bar.night'
+const NIGHT_OPTIONS: Array<{ value: NightMode; label: string }> = [
+  { value: 'off', label: 'Apagado' },
+  { value: 'on', label: 'Encendido' },
+  { value: 'auto', label: 'Auto 19:00–06:00' },
+]
+const storedNight = localStorage.getItem(NIGHT_KEY)
+const nightMode = shallowRef<NightMode>(storedNight === 'on' || storedNight === 'auto' ? storedNight : 'off')
+watch(nightMode, (v) => localStorage.setItem(NIGHT_KEY, v))
+const galapagosHour = () => Number(new Date().toLocaleString('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: TIMEZONE }))
+const hourNow = shallowRef(galapagosHour())
+const isNight = computed(
+  () => nightMode.value === 'on' || (nightMode.value === 'auto' && (hourNow.value >= 19 || hourNow.value < 6)),
+)
+// El fondo de la página también se oscurece mientras se está en el Bar.
+watch(isNight, (v) => document.documentElement.classList.toggle('bar-night', v), { immediate: true })
+
 const cabin = computed(() => cabins.value.find((c) => c.number === selectedCabin.value) ?? null)
 const summary = computed(() => (selectedCabin.value ? summaries.value[selectedCabin.value] : undefined))
 const cruiseLabel = computed(() =>
@@ -210,12 +233,14 @@ onMounted(async () => {
   queue.start()
   // Otra tableta pudo cargar a la misma cabina: la cuenta se refresca sola.
   availabilityTimer = setInterval(() => {
+    hourNow.value = galapagosHour()
     void loadAvailability()
     if (selectedCabin.value) void loadSummary(selectedCabin.value)
   }, 60_000)
 })
 
 onBeforeUnmount(() => {
+  document.documentElement.classList.remove('bar-night')
   queue.stop()
   if (availabilityTimer) clearInterval(availabilityTimer)
   if (confirmedTimer) clearTimeout(confirmedTimer)
@@ -552,7 +577,7 @@ function onEmptyCabin(number: number) {
 </script>
 
 <template>
-  <div class="bar">
+  <div class="bar" :class="{ 'bar--night': isNight }">
     <!-- Arriba: contexto y navegación siempre visibles -->
     <header class="context">
       <div class="context-main">
@@ -736,6 +761,22 @@ function onEmptyCabin(number: number) {
           <small>Con precio automático según sus medidas.</small>
         </button>
       </div>
+      <div class="night" role="group" aria-labelledby="night-label">
+        <span id="night-label" class="night-label"><i class="fa-solid fa-moon" aria-hidden="true" /> Modo noche</span>
+        <div class="night-options">
+          <button
+            v-for="opt in NIGHT_OPTIONS"
+            :key="opt.value"
+            type="button"
+            class="night-option"
+            :class="{ 'night-option--on': nightMode === opt.value }"
+            :aria-pressed="nightMode === opt.value"
+            @click="nightMode = opt.value"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+      </div>
     </BaseModal>
 
     <CocktailBuilder
@@ -876,8 +917,8 @@ function onEmptyCabin(number: number) {
   }
 
   &--on {
-    background: #fff;
-    color: var(--navy-800);
+    background: var(--surface);
+    color: var(--navy-ink, var(--navy-800));
   }
 
   &--menu {
@@ -1074,7 +1115,7 @@ function onEmptyCabin(number: number) {
   color: var(--ink-600);
 
   i {
-    color: var(--navy-600);
+    color: var(--navy-ink, var(--navy-600));
   }
 }
 
@@ -1150,6 +1191,46 @@ function onEmptyCabin(number: number) {
   gap: 0.6rem;
 }
 
+.night {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem 1rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.night-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+}
+
+.night-options {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.night-option {
+  min-height: 44px;
+  padding: 0 0.9rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--cream-200);
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--ink-600);
+
+  &--on {
+    background: #27445a;
+    border-color: #27445a;
+    color: #fff;
+  }
+}
+
 .menu-tile {
   display: grid;
   grid-template-columns: 44px 1fr;
@@ -1176,7 +1257,7 @@ function onEmptyCabin(number: number) {
   i {
     grid-row: span 2;
     font-size: 1.4rem;
-    color: var(--gold-500);
+    color: var(--gold-ink, var(--gold-500));
   }
 
   small {

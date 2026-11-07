@@ -366,7 +366,7 @@ function names(c: Cabin) {
   font-family: var(--font-serif);
   font-size: 1.35rem;
   line-height: 1.1;
-  color: var(--navy-800);
+  color: var(--navy-ink, var(--navy-800));
 }
 
 .account-names {
@@ -388,7 +388,7 @@ function names(c: Cabin) {
   font-weight: 700;
   font-size: 0.86rem;
   border: 2px solid var(--navy-700);
-  color: var(--navy-800);
+  color: var(--navy-ink, var(--navy-800));
   background: var(--surface);
   transition:
     background 0.15s ease,
@@ -447,7 +447,7 @@ function names(c: Cabin) {
 
   &--on {
     background: var(--surface);
-    color: var(--navy-800);
+    color: var(--navy-ink, var(--navy-800));
     box-shadow: 0 1px 3px rgba(27, 43, 37, 0.12);
   }
 }
@@ -461,7 +461,7 @@ function names(c: Cabin) {
   border-radius: var(--radius-sm);
   font-weight: 600;
   font-size: 0.85rem;
-  color: var(--navy-700);
+  color: var(--navy-ink, var(--navy-700));
 
   i {
     transition: transform 0.2s ease;
@@ -630,7 +630,7 @@ function names(c: Cabin) {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--navy-700);
+  color: var(--navy-ink, var(--navy-700));
   border-bottom: 1px solid var(--line);
 }
 
@@ -651,7 +651,7 @@ function names(c: Cabin) {
   display: grid;
   place-items: center;
   border-radius: 10px;
-  color: var(--navy-700);
+  color: var(--navy-ink, var(--navy-700));
   transition:
     background 0.15s ease,
     opacity 0.15s ease,
@@ -750,7 +750,7 @@ function names(c: Cabin) {
     font-family: var(--font-serif);
     font-size: 1.45rem;
     line-height: 1.1;
-    color: var(--navy-800);
+    color: var(--navy-ink, var(--navy-800));
     font-variant-numeric: tabular-nums;
   }
 

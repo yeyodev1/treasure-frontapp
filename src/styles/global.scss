@@ -522,3 +522,51 @@ a {
     animation-duration: 0.01ms !important;
   }
 }
+
+// ---- Modo noche del Bar (opcional, 7-nov-2026) ----
+// Tokens de noche de la «Especificación de color e iconos · Pantalla Bar».
+// Solo la pantalla Bar: la cabecera de la app y los diálogos siguen en día.
+html.bar-night {
+  --bg: #0f1a23;
+}
+
+.bar--night {
+  --bg: #0f1a23;
+  --surface: #1b2a36;
+  --ink-900: #e8eef3;
+  --ink-600: #c3cfd8;
+  --ink-400: #9fb0bd;
+  --ink-300: #6b7f8f;
+  --line: #3a5063;
+  --rule: #2a3d4d;
+  --line-strong: #4a6277;
+  --cream-100: #15222c;
+  --cream-200: #3a5063;
+  --menu-cream: #22303b;
+  --powder-100: #22374a;
+  --powder-200: #2f4a60;
+  --powder-300: #3d5a72;
+  --navy-700: #0b141b;
+  --navy-900: #0b141b;
+  --navy-ink: #a9cbe6;
+  --gold-ink: #d9b98f;
+  --danger-ink: #f0a99e;
+  --success-ink: #9fd8b3;
+  --warning-ink: #e8c48a;
+  --pill-ok-bg: #1d3a2a;
+  --pill-ok-ink: #9fd8b3;
+  --pill-warn-bg: #3a2c14;
+  --pill-warn-ink: #e8c48a;
+  --pill-danger-bg: #3d1f1b;
+  --pill-danger-ink: #f0a99e;
+  --pill-info-bg: #22374a;
+  --pill-info-ink: #cfe0ee;
+  --pill-neutral-bg: #26343f;
+  --pill-neutral-ink: #c6d1d9;
+  --shadow: none;
+  color: var(--ink-900);
+
+  input {
+    color: var(--ink-900);
+  }
+}

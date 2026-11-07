@@ -692,7 +692,7 @@ function onTap(p: Product) {
   &--active {
     background: var(--powder-100);
     border-color: var(--navy-700);
-    color: var(--navy-800);
+    color: var(--navy-ink, var(--navy-800));
   }
 }
 
@@ -706,7 +706,7 @@ function onTap(p: Product) {
 .edit-help {
   margin: 0 0 0.6rem;
   font-size: 0.88rem;
-  color: var(--gold-500);
+  color: var(--gold-ink, var(--gold-500));
   font-weight: 600;
 }
 
@@ -725,6 +725,7 @@ function onTap(p: Product) {
   --bar-price: #7f5c38;
   --bar-navy: #1b3142;
   --bar-bottle-bg: #e6eef4;
+  --bar-bottle-ink: #1b3142;
   --bar-ok: #3f7a57;
   --bar-ok-bg: #f1f8f3;
   --cat-color: #8a96a0;
@@ -738,6 +739,29 @@ function onTap(p: Product) {
 .cat-sin_alcohol { --cat-color: #3a6ea5; --cat-tint: #e3ecf6; }
 .cat-servicio,
 .cat-otro { --cat-color: #8a96a0; --cat-tint: #eef1f3; }
+
+// Modo noche (opcional): mismos papeles, tokens de noche.
+.catalog:is(.bar--night *) {
+  --bar-line: #3a5063;
+  --bar-muted: #9fb0bd;
+  --bar-ink: #e8eef3;
+  --bar-price: #d9b98f;
+  --bar-navy: #0b141b;
+  --bar-bottle-bg: #24394a;
+  // El --navy de noche (#0b141b) no se lee sobre la zona Botella.
+  --bar-bottle-ink: #cfe0ee;
+  --bar-ok: #6fbf8e;
+  --bar-ok-bg: #1d3a2a;
+}
+
+.cat-coctel:is(.bar--night *) { --cat-color: #4fb3b0; --cat-tint: #17302f; }
+.cat-licor:is(.bar--night *) { --cat-color: #d9a35a; --cat-tint: #33291a; }
+.cat-vino:is(.bar--night *) { --cat-color: #c46a82; --cat-tint: #331c23; }
+.cat-cerveza:is(.bar--night *) { --cat-color: #9fae5a; --cat-tint: #262b17; }
+.cat-sin_alcohol:is(.bar--night *) { --cat-color: #7aa8d8; --cat-tint: #1a2838; }
+.cat-servicio:is(.bar--night *),
+.cat-otro:is(.bar--night *) { --cat-color: #a3aeb7; --cat-tint: #22303b; }
+.drink--off:is(.bar--night *) { --cat-color: #6b7f8f; --cat-tint: #22303b; }
 
 .cat-dot {
   flex: 0 0 auto;
@@ -883,7 +907,7 @@ function onTap(p: Product) {
   position: absolute;
   top: 0.6rem;
   right: 0.6rem;
-  color: var(--gold-500);
+  color: var(--gold-ink, var(--gold-500));
 }
 
 // Cuadro tintado de 64 px con el vaso del color de la categoría.
@@ -929,7 +953,7 @@ function onTap(p: Product) {
   font-size: 12px;
   font-weight: 600;
   line-height: 1.3;
-  color: #9a3a2e;
+  color: var(--danger-ink);
 }
 
 // Zona «Botella»: botón aparte, pide confirmación.
@@ -940,12 +964,12 @@ function onTap(p: Product) {
   min-height: 46px;
   padding: 0 0.8rem;
   background: var(--bar-bottle-bg);
-  color: var(--bar-navy);
+  color: var(--bar-bottle-ink);
   border-top: 1px solid var(--bar-line);
   transition: background 0.15s ease;
 
   &:hover:not(:disabled) {
-    background: #d9e5ee;
+    background: var(--powder-200);
   }
 
   &:disabled {
@@ -1017,7 +1041,7 @@ function onTap(p: Product) {
   border: 1.5px solid var(--navy-600);
   font-size: 0.82rem;
   font-weight: 700;
-  color: var(--navy-600);
+  color: var(--navy-ink, var(--navy-600));
   background: var(--surface);
   transition: background 0.15s ease;
 
