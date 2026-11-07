@@ -3,7 +3,7 @@ import { computed, shallowRef, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import type { Cabin, CabinConsumption, CabinSummary } from '@/types'
 import type { QueueEntry } from '@/composables/useConsumptionQueue'
-import { formatMoney, formatTime } from '@/utils/format'
+import { dayKeyOf, formatDayHeading, formatHour, formatMoney, formatTime, todayKey } from '@/utils/format'
 
 /**
  * Cuenta de la cabina dentro del Bar (pedido del cliente, 31-oct-2026: "la
@@ -69,17 +69,29 @@ interface AccountLine {
   /** Consumos confirmados de la línea, el más nuevo primero. */
   items: CabinConsumption[]
   lastAt: number
+  /** Día de registro (Galápagos): la misma bebida en otro día es otra línea (7-nov-2026). */
+  day: string
+  fromCruise: string
 }
 
 const consumptions = computed(() => props.summary?.recent ?? [])
 
 const lines = computed<AccountLine[]>(() => {
   const map = new Map<string, AccountLine>()
-  const lineFor = (productId: string, name: string, unitPrice: number, courtesy: boolean, agency = false) => {
-    const key = `${productId || name}|${courtesy ? (agency ? 'a' : 'c') : 'p'}|${unitPrice}`
+  const today = todayKey()
+  const lineFor = (
+    productId: string,
+    name: string,
+    unitPrice: number,
+    courtesy: boolean,
+    agency = false,
+    day = today,
+    fromCruise = '',
+  ) => {
+    const key = `${day}|${fromCruise}|${productId || name}|${courtesy ? (agency ? 'a' : 'c') : 'p'}|${unitPrice}`
     let line = map.get(key)
     if (!line) {
-      line = { key, productId, name, unitPrice, courtesy, agency, qty: 0, pending: 0, total: 0, items: [], lastAt: 0 }
+      line = { key, productId, name, unitPrice, courtesy, agency, qty: 0, pending: 0, total: 0, items: [], lastAt: 0, day, fromCruise }
       map.set(key, line)
     }
     return line
@@ -88,7 +100,7 @@ const lines = computed<AccountLine[]>(() => {
     if (scope.value === 'hoy' && !c.today) continue
     if (c.qty <= 0) continue
     const unit = c.unitPrice ?? (c.qty ? c.total / c.qty : 0)
-    const line = lineFor(c.productId ?? '', c.name, unit, c.courtesy, c.courtesyKind === 'agencia')
+    const line = lineFor(c.productId ?? '', c.name, unit, c.courtesy, c.courtesyKind === 'agencia', dayKeyOf(c.at), c.fromCruise ?? '')
     line.qty += c.qty
     line.total += c.total
     line.items.push(c)
@@ -102,6 +114,30 @@ const lines = computed<AccountLine[]>(() => {
   }
   return [...map.values()].sort((a, b) => b.lastAt - a.lastAt)
 })
+
+/** Líneas con un encabezado por día de registro, el más reciente primero. */
+const rows = computed(() => {
+  const sorted = [...lines.value].sort((a, b) => b.day.localeCompare(a.day) || b.lastAt - a.lastAt)
+  return sorted.flatMap((line, i) =>
+    i && sorted[i - 1]!.day === line.day ? [line] : [{ key: `d-${line.day}`, day: line.day, heading: true as const }, line],
+  )
+})
+
+/** Consumos de días anteriores: en "Hoy" no se ven y se volvían a cargar (7-nov-2026). */
+const earlier = computed(() => consumptions.value.filter((c) => !c.today).reduce((n, c) => n + c.qty, 0))
+
+/** "Ayer · 20:12:53" o la fecha: solo la hora hacía creer que era de hoy. */
+function whenOf(at: string) {
+  const day = dayKeyOf(at)
+  return day === todayKey() ? formatTime(at) : `${dayLabel(day)} · ${formatHour(at)}`
+}
+
+function dayLabel(day: string) {
+  const heading = formatDayHeading(day)
+  if (day === todayKey()) return `Hoy · ${heading}`
+  if (day === dayKeyOf(new Date(Date.now() - 86_400_000))) return `Ayer · ${heading}`
+  return heading
+}
 
 const units = computed(() => lines.value.reduce((n, l) => n + l.qty + l.pending, 0))
 const tripCount = computed(() => consumptions.value.reduce((n, c) => n + c.qty, 0) + props.queued.length)
@@ -194,7 +230,7 @@ function names(c: Cabin) {
 
     <p v-if="collapsed" class="account-last">
       <template v-if="summary?.last">
-        Último registro: <strong>{{ summary.last.qty }} × {{ summary.last.name }}</strong> · {{ formatTime(summary.last.at) }}
+        Último registro: <strong>{{ summary.last.qty }} × {{ summary.last.name }}</strong> · {{ whenOf(summary.last.at) }}
       </template>
       <template v-else-if="summary">Sin consumos todavía. Toca una bebida para agregarla.</template>
     </p>
@@ -205,16 +241,24 @@ function names(c: Cabin) {
       </p>
 
       <p v-if="!summary && !queued.length" class="account-empty">Cargando consumos…</p>
+      <p v-else-if="!lines.length && scope === 'hoy' && earlier" class="account-empty">
+        Hoy todavía no hay consumos, pero la cabina tiene {{ earlier }} de días anteriores: revísalos antes de volver a cargar algo.
+        <button type="button" class="see-trip" @click="scope = 'viaje'">Ver todo el viaje</button>
+      </p>
       <p v-else-if="!lines.length" class="account-empty">
         {{ scope === 'hoy' ? 'Hoy todavía no hay consumos.' : 'Sin consumos todavía.' }} Toca una bebida para agregarla.
       </p>
 
       <TransitionGroup v-else name="list" tag="ul" class="lines">
-        <li v-for="line in lines" :key="line.key" class="line" :class="{ 'line--courtesy': line.courtesy }">
+        <template v-for="line in rows" :key="line.key">
+        <li v-if="'heading' in line" class="day">{{ dayLabel(line.day) }}</li>
+        <li v-else class="line" :class="{ 'line--courtesy': line.courtesy }">
           <span class="line-name">{{ line.name }}</span>
           <span class="line-meta">
               <template v-if="line.courtesy"><span class="tag" :class="{ 'tag--agency': line.agency }">{{ line.agency ? 'Cortesía agencia' : 'Cortesía casa' }}</span></template>
               <span v-else class="nowrap">{{ formatMoney(line.unitPrice) }} c/u</span>
+              <span v-if="line.lastAt" class="nowrap">{{ formatHour(new Date(line.lastAt)) }}</span>
+              <span v-if="line.fromCruise" class="tag tag--origin">Crucero {{ line.fromCruise }}</span>
               <span v-if="line.pending" class="line-pending">
                 <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true" /> {{ line.pending }} enviando
               </span>
@@ -257,6 +301,7 @@ function names(c: Cabin) {
           </div>
           <span class="line-total">{{ line.courtesy ? '$0,00' : formatMoney(line.total + line.pending * line.unitPrice) }}</span>
         </li>
+        </template>
       </TransitionGroup>
     </div>
 
@@ -483,6 +528,17 @@ function names(c: Cabin) {
   font-size: 0.9rem;
 }
 
+.see-trip {
+  display: block;
+  min-height: 44px;
+  margin-top: 0.5rem;
+  padding: 0 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--navy-800);
+  color: #fff;
+  font-weight: 600;
+}
+
 .lines {
   list-style: none;
   margin: 0;
@@ -561,6 +617,21 @@ function names(c: Cabin) {
   color: var(--pill-ok-ink, var(--navy-800));
   font-weight: 700;
   font-size: 0.72rem;
+}
+
+.tag--origin {
+  background: var(--cream-100);
+  color: var(--ink-600);
+}
+
+.day {
+  padding: 0.6rem 0 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--navy-700);
+  border-bottom: 1px solid var(--line);
 }
 
 .tag--agency {

@@ -327,6 +327,8 @@ export interface CabinConsumption {
   courtesyKind?: CourtesyKind
   total: number
   at: string
+  /** Crucero unido: código del crucero anterior de donde viene el consumo. */
+  fromCruise?: string | null
   by: string
   canUndo: boolean
   canCourtesy?: boolean
