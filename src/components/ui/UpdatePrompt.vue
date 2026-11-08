@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAppUpdate } from '@/composables/useAppUpdate'
+import { builtAtLabel, useAppUpdate } from '@/composables/useAppUpdate'
 
 const router = useRouter()
-const { available, snoozedUntil, start, update, later } = useAppUpdate()
+const { available, snoozedUntil, justUpdated, start, update, later } = useAppUpdate()
 
 // Reloj para que "Más tarde" vuelva a mostrar el aviso al vencer.
 const now = shallowRef(Date.now())
 let timer: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
   start(router)
-  timer = setInterval(() => (now.value = Date.now()), 30_000)
+  timer = setInterval(() => (now.value = Date.now()), 15_000)
+  // Confirmación de que la actualización ya se aplicó.
+  if (justUpdated.value) setTimeout(() => (justUpdated.value = false), 8000)
 })
 onBeforeUnmount(() => clearInterval(timer))
 
@@ -54,11 +56,40 @@ function onLater() {
         </section>
       </div>
     </Transition>
+    <Transition name="update" appear>
+      <div v-if="justUpdated && !visible" class="updated-toast" role="status" @click="justUpdated = false">
+        <i class="fa-solid fa-circle-check" aria-hidden="true" />
+        <span><strong>Sistema actualizado.</strong> Ya tienes la versión del {{ builtAtLabel }}.</span>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
 <style scoped lang="scss">
 @use '@/styles/mixins' as *;
+
+.updated-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.25rem;
+  transform: translateX(-50%);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  max-width: calc(100vw - 2rem);
+  padding: 0.85rem 1.1rem;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  border-left: 4px solid var(--success);
+  cursor: pointer;
+
+  i {
+    color: var(--success);
+    font-size: 1.2rem;
+  }
+}
 
 .update-overlay {
   position: fixed;

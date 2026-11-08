@@ -20,6 +20,7 @@ export default defineConfig({
   plugins: [vue(), versionFile()],
   define: {
     __APP_VERSION__: JSON.stringify(APP_VERSION),
+    __APP_BUILT__: JSON.stringify(new Date().toISOString()),
   },
   resolve: {
     alias: {
