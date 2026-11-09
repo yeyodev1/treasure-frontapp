@@ -631,6 +631,8 @@ export interface ConsumptionPayload {
   courtesyKind?: CourtesyKind
   idempotencyKey: string
   clientAt?: string
+  /** Cóctel con cambio de gaseosa o licor (ids de insumos). */
+  swaps?: Array<{ from: string; to: string }>
 }
 
 /** Wetsuit con el precio del trayecto del crucero (A y B, o C); null si el crucero no tiene trayecto. */

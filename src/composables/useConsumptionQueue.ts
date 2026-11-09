@@ -24,6 +24,8 @@ export interface QueueEntry {
   courtesyReason?: string
   /** Quién paga la cortesía: la casa o la agencia. */
   courtesyKind?: CourtesyKind
+  /** Cóctel con cambio de gaseosa o licor; nombre y precio ya lo incluyen. */
+  swaps?: Array<{ from: string; to: string }>
   clientAt: string
   state: QueueState
   attempts: number
@@ -137,6 +139,7 @@ export function useConsumptionQueue(options: {
             courtesy: entry.courtesy,
             courtesyReason: entry.courtesyReason,
             courtesyKind: entry.courtesyKind,
+            swaps: entry.swaps,
             idempotencyKey: entry.key,
             clientAt: entry.clientAt,
           })

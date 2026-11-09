@@ -88,7 +88,7 @@ const lines = computed<AccountLine[]>(() => {
     day = today,
     fromCruise = '',
   ) => {
-    const key = `${day}|${fromCruise}|${productId || name}|${courtesy ? (agency ? 'a' : 'c') : 'p'}|${unitPrice}`
+    const key = `${day}|${fromCruise}|${productId}|${name}|${courtesy ? (agency ? 'a' : 'c') : 'p'}|${unitPrice}`
     let line = map.get(key)
     if (!line) {
       line = { key, productId, name, unitPrice, courtesy, agency, qty: 0, pending: 0, total: 0, items: [], lastAt: 0, day, fromCruise }

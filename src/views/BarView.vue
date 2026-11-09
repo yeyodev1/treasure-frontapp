@@ -15,6 +15,7 @@ import { apiErrorMessage } from '@/services/httpBase'
 import { TIMEZONE, formatMoney, formatTime } from '@/utils/format'
 import ProductCatalog, { type CatalogFilter } from '@/components/pos/ProductCatalog.vue'
 import CocktailBuilder from '@/components/pos/CocktailBuilder.vue'
+import CocktailSwap from '@/components/pos/CocktailSwap.vue'
 import CabinAccount from '@/components/pos/CabinAccount.vue'
 import TapConfirmation, { type TapState } from '@/components/pos/TapConfirmation.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
@@ -246,8 +247,17 @@ onBeforeUnmount(() => {
   if (confirmedTimer) clearTimeout(confirmedTimer)
 })
 
+/** Cóctel al que se le está eligiendo el cambio de gaseosa o licor. */
+const swapping = shallowRef<Product | null>(null)
+
+function confirmSwap(swaps: Array<{ from: string; to: string }>, name: string, price: number) {
+  const product = swapping.value
+  swapping.value = null
+  if (product) tap(product, { swaps, name, price })
+}
+
 /** Un toque intencional suma una unidad a la cabina elegida. */
-function tap(product: Product) {
+function tap(product: Product, change?: { swaps: Array<{ from: string; to: string }>; name: string; price: number }) {
   if (blockedReason.value || !cruise.value || !cabin.value) {
     play('error')
     toast.error(blockedReason.value || 'Elige la cabina')
@@ -263,8 +273,9 @@ function tap(product: Product) {
     cruiseId: cruise.value._id,
     cabinNumber: cabin.value.number,
     productId: product._id,
-    productName: product.name,
-    price: product.price,
+    productName: change?.name ?? product.name,
+    price: change?.price ?? product.price,
+    swaps: change?.swaps,
     courtesy: Boolean(courtesyMode.value),
     courtesyReason: courtesyMode.value?.reason,
     courtesyKind: courtesyMode.value?.kind,
@@ -276,6 +287,7 @@ function tap(product: Product) {
     prev &&
     prev.cabin === entry.cabinNumber &&
     prev.productId === product._id &&
+    prev.name === entry.productName &&
     prev.courtesy === entry.courtesy &&
     now - prev.at < STREAK_MS &&
     prev.rejected.length < prev.keys.length
@@ -285,7 +297,7 @@ function tap(product: Product) {
         keys: [entry.key],
         cabin: entry.cabinNumber,
         productId: product._id,
-        name: product.name,
+        name: entry.productName,
         courtesy: entry.courtesy,
         saved: [],
         held: [],
@@ -687,7 +699,8 @@ function onEmptyCabin(number: number) {
             :disabled="Boolean(blockedReason)"
             :today-counts="todayCounts"
             :target="cabin ? `la Cabina ${cabin.number}` : ''"
-            @add="tap"
+            @add="(p: Product) => tap(p)"
+            @swap="(p: Product) => (swapping = p)"
             @toggle-favorite="toggleFavorite"
             @request-review="requestReview"
             @create-cocktail="showBuilder = true"
@@ -778,6 +791,15 @@ function onEmptyCabin(number: number) {
         </div>
       </div>
     </BaseModal>
+
+    <CocktailSwap
+      v-if="swapping"
+      :product="swapping"
+      :physical="physical"
+      :target="cabin ? `la Cabina ${cabin.number}` : ''"
+      @close="swapping = null"
+      @confirm="confirmSwap"
+    />
 
     <CocktailBuilder
       v-if="showBuilder"
