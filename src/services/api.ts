@@ -584,8 +584,8 @@ export async function apiUsers() {
 
 export async function apiCreateUser(payload: {
   name: string
-  email: string
-  password: string
+  email?: string
+  password?: string
   role: UserRole
   isCashier?: boolean
   position?: string

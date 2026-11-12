@@ -811,6 +811,8 @@ export interface TeamUser {
   position?: string
   /** Tiene clave de 4 números para entrar al bar por departamento. */
   hasPin?: boolean
+  /** La clave de 4 números, visible para Gerencia (12-nov-2026). */
+  barPin?: string
   createdBy: { _id: string; name: string } | null
   updatedBy: { _id: string; name: string } | null
   createdAt: string

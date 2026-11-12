@@ -35,6 +35,14 @@ const ROLE_LABELS: Record<UserRole, string> = {
 
 /** Capitán, tripulación y Designada se manejan en Registros ISM › Tripulantes (pedido del cliente, 12-nov-2026). */
 const ISM_ROLES: UserRole[] = ['capitan', 'tripulante', 'designada']
+/** Claves que Gerencia destapó en las tarjetas (se ven con el ojo). */
+const shownPins = ref(new Set<string>())
+function togglePin(id: string) {
+  const next = new Set(shownPins.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  shownPins.value = next
+}
 const barUsers = computed(() => users.value.filter((u) => !ISM_ROLES.includes(u.role)))
 const roleOptions = Object.entries(ROLE_LABELS)
   .filter(([value]) => !ISM_ROLES.includes(value as UserRole))
@@ -116,7 +124,7 @@ function openEdit(user: TeamUser) {
     role: user.role,
     isCashier: user.isCashier,
     position: user.position ?? '',
-    pin: '',
+    pin: user.barPin ?? '',
   }
   showForm.value = true
 }
@@ -126,7 +134,13 @@ async function save() {
     toast.error('La clave son 4 números')
     return
   }
-  const pin = form.value.pin ? { pin: form.value.pin } : {}
+  if (!editing.value && !form.value.pin && !form.value.password) {
+    toast.error('Pon la clave de 4 números para que pueda entrar')
+    return
+  }
+  // Solo se envía si cambió (al editar viene cargada la actual).
+  const changedPin = form.value.pin && form.value.pin !== editing.value?.barPin ? form.value.pin : ''
+  const pin = changedPin ? { pin: changedPin } : {}
   saving.value = true
   try {
     if (editing.value) {
@@ -138,18 +152,18 @@ async function save() {
         ...(form.value.password ? { password: form.value.password } : {}),
         ...pin,
       })
-      toast.success('Persona actualizada')
+      toast.success(changedPin ? `Guardado. Clave de ${form.value.name}: ${changedPin}` : 'Persona actualizada')
     } else {
       await apiCreateUser({
         name: form.value.name,
-        email: form.value.email,
-        password: form.value.password,
+        ...(form.value.email.trim() ? { email: form.value.email.trim() } : {}),
+        ...(form.value.password ? { password: form.value.password } : {}),
         role: form.value.role as UserRole,
         isCashier: form.value.role === 'direccion' && form.value.isCashier,
         position: SHIP_ROLES.includes(form.value.role) ? form.value.position : '',
         ...pin,
       })
-      toast.success('Acceso creado')
+      toast.success(changedPin ? `Acceso creado. Clave de ${form.value.name}: ${changedPin}` : 'Acceso creado')
     }
     play('success')
     showForm.value = false
@@ -213,10 +227,21 @@ async function toggleActive(user: TeamUser) {
         <span class="user-avatar" aria-hidden="true">{{ initials(user.name) }}</span>
         <div class="user-info">
           <strong class="user-name">{{ user.name }}</strong>
-          <span class="user-email">{{ user.email }}</span>
+          <span v-if="user.email" class="user-email">{{ user.email }}</span>
           <span class="user-role">
             <span class="estado estado--info">{{ roleName(user.role) }}</span>
-            <span v-if="user.hasPin" class="estado"><i class="fa-solid fa-key" aria-hidden="true" /> Con clave</span>
+            <button
+              v-if="user.barPin"
+              type="button"
+              class="estado pin-chip"
+              :aria-label="shownPins.has(user._id) ? `Ocultar la clave de ${user.name}` : `Ver la clave de ${user.name}`"
+              @click="togglePin(user._id)"
+            >
+              <i class="fa-solid fa-key" aria-hidden="true" />
+              Clave {{ shownPins.has(user._id) ? user.barPin : '••••' }}
+              <i class="fa-solid" :class="shownPins.has(user._id) ? 'fa-eye-slash' : 'fa-eye'" aria-hidden="true" />
+            </button>
+            <span v-else-if="user.hasPin" class="estado"><i class="fa-solid fa-key" aria-hidden="true" /> Con clave (edítala para verla)</span>
             <span v-if="user.position" class="estado">{{ POSITION_LABELS[user.position] ?? user.position }}</span>
           </span>
           <span v-if="roleScope(user.role)" class="user-scope">{{ roleScope(user.role) }}</span>
@@ -247,7 +272,7 @@ async function toggleActive(user: TeamUser) {
     <BaseModal
       v-if="showForm"
       :title="editing ? 'Editar acceso' : 'Nuevo acceso'"
-      :subtitle="editing ? editing.email : 'Nombre, correo, contraseña y lo que puede hacer en el sistema.'"
+      :subtitle="editing ? editing.email || undefined : 'Nombre, clave de 4 números y lo que puede hacer en el sistema.'"
       @close="showForm = false"
     >
       <div class="modal-form">
@@ -255,22 +280,22 @@ async function toggleActive(user: TeamUser) {
           <label for="u-name">Nombre</label>
           <input id="u-name" v-model="form.name" type="text" autocomplete="off" />
         </div>
-        <div v-if="!editing" class="field">
-          <label for="u-email">Correo</label>
-          <input id="u-email" v-model="form.email" type="email" inputmode="email" autocomplete="off" />
-        </div>
         <div class="field">
-          <label for="u-pass">{{ editing ? 'Nueva contraseña (opcional)' : 'Contraseña' }}</label>
-          <PasswordInput id="u-pass" v-model="form.password" autocomplete="new-password" />
-        </div>
-        <div class="field">
-          <label for="u-pin">Clave de 4 números para entrar <small>(opcional)</small></label>
+          <label for="u-pin">Clave de 4 números para entrar</label>
           <input id="u-pin" v-model="form.pin" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="Ej. 2580" />
-          <small class="hint">{{ editing?.hasPin ? 'Ya tiene clave: escribe una nueva solo si quieres cambiarla.' : 'Con ella entra eligiendo su departamento. Que no sean números seguidos ni repetidos.' }}</small>
+          <small class="hint">{{ editing?.hasPin && !editing?.barPin ? 'Ya tiene clave, pero no se puede ver: escribe una nueva para verla.' : 'Con ella entra eligiendo su departamento. Que no sean números seguidos ni repetidos.' }}</small>
         </div>
         <div class="field">
           <label id="u-role-label">Rol</label>
           <BaseSelect v-model="form.role" :options="roleOptions" aria-labelledby="u-role-label" />
+        </div>
+        <div v-if="!editing" class="field">
+          <label for="u-email">Correo <small>(opcional)</small></label>
+          <input id="u-email" v-model="form.email" type="email" inputmode="email" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="u-pass">{{ editing ? 'Nueva contraseña' : 'Contraseña' }} <small>(opcional: para entrar con correo)</small></label>
+          <PasswordInput id="u-pass" v-model="form.password" autocomplete="new-password" />
         </div>
         <div v-if="SHIP_ROLES.includes(form.role)" class="field">
           <label id="u-pos-label">Cargo a bordo</label>
@@ -476,5 +501,15 @@ async function toggleActive(user: TeamUser) {
 .hint {
   font-size: 0.95rem;
   color: var(--ink-600);
+}
+
+.pin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 32px;
+  border: 0;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
 }
 </style>
