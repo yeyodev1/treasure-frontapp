@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, shallowRef } from 'vue'
+import { computed, onMounted, ref, shallowRef } from 'vue'
 import { useToastStore } from '@/stores/toast'
 import { apiCreateUser, apiUpdateUser, apiUsers } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
@@ -33,7 +33,12 @@ const ROLE_LABELS: Record<UserRole, string> = {
   designada: 'Persona Designada (Registros ISM)',
 }
 
-const roleOptions = Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label }))
+/** Capitán, tripulación y Designada se manejan en Registros ISM › Tripulantes (pedido del cliente, 12-nov-2026). */
+const ISM_ROLES: UserRole[] = ['capitan', 'tripulante', 'designada']
+const barUsers = computed(() => users.value.filter((u) => !ISM_ROLES.includes(u.role)))
+const roleOptions = Object.entries(ROLE_LABELS)
+  .filter(([value]) => !ISM_ROLES.includes(value as UserRole))
+  .map(([value, label]) => ({ value, label }))
 
 /** Para la tarjeta: el nombre del rol y, aparte, lo que abarca. */
 function roleName(role: UserRole): string {
@@ -190,12 +195,12 @@ async function toggleActive(user: TeamUser) {
     </header>
 
     <SkeletonList v-if="loading" variant="card" :rows="4" />
-    <div v-else-if="!users.length" class="vacio">
+    <div v-else-if="!barUsers.length" class="vacio">
       <i class="fa-solid fa-users" aria-hidden="true" />
       <p>Aún no hay accesos. Crea el primero con «Nuevo acceso».</p>
     </div>
     <TransitionGroup v-else name="list" tag="div" class="users">
-      <article v-for="user in users" :key="user._id" class="user" :class="{ off: !user.active }">
+      <article v-for="user in barUsers" :key="user._id" class="user" :class="{ off: !user.active }">
         <span class="user-avatar" aria-hidden="true">{{ initials(user.name) }}</span>
         <div class="user-info">
           <strong class="user-name">{{ user.name }}</strong>
