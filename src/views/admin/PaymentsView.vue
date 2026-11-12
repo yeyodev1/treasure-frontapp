@@ -44,6 +44,13 @@ const SRI_LABELS: Record<string, string> = {
   Anulada: 'Anulada en Contífico',
 }
 
+/** Firmada o sin firmar en Contífico por más de 2 h: no llegó al SRI y hay que revisarla allá. */
+function stuckAtSri(p: { invoiceStatus: string; invoiceSriStatus?: string; createdAt: string }): boolean {
+  if (p.invoiceStatus !== 'emitida') return false
+  if (p.invoiceSriStatus !== 'Firmado' && p.invoiceSriStatus !== 'No se ha firmado') return false
+  return Date.now() - new Date(p.createdAt).getTime() > 2 * 60 * 60 * 1000
+}
+
 const INVOICE_LABELS: Record<InvoiceStatus, string> = {
   pendiente: 'Factura pendiente',
   emitiendo: 'Emitiendo factura…',
@@ -284,7 +291,11 @@ function collectorName(payment: Payment): string {
               >
                 <i class="fa-solid fa-file-pdf" aria-hidden="true" /> {{ payment.invoiceNumber }}
               </a>
-              <small v-if="payment.invoiceStatus === 'emitida' && payment.invoiceSriStatus" class="invoice-sri">
+              <small v-if="stuckAtSri(payment)" class="invoice-error">
+                Lleva más de 2 horas sin llegar al SRI. El sistema lo sigue reintentando; si no avanza, ábrela en
+                Contífico y toca «Enviar al SRI» para ver el motivo.
+              </small>
+              <small v-else-if="payment.invoiceStatus === 'emitida' && payment.invoiceSriStatus" class="invoice-sri">
                 {{ SRI_LABELS[payment.invoiceSriStatus] ?? payment.invoiceSriStatus }}<template
                   v-if="payment.invoiceEmail?.status === 'enviado'"
                 > · enviada a {{ payment.invoiceEmail.to }}</template><template
