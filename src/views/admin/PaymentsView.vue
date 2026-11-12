@@ -39,6 +39,7 @@ const onlyPending = shallowRef(route.query.factura === 'pendiente')
 const SRI_LABELS: Record<string, string> = {
   Autorizado: 'Autorizada por el SRI',
   'Enviado SRI': 'Enviada al SRI, esperando su autorización',
+  'Enviado Sri': 'Enviada al SRI, esperando su autorización',
   Firmado: 'Firmada en Contífico, todavía no enviada al SRI',
   'No se ha firmado': 'Contífico todavía no la firma',
   Anulada: 'Anulada en Contífico',
