@@ -106,7 +106,9 @@ export const EMAIL_RE = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/
 export function billingError(b: Billing): string {
   if (!b.name.trim()) return 'Falta el nombre para la factura.'
   if (!b.idNumber.trim()) return 'Falta la cédula, pasaporte o RUC para la factura.'
-  if (b.email.trim() && !EMAIL_RE.test(b.email.trim())) return 'Revisa el correo. Ejemplo: nombre@dominio.com.'
+  // Obligatorio (pedido del cliente, 12-nov-2026): ahí le llegan la factura y el resumen.
+  if (!b.email.trim()) return 'Falta el correo: ahí le llega la factura.'
+  if (!EMAIL_RE.test(b.email.trim())) return 'Revisa el correo. Ejemplo: nombre@dominio.com.'
   return ''
 }
 

@@ -77,7 +77,7 @@ const emailBad = computed(() => Boolean(billing.value.email.trim()) && !EMAIL_RE
         <BaseSelect v-model="billing.country" :options="COUNTRY_OPTIONS" searchable placeholder="Buscar país…" />
       </div>
       <div class="field span-2">
-        <label :for="`${idPrefix}-email`">Correo (opcional)</label>
+        <label :for="`${idPrefix}-email`">Correo para la factura</label>
         <input
           :id="`${idPrefix}-email`"
           v-model="billing.email"
@@ -90,6 +90,7 @@ const emailBad = computed(() => Boolean(billing.value.email.trim()) && !EMAIL_RE
         <Transition name="fade">
           <small v-if="emailBad" class="field-error">Revisa el correo. Ejemplo: nombre@dominio.com.</small>
         </Transition>
+        <small v-if="!billing.email.trim()" class="field-hint">Obligatorio: ahí le llega la factura electrónica.</small>
       </div>
     </div>
   </div>
@@ -188,5 +189,10 @@ const emailBad = computed(() => Boolean(billing.value.email.trim()) && !EMAIL_RE
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+.field-hint {
+  font-size: 0.9rem;
+  color: var(--ink-600);
 }
 </style>
