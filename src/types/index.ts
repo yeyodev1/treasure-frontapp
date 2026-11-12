@@ -730,6 +730,9 @@ export interface Payment {
   invoiceId: string
   invoiceNumber?: string
   invoiceUrl?: string
+  /** Estado ante el SRI según Contífico (12-nov-2026). */
+  invoiceSriStatus?: string
+  invoiceEmail?: { status: string; to: string; sentAt: string | null; error: string }
   invoiceError: string
   status: 'vigente' | 'reversado'
   reverseReason: string

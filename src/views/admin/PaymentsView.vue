@@ -35,6 +35,15 @@ const sentinel = shallowRef<HTMLElement | null>(null)
 /** Desde las alertas del resumen: solo facturas pendientes. */
 const onlyPending = shallowRef(route.query.factura === 'pendiente')
 
+/** Paso de la factura en el SRI, en palabras claras (12-nov-2026). */
+const SRI_LABELS: Record<string, string> = {
+  Autorizado: 'Autorizada por el SRI',
+  'Enviado SRI': 'Enviada al SRI, esperando su autorización',
+  Firmado: 'Firmada en Contífico, todavía no enviada al SRI',
+  'No se ha firmado': 'Contífico todavía no la firma',
+  Anulada: 'Anulada en Contífico',
+}
+
 const INVOICE_LABELS: Record<InvoiceStatus, string> = {
   pendiente: 'Factura pendiente',
   emitiendo: 'Emitiendo factura…',
@@ -275,6 +284,13 @@ function collectorName(payment: Payment): string {
               >
                 <i class="fa-solid fa-file-pdf" aria-hidden="true" /> {{ payment.invoiceNumber }}
               </a>
+              <small v-if="payment.invoiceStatus === 'emitida' && payment.invoiceSriStatus" class="invoice-sri">
+                {{ SRI_LABELS[payment.invoiceSriStatus] ?? payment.invoiceSriStatus }}<template
+                  v-if="payment.invoiceEmail?.status === 'enviado'"
+                > · enviada a {{ payment.invoiceEmail.to }}</template><template
+                  v-else-if="payment.invoiceEmail?.status === 'error'"
+                > · correo no enviado: {{ payment.invoiceEmail.error }}</template>
+              </small>
             </template>
             <small
               v-if="payment.status !== 'reversado' && payment.invoiceStatus !== 'emitida' && payment.invoiceError"
@@ -640,6 +656,13 @@ function collectorName(payment: Payment): string {
   font-size: 0.875rem;
   line-height: 1.35;
   color: var(--danger);
+}
+
+.invoice-sri {
+  flex-basis: 100%;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  color: var(--ink-600);
 }
 
 .invoice-error--soft {
