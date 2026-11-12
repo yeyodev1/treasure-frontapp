@@ -51,6 +51,16 @@ export async function apiLogin(email: string, password: string, remember = false
   return data
 }
 
+/** Bar por departamento + clave de 4 números (pedido del cliente, 12-nov-2026). */
+export async function apiDepartmentLogin(department: string, pin: string, remember = false) {
+  const { data } = await http.post<{ token: string; user: SessionUser }>('/auth/login/department', {
+    department,
+    pin,
+    remember,
+  })
+  return data
+}
+
 /** Sesión deslizante: renueva el token con la misma duración. */
 export async function apiRefresh() {
   const { data } = await http.post<{ token: string; user: SessionUser }>('/auth/refresh')
@@ -579,6 +589,7 @@ export async function apiCreateUser(payload: {
   role: UserRole
   isCashier?: boolean
   position?: string
+  pin?: string
 }) {
   const { data } = await http.post('/users', payload)
   return data.user

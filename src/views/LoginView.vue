@@ -6,10 +6,33 @@ import { ROLE_HOME } from '@/router'
 import { apiErrorMessage } from '@/services/httpBase'
 import BrandSeal from '@/components/ui/BrandSeal.vue'
 import PasswordInput from '@/components/ui/PasswordInput.vue'
+import PinInput from '@/components/ui/PinInput.vue'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
+
+/**
+ * Entrada como en Registros ISM (pedido del cliente, 12-nov-2026): eliges tu
+ * departamento y pones tu clave de 4 números. El correo queda como respaldo.
+ */
+const DEPARTMENTS = [
+  { key: 'bartender', label: 'Bar', icon: 'fa-martini-glass-citrus' },
+  { key: 'direccion', label: 'Dirección de crucero', icon: 'fa-bell-concierge' },
+  { key: 'bodega', label: 'Bodega', icon: 'fa-boxes-stacked' },
+  { key: 'admin', label: 'Administración', icon: 'fa-clipboard-list' },
+  { key: 'duena', label: 'Gerencia', icon: 'fa-shield-halved' },
+] as const
+type Department = (typeof DEPARTMENTS)[number]
+const department = shallowRef<Department | null>(null)
+const byEmail = shallowRef(false)
+const pin = shallowRef('')
+
+function pick(d: Department | null) {
+  department.value = d
+  pin.value = ''
+  error.value = ''
+}
 
 const email = shallowRef('')
 const password = shallowRef('')
@@ -22,7 +45,14 @@ async function submit() {
   error.value = ''
   try {
     localStorage.setItem('treasure.remember', remember.value ? '1' : '0')
-    await userStore.login(email.value, password.value, remember.value)
+    if (byEmail.value) await userStore.login(email.value, password.value, remember.value)
+    else if (department.value) {
+      if (!/^\d{4}$/.test(pin.value)) {
+        error.value = 'La clave tiene 4 números'
+        return
+      }
+      await userStore.loginDepartment(department.value.key, pin.value, remember.value)
+    } else return
     const next = route.query.next as string | undefined
     const home = userStore.role ? ROLE_HOME[userStore.role] : '/'
     router.replace(next ?? home)
@@ -38,7 +68,7 @@ async function submit() {
       <div class="login-brand">
         <BrandSeal :size="112" class="login-seal" />
         <h1 class="login-title">Sistema del bar a bordo</h1>
-        <p class="login-lead">Ingresa con tu correo y contraseña.</p>
+        <p class="login-lead">{{ byEmail ? 'Ingresa con tu correo y contraseña.' : 'Selecciona tu departamento y pon tu clave.' }}</p>
       </div>
 
       <p v-if="expired" class="login-notice">
@@ -49,6 +79,34 @@ async function submit() {
         </span>
       </p>
 
+      <!-- Paso 1: departamento -->
+      <template v-if="!byEmail && !department">
+        <div class="areas">
+          <button v-for="d in DEPARTMENTS" :key="d.key" type="button" class="area" @click="pick(d)">
+            <i class="fa-solid" :class="d.icon" aria-hidden="true" />
+            <span>{{ d.label }}</span>
+          </button>
+        </div>
+        <button type="button" class="btn btn-ghost" @click="byEmail = true">
+          <i class="fa-solid fa-envelope" aria-hidden="true" /> Entrar con correo
+        </button>
+      </template>
+
+      <template v-else>
+      <div class="step-head">
+        <button type="button" class="step-back" aria-label="Volver" @click="byEmail = false; pick(null)">
+          <i class="fa-solid fa-arrow-left" aria-hidden="true" />
+        </button>
+        <h2 class="step-title">{{ byEmail ? 'Entrar con correo' : department?.label }}</h2>
+      </div>
+
+      <div v-if="!byEmail" class="field">
+        <span class="field-label">Clave de 4 números</span>
+        <PinInput v-model="pin" label="Clave" :invalid="Boolean(error)" />
+        <small class="login-hint">Te la da Gerencia en Equipo.</small>
+      </div>
+
+      <template v-else>
       <div class="field">
         <label for="email">Correo</label>
         <input id="email" v-model="email" type="email" inputmode="email" autocomplete="username" required />
@@ -58,6 +116,7 @@ async function submit() {
         <label for="password">Contraseña</label>
         <PasswordInput id="password" v-model="password" />
       </div>
+      </template>
 
       <label class="remember">
         <input v-model="remember" type="checkbox" />
@@ -78,6 +137,7 @@ async function submit() {
         <i class="fa-solid" :class="userStore.loading ? 'fa-spinner fa-spin' : 'fa-arrow-right-to-bracket'" aria-hidden="true" />
         {{ userStore.loading ? 'Ingresando…' : 'Ingresar' }}
       </button>
+      </template>
     </form>
   </main>
 </template>
@@ -230,6 +290,73 @@ async function submit() {
 
 .login-submit {
   width: 100%;
+}
+
+.areas {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.area {
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  text-align: center;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  background: var(--powder-100);
+  color: var(--navy-900);
+  font-size: 1.1rem;
+  font-weight: 600;
+  transition: background 0.18s ease, border-color 0.18s ease;
+
+  i {
+    font-size: 1.5rem;
+  }
+
+  &:hover,
+  &:active {
+    background: var(--powder-200);
+    border-color: var(--navy-800);
+  }
+}
+
+.step-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.step-title {
+  margin: 0;
+  font-size: 1.35rem;
+  color: var(--navy-900);
+}
+
+.step-back {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-600);
+}
+
+.field-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink-900);
+}
+
+.login-hint {
+  font-size: 0.95rem;
+  color: var(--ink-600);
 }
 
 .fade-enter-active,

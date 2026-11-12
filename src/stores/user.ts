@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef, watch } from 'vue'
 import type { SessionUser, UserRole } from '@/types'
-import { apiLogin, apiMe, apiRefresh } from '@/services/api'
+import { apiDepartmentLogin, apiLogin, apiMe, apiRefresh } from '@/services/api'
 import axios from 'axios'
 import { getToken, setToken, setViewAsHeader, tokenTimes } from '@/services/httpBase'
 
@@ -45,6 +45,17 @@ export const useUserStore = defineStore('user', () => {
     loading.value = true
     try {
       const data = await apiLogin(email, password, remember)
+      setToken(data.token)
+      user.value = data.user
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function loginDepartment(department: string, pin: string, remember = false) {
+    loading.value = true
+    try {
+      const data = await apiDepartmentLogin(department, pin, remember)
       setToken(data.token)
       user.value = data.user
     } finally {
@@ -117,6 +128,7 @@ export const useUserStore = defineStore('user', () => {
     canCollect,
     setViewAs,
     login,
+    loginDepartment,
     restore,
     refreshIfNeeded,
     clear,

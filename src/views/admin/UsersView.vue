@@ -79,7 +79,8 @@ const positionOptions = [
 ]
 const SHIP_ROLES = ['capitan', 'tripulante']
 
-const form = ref<{ name: string; email: string; password: string; role: string; isCashier: boolean; position: string }>({
+const form = ref<{ name: string; email: string; password: string; role: string; isCashier: boolean; position: string; pin: string }>({
+  pin: '',
   name: '',
   email: '',
   password: '',
@@ -102,7 +103,7 @@ onMounted(refresh)
 
 function openNew() {
   editing.value = null
-  form.value = { name: '', email: '', password: '', role: 'bartender', isCashier: false, position: '' }
+  form.value = { name: '', email: '', password: '', role: 'bartender', isCashier: false, position: '', pin: '' }
   showForm.value = true
 }
 
@@ -115,11 +116,17 @@ function openEdit(user: TeamUser) {
     role: user.role,
     isCashier: user.isCashier,
     position: user.position ?? '',
+    pin: '',
   }
   showForm.value = true
 }
 
 async function save() {
+  if (form.value.pin && !/^\d{4}$/.test(form.value.pin)) {
+    toast.error('La clave son 4 números')
+    return
+  }
+  const pin = form.value.pin ? { pin: form.value.pin } : {}
   saving.value = true
   try {
     if (editing.value) {
@@ -129,6 +136,7 @@ async function save() {
         isCashier: form.value.role === 'direccion' && form.value.isCashier,
         position: SHIP_ROLES.includes(form.value.role) ? form.value.position : '',
         ...(form.value.password ? { password: form.value.password } : {}),
+        ...pin,
       })
       toast.success('Persona actualizada')
     } else {
@@ -139,6 +147,7 @@ async function save() {
         role: form.value.role as UserRole,
         isCashier: form.value.role === 'direccion' && form.value.isCashier,
         position: SHIP_ROLES.includes(form.value.role) ? form.value.position : '',
+        ...pin,
       })
       toast.success('Acceso creado')
     }
@@ -207,6 +216,7 @@ async function toggleActive(user: TeamUser) {
           <span class="user-email">{{ user.email }}</span>
           <span class="user-role">
             <span class="estado estado--info">{{ roleName(user.role) }}</span>
+            <span v-if="user.hasPin" class="estado"><i class="fa-solid fa-key" aria-hidden="true" /> Con clave</span>
             <span v-if="user.position" class="estado">{{ POSITION_LABELS[user.position] ?? user.position }}</span>
           </span>
           <span v-if="roleScope(user.role)" class="user-scope">{{ roleScope(user.role) }}</span>
@@ -252,6 +262,11 @@ async function toggleActive(user: TeamUser) {
         <div class="field">
           <label for="u-pass">{{ editing ? 'Nueva contraseña (opcional)' : 'Contraseña' }}</label>
           <PasswordInput id="u-pass" v-model="form.password" autocomplete="new-password" />
+        </div>
+        <div class="field">
+          <label for="u-pin">Clave de 4 números para entrar <small>(opcional)</small></label>
+          <input id="u-pin" v-model="form.pin" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="Ej. 2580" />
+          <small class="hint">{{ editing?.hasPin ? 'Ya tiene clave: escribe una nueva solo si quieres cambiarla.' : 'Con ella entra eligiendo su departamento. Que no sean números seguidos ni repetidos.' }}</small>
         </div>
         <div class="field">
           <label id="u-role-label">Rol</label>
@@ -456,5 +471,10 @@ async function toggleActive(user: TeamUser) {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.hint {
+  font-size: 0.95rem;
+  color: var(--ink-600);
 }
 </style>

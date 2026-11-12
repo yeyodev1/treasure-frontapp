@@ -806,6 +806,8 @@ export interface TeamUser {
   active: boolean
   isCashier: boolean
   position?: string
+  /** Tiene clave de 4 números para entrar al bar por departamento. */
+  hasPin?: boolean
   createdBy: { _id: string; name: string } | null
   updatedBy: { _id: string; name: string } | null
   createdAt: string
