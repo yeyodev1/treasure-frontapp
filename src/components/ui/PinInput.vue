@@ -1,72 +1,73 @@
 <script setup lang="ts">
-import { nextTick, useTemplateRef } from 'vue'
+import { onBeforeUnmount, onMounted } from 'vue'
 
 /**
- * Clave de 4 números en cuatro casillas grandes (≥ 56 px). Se ven puntos,
- * nunca los números. Teclado numérico en la tablet.
+ * Clave de 4 números con teclado en pantalla (pedido del cliente,
+ * 13-nov-2026): en la tableta no se despliega el teclado del sistema. Se ven
+ * puntos, nunca los números. En computadora también se puede escribir.
  */
-const props = defineProps<{ label?: string; invalid?: boolean; autofocus?: boolean }>()
+defineProps<{ label?: string; invalid?: boolean }>()
 const model = defineModel<string>({ default: '' })
-const inputs = useTemplateRef<HTMLInputElement[]>('boxes')
 
-function digits(): string[] {
-  return Array.from({ length: 4 }, (_, i) => model.value[i] ?? '')
+const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'borrar'] as const
+
+function press(key: string) {
+  if (key === 'borrar') model.value = model.value.slice(0, -1)
+  else if (/^\d$/.test(key) && model.value.length < 4) model.value += key
 }
 
-function focus(i: number) {
-  nextTick(() => inputs.value?.[i]?.focus())
-}
-
-function onInput(i: number, e: Event) {
-  const el = e.target as HTMLInputElement
-  const typed = el.value.replace(/\D/g, '')
-  el.value = ''
-  if (!typed) return
-  const next = digits()
-  // Se puede pegar o escribir varios seguidos.
-  for (const [k, d] of [...typed].entries()) if (i + k < 4) next[i + k] = d
-  model.value = next.join('').slice(0, 4)
-  focus(Math.min(3, i + typed.length))
-}
-
-function onKey(i: number, e: KeyboardEvent) {
-  if (e.key !== 'Backspace') return
+function onKey(e: KeyboardEvent) {
+  if (e.target instanceof HTMLInputElement && e.target.type !== 'checkbox') return
+  if (/^\d$/.test(e.key)) press(e.key)
+  else if (e.key === 'Backspace') press('borrar')
+  else return
   e.preventDefault()
-  const next = digits()
-  if (next[i]) next[i] = ''
-  else if (i > 0) {
-    next[i - 1] = ''
-    focus(i - 1)
-  }
-  model.value = next.join('')
 }
 
-defineExpose({ focus: () => focus(Math.min(model.value.length, 3)) })
-if (props.autofocus) focus(0)
+onMounted(() => window.addEventListener('keydown', onKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 </script>
 
 <template>
-  <div class="pin" :class="{ 'pin--invalid': invalid }" role="group" :aria-label="label ?? 'Clave de 4 números'">
-    <input
-      v-for="(d, i) in digits()"
-      :key="i"
-      ref="boxes"
-      class="pin-box"
-      :class="{ filled: d }"
-      type="tel"
-      inputmode="numeric"
-      autocomplete="off"
-      maxlength="4"
-      :value="d ? '•' : ''"
-      :aria-label="`Número ${i + 1} de 4`"
-      @input="onInput(i, $event)"
-      @keydown="onKey(i, $event)"
-      @focus="($event.target as HTMLInputElement).select()"
-    />
+  <div class="pin-wrap">
+    <div
+      class="pin"
+      :class="{ 'pin--invalid': invalid }"
+      role="img"
+      :aria-label="`${label ?? 'Clave'}: ${model.length} de 4 números`"
+    >
+      <span v-for="i in 4" :key="i" class="pin-box" :class="{ filled: model.length >= i, current: model.length === i - 1 }">
+        {{ model.length >= i ? '•' : '' }}
+      </span>
+    </div>
+    <div class="keypad">
+      <template v-for="(k, i) in KEYS" :key="i">
+        <span v-if="!k" aria-hidden="true" />
+        <button
+          v-else
+          type="button"
+          class="key"
+          :class="{ 'key--del': k === 'borrar' }"
+          :aria-label="k === 'borrar' ? 'Borrar' : k"
+          :disabled="k === 'borrar' ? !model.length : model.length >= 4"
+          @click="press(k)"
+        >
+          <i v-if="k === 'borrar'" class="fa-solid fa-delete-left" aria-hidden="true" />
+          <template v-else>{{ k }}</template>
+        </button>
+      </template>
+    </div>
   </div>
 </template>
 
 <style scoped lang="scss">
+.pin-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
 .pin {
   display: inline-flex;
   gap: 0.6rem;
@@ -75,23 +76,17 @@ if (props.autofocus) focus(0)
 .pin-box {
   width: 56px;
   height: 60px;
-  padding: 0;
-  text-align: center;
+  display: grid;
+  place-items: center;
   font-size: 1.6rem;
   font-weight: 700;
   border-radius: var(--radius-sm);
   border: 2px solid var(--ink-400);
   background: #fff;
   color: var(--navy-800);
-  caret-color: transparent;
-
-  &::selection {
-    background: transparent;
-  }
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
-  &:focus {
-    outline: none;
+  &.current {
     border-color: var(--navy-700);
     box-shadow: 0 0 0 3px rgba(39, 68, 90, 0.18);
   }
@@ -102,6 +97,40 @@ if (props.autofocus) focus(0)
 
   .pin--invalid & {
     border-color: var(--danger);
+  }
+}
+
+.keypad {
+  width: 100%;
+  max-width: 300px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+}
+
+.key {
+  min-height: 60px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--powder-100);
+  color: var(--navy-900);
+  font-size: 1.5rem;
+  font-weight: 600;
+  touch-action: manipulation;
+  transition: background 0.12s ease, transform 0.12s ease;
+
+  &:active:not(:disabled) {
+    background: var(--powder-200);
+    transform: scale(0.96);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+  }
+
+  &--del {
+    background: transparent;
+    font-size: 1.3rem;
   }
 }
 </style>

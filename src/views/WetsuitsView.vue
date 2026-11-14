@@ -29,13 +29,18 @@ const wetsuit = shallowRef<Pick<Product, '_id' | 'name' | 'price'> | null>(null)
 const selectedCabin = shallowRef<number | null>(null)
 const qty = shallowRef(1)
 const payer = shallowRef<Payer>('cabina')
+/** Otro valor por persona (pedido del cliente, 13-nov-2026): vacío = precio del catálogo. */
+const otherPrice = shallowRef(false)
+const customPrice = shallowRef('')
 const sending = shallowRef(false)
 /** Misma clave hasta que se guarde: reintentar sin señal nunca duplica. */
 let key = crypto.randomUUID()
 
 const cabin = computed(() => cabins.value.find((c) => c.number === selectedCabin.value) ?? null)
 const cruiseLabel = computed(() => (cruise.value ? (cruise.value.code ? `Crucero ${cruise.value.code}` : cruise.value.name) : ''))
-const total = computed(() => (wetsuit.value ? Math.round(wetsuit.value.price * qty.value * 100) / 100 : 0))
+const parsedCustom = computed(() => Number(customPrice.value.replace(',', '.')))
+const unitPrice = computed(() => (otherPrice.value ? parsedCustom.value : (wetsuit.value?.price ?? 0)))
+const total = computed(() => (wetsuit.value && unitPrice.value > 0 ? Math.round(unitPrice.value * qty.value * 100) / 100 : 0))
 
 const blockedReason = computed(() => {
   if (!cruise.value) return 'Aún no hay crucero programado.'
@@ -43,6 +48,7 @@ const blockedReason = computed(() => {
   if (cruise.value.status === 'cerrado') return `La operación de ${cruiseLabel.value} está finalizada: ya no se registran consumos nuevos.`
   if (!wetsuit.value) return `${cruiseLabel.value} no tiene trayecto A, B o C: no hay precio de wetsuit.`
   if (!cabin.value) return 'Elige la cabina.'
+  if (otherPrice.value && !(parsedCustom.value > 0)) return 'Escribe el valor por persona.'
   return ''
 })
 
@@ -62,7 +68,7 @@ function pickCabin(number: number, hasPassengers: boolean) {
 }
 
 // Cambiar lo que se registra es otro registro: nueva clave.
-watch([selectedCabin, qty, payer], () => {
+watch([selectedCabin, qty, payer, otherPrice, customPrice], () => {
   key = crypto.randomUUID()
 })
 
@@ -88,6 +94,7 @@ async function register() {
       cabinNumber: cabin.value.number,
       productId: wetsuit.value._id,
       qty: n,
+      ...(otherPrice.value ? { customPrice: Math.round(parsedCustom.value * 100) / 100 } : {}),
       // Lo que paga la agencia va como cortesía de agencia: no se cobra a la cabina y entra en su factura.
       ...(payer.value === 'agencia'
         ? { courtesy: true, courtesyKind: 'agencia' as const, courtesyReason: 'Wetsuit pagado por la agencia' }
@@ -100,6 +107,8 @@ async function register() {
     key = crypto.randomUUID()
     qty.value = 1
     payer.value = 'cabina'
+    otherPrice.value = false
+    customPrice.value = ''
     selectedCabin.value = null
   } catch (err) {
     play('error')
@@ -164,6 +173,22 @@ async function register() {
           </p>
         </div>
 
+        <div class="row">
+          <h2 class="step">4. Valor por persona</h2>
+          <div class="seg" role="radiogroup" aria-label="Valor por persona">
+            <button type="button" role="radio" :aria-checked="!otherPrice" :class="{ on: !otherPrice }" @click="otherPrice = false">
+              <i class="fa-solid fa-tag" aria-hidden="true" /> {{ wetsuit ? formatMoney(wetsuit.price) : 'Catálogo' }}
+            </button>
+            <button type="button" role="radio" :aria-checked="otherPrice" :class="{ on: otherPrice }" @click="otherPrice = true">
+              <i class="fa-solid fa-pen" aria-hidden="true" /> Otro valor
+            </button>
+          </div>
+          <div v-if="otherPrice" class="field custom-price">
+            <label for="wetsuit-price">Valor por persona (USD, IVA incluido)</label>
+            <input id="wetsuit-price" v-model="customPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="Ej. 40" />
+          </div>
+        </div>
+
         <p v-if="blockedReason" class="blocked">
           <i class="fa-solid" :class="cabin ? 'fa-circle-info' : 'fa-hand-pointer'" aria-hidden="true" /> {{ blockedReason }}
         </p>
@@ -219,6 +244,10 @@ async function register() {
   margin: 0.45rem 0 0;
   color: var(--ink-600);
   font-size: 0.95rem;
+}
+
+.custom-price {
+  margin-top: 0.6rem;
 }
 
 .blocked {

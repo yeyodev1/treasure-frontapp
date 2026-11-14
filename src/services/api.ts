@@ -644,6 +644,8 @@ export interface ConsumptionPayload {
   clientAt?: string
   /** Cóctel con cambio de gaseosa o licor (ids de insumos). */
   swaps?: Array<{ from: string; to: string }>
+  /** Wetsuit con otro valor por persona (IVA incluido). */
+  customPrice?: number
 }
 
 /** Wetsuit con el precio del trayecto del crucero (A y B, o C); null si el crucero no tiene trayecto. */

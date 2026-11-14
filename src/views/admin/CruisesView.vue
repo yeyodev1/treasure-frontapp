@@ -53,7 +53,7 @@ const untilDate = shallowRef('')
 const showGenerator = shallowRef(false)
 
 // ---- Nuevo crucero (pedido del cliente, 31-oct-2026) ----
-// Solo inician y terminan sábado o martes: cada tipo ofrece únicamente sus
+// Solo inician y terminan viernes, sábado o martes: cada tipo ofrece únicamente sus
 // fechas de zarpe, con las ocupadas marcadas con el crucero que las ocupa.
 // Al abrir, queda elegido el siguiente crucero del ciclo en su primera
 // fecha libre: lo habitual es revisar y tocar Crear.
@@ -263,11 +263,11 @@ async function generate() {
     toast.error('Elige la fecha de inicio del crucero A y hasta cuándo programar')
     return
   }
-  // Los cruceros solo inician sábado o martes: el ciclo arranca con A en sábado.
+  // El ciclo arranca con A, que zarpa los viernes (13-nov-2026).
   const weekday = new Date(`${startDate.value}T12:00:00Z`).getUTCDay()
-  if (weekday !== 6) {
+  if (weekday !== 5) {
     play('error')
-    toast.error('El crucero A zarpa los sábados: elige un sábado para empezar el ciclo')
+    toast.error('El crucero A zarpa los viernes: elige un viernes para empezar el ciclo')
     return
   }
   generating.value = true
@@ -339,7 +339,7 @@ async function onPassengersSaved() {
     <header class="page-head">
       <div class="page-head-text">
         <h1 class="page-title">Cruceros</h1>
-        <p class="page-lead">El siguiente crucero ya viene sugerido: revisa y crea. Solo zarpan sábado o martes.</p>
+        <p class="page-lead">El siguiente crucero ya viene sugerido: revisa y crea. Solo zarpan viernes, sábado o martes.</p>
       </div>
       <div class="page-actions">
         <button type="button" class="btn btn-secondary" @click="showSettings = true">
@@ -509,7 +509,7 @@ async function onPassengersSaved() {
           <div class="generate">
             <div class="field">
               <label>Inicio del crucero A</label>
-              <BaseDatePicker v-model="startDate" placeholder="Sábado de inicio" />
+              <BaseDatePicker v-model="startDate" placeholder="Viernes de inicio" />
             </div>
             <div class="field">
               <label>Programar hasta</label>

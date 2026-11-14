@@ -16,12 +16,12 @@ const userStore = useUserStore()
  * Entrada como en Registros ISM (pedido del cliente, 12-nov-2026): eliges tu
  * departamento y pones tu clave de 4 números. El correo queda como respaldo.
  */
+// Animales y colores de cada departamento (pedido del cliente, 13-nov-2026). Sin Bodega: no la usan.
 const DEPARTMENTS = [
-  { key: 'bartender', label: 'Bar', icon: 'fa-martini-glass-citrus' },
-  { key: 'direccion', label: 'Dirección de crucero', icon: 'fa-bell-concierge' },
-  { key: 'bodega', label: 'Bodega', icon: 'fa-boxes-stacked' },
-  { key: 'admin', label: 'Administración', icon: 'fa-clipboard-list' },
-  { key: 'duena', label: 'Gerencia', icon: 'fa-shield-halved' },
+  { key: 'bartender', label: 'Bar', animal: 'booby', color: '#497C7A' },
+  { key: 'direccion', label: 'Dirección de crucero', animal: 'tortoise', color: '#B69C72' },
+  { key: 'admin', label: 'Administración', animal: 'sealion', color: '#7C9299' },
+  { key: 'duena', label: 'Gerencia', animal: 'frigate', color: '#354B62' },
 ] as const
 type Department = (typeof DEPARTMENTS)[number]
 const department = shallowRef<Department | null>(null)
@@ -82,8 +82,8 @@ async function submit() {
       <!-- Paso 1: departamento -->
       <template v-if="!byEmail && !department">
         <div class="areas">
-          <button v-for="d in DEPARTMENTS" :key="d.key" type="button" class="area" @click="pick(d)">
-            <i class="fa-solid" :class="d.icon" aria-hidden="true" />
+          <button v-for="d in DEPARTMENTS" :key="d.key" type="button" class="area" :style="{ backgroundColor: d.color }" @click="pick(d)">
+            <img :src="`/brand/animals/${d.animal}.webp`" alt="" class="area-animal" />
             <span>{{ d.label }}</span>
           </button>
         </div>
@@ -299,31 +299,44 @@ async function submit() {
 }
 
 .area {
-  min-height: 120px;
+  min-height: 150px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
-  padding: 0.75rem;
+  gap: 0.35rem;
+  padding: 0.75rem 0.5rem;
   text-align: center;
   border-radius: var(--radius);
-  border: 1px solid var(--line-strong);
-  background: var(--powder-100);
-  color: var(--navy-900);
-  font-size: 1.1rem;
+  border: none;
+  color: #fff;
+  font-family: var(--font-serif);
+  font-size: 1.3rem;
   font-weight: 600;
-  transition: background 0.18s ease, border-color 0.18s ease;
+  line-height: 1.1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  touch-action: manipulation;
+  transition: filter 0.18s ease, transform 0.12s ease;
 
-  i {
-    font-size: 1.5rem;
+  &:hover {
+    filter: brightness(1.06);
   }
 
-  &:hover,
   &:active {
-    background: var(--powder-200);
-    border-color: var(--navy-800);
+    transform: scale(0.97);
   }
+
+  &:focus-visible {
+    outline: 3px solid var(--navy-900);
+    outline-offset: 3px;
+  }
+}
+
+.area-animal {
+  width: 100%;
+  max-width: 130px;
+  aspect-ratio: 38 / 30;
+  object-fit: contain;
 }
 
 .step-head {

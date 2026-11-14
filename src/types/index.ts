@@ -266,7 +266,7 @@ export interface CruiseLegOption {
   routeTo: string
   durationDays: number
   departureTime: string
-  /** Día de zarpe ("sábado", "martes"). */
+  /** Día de zarpe ("viernes", "sábado", "martes"). */
   weekday: string
   dates: Array<{
     date: string
