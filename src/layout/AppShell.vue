@@ -88,6 +88,9 @@ const ROLE_TABS: Partial<Record<UserRole, NavItem[]>> = {
   ],
   duena: [
     { to: '/admin', label: 'Resumen del negocio', short: 'Resumen', icon: 'fa-chart-line', roles: [] },
+    // Gerencia ve cada cuenta y si su factura se emitió (pedido del cliente, 14-nov-2026).
+    { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: [] },
+    { to: '/admin/pagos', label: 'Cobros', icon: 'fa-cash-register', roles: [] },
     PEDIDOS,
     { to: '/inventario/existencias?ubicacion=quito', label: 'Bodega de Quito', icon: 'fa-city', roles: [] },
     { to: '/inventario/existencias', label: 'Inventario', icon: 'fa-boxes-stacked', roles: [] },
