@@ -294,7 +294,7 @@ async function submit() {
 
 .areas {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
 }
 
@@ -311,10 +311,10 @@ async function submit() {
   border: none;
   color: #fff;
   font-family: var(--font-serif);
-  font-size: 1.3rem;
-  font-weight: 600;
+  font-size: clamp(1.1rem, 4.6vw, 1.4rem);
+  font-weight: 700;
   line-height: 1.1;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
   touch-action: manipulation;
   transition: filter 0.18s ease, transform 0.12s ease;
 
@@ -334,7 +334,7 @@ async function submit() {
 
 .area-animal {
   width: 100%;
-  max-width: 130px;
+  max-width: 88px;
   aspect-ratio: 38 / 30;
   object-fit: contain;
 }
