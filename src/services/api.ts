@@ -303,6 +303,13 @@ export async function apiProforma(cruiseId: string, cabinNumber: number, downloa
   return { blob: data, fileName: match?.[1] ?? `proforma-cabin-${cabinNumber}.pdf` }
 }
 
+/** Excel «Cobro bar» de un crucero: cobros con su factura y consumos (14-nov-2026). */
+export async function apiCobroBar(cruiseId: string) {
+  const { data, headers } = await http.get<Blob>(`/cruises/${cruiseId}/cobro-bar`, { responseType: 'blob' })
+  const match = /filename="([^"]+)"/.exec(String(headers['content-disposition'] ?? ''))
+  return { blob: data, fileName: match?.[1] ?? 'cobro-bar.xlsx' }
+}
+
 // Cobros
 /** Una forma de pago del cobro. Sin monto = lo que falta. */
 export interface CollectLine {

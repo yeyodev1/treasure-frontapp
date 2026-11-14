@@ -7,9 +7,9 @@ import { useToastStore } from '@/stores/toast'
 import { useUserStore } from '@/stores/user'
 import { useConfirmStore } from '@/stores/confirm'
 import { useSound } from '@/composables/useSound'
-import { apiAgencyCourtesies, apiCruiseAccounts, apiCruises, apiOrders, apiReviewHeld } from '@/services/api'
+import { apiAgencyCourtesies, apiCobroBar, apiCruiseAccounts, apiCruises, apiOrders, apiReviewHeld } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
-import { formatDateTime, formatMoney } from '@/utils/format'
+import { formatDateTime, formatMoney, TIMEZONE } from '@/utils/format'
 import AccountModal from '@/components/accounts/AccountModal.vue'
 import GroupCollectModal from '@/components/accounts/GroupCollectModal.vue'
 import AgencyCourtesiesModal from '@/components/accounts/AgencyCourtesiesModal.vue'
@@ -101,10 +101,15 @@ function paidShare(row: CabinAccountRow) {
   return row.consumed > 0 ? Math.min(100, (row.paid / row.consumed) * 100) : 0
 }
 
+/** "14 nov" en hora de Galápagos. */
+const shortDay = (d: string) =>
+  new Date(d).toLocaleDateString('es-EC', { day: 'numeric', month: 'short', timeZone: TIMEZONE }).replace('.', '')
+
+// Con las fechas se encuentra el crucero (pedido del cliente, 14-nov-2026).
 const cruiseOptions = computed(() =>
   cruises.value.map((c) => ({
     value: c._id,
-    label: `${c.code ? `Crucero ${c.code}` : c.name}${c.status === 'abordo' ? ' · en curso' : c.status === 'cerrado' ? ' · finalizado' : ' · programado'}`,
+    label: `${shortDay(c.startDate)}${c.endDate ? ` → ${shortDay(c.endDate)}` : ''} · ${c.code || c.name}${c.status === 'abordo' ? ' · en curso' : c.status === 'cerrado' ? ' · finalizado' : ' · programado'}`,
   })),
 )
 
@@ -148,13 +153,34 @@ const finishTarget = shallowRef<Cruise | null>(null)
 const canFinish = computed(() => !isBar.value && userStore.isDirector && cruise.value?.status === 'abordo')
 const allSettled = computed(() => activeRows.value.length > 0 && totals.value.open === 0)
 
+/** Excel «Cobro bar» del crucero elegido (pedido del cliente, 14-nov-2026). */
+const downloading = shallowRef(false)
+async function downloadCobroBar() {
+  if (!cruise.value || downloading.value) return
+  downloading.value = true
+  try {
+    const { blob, fileName } = await apiCobroBar(cruise.value._id)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  } catch (err) {
+    toast.error(apiErrorMessage(err))
+  } finally {
+    downloading.value = false
+  }
+}
+
 async function loadCruises() {
   const list = await apiCruises()
   // En curso primero, luego finalizadas recientes y programadas próximas.
+  const byStart = (a: Cruise, b: Cruise) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
   cruises.value = [
     ...list.filter((c) => c.status === 'abordo'),
-    ...list.filter((c) => c.status === 'cerrado').reverse().slice(0, 12),
-    ...list.filter((c) => c.status === 'planificado').slice(0, 3),
+    ...list.filter((c) => c.status === 'planificado').sort(byStart).slice(0, 3),
+    ...list.filter((c) => c.status === 'cerrado').sort((a, b) => byStart(b, a)).slice(0, 20),
   ]
 }
 
@@ -277,6 +303,10 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
       </div>
       <div v-if="!isBar && cruiseOptions.length" class="cruise-pick">
         <BaseSelect :model-value="selectedId" :options="cruiseOptions" aria-label="Crucero" @update:model-value="changeCruise" />
+        <button v-if="cruise" type="button" class="btn btn-secondary cobro-bar" :disabled="downloading" @click="downloadCobroBar">
+          <i class="fa-solid" :class="downloading ? 'fa-spinner fa-spin' : 'fa-file-excel'" aria-hidden="true" />
+          {{ downloading ? 'Generando…' : 'Descargar cobro bar (Excel)' }}
+        </button>
       </div>
     </header>
 
@@ -537,6 +567,9 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
 
 .cruise-pick {
   flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 
   @include tablet {
     flex: 0 1 320px;
