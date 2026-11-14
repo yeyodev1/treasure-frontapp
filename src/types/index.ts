@@ -598,7 +598,12 @@ export interface AccountOrder {
   /** Pasajero de la cabina que lo consumió (null = sin asignar). */
   consumerId: string | null
   consumerName: string
+  /** Bar o wetsuits: se cobran por separado, cada uno con su factura (14-nov-2026). */
+  line?: BillingLine
 }
+
+/** Línea de negocio: el bar y los wetsuits son empresas distintas en Contífico. */
+export type BillingLine = 'bar' | 'wetsuit'
 
 export interface AccountPayment {
   id: string
@@ -617,6 +622,7 @@ export interface AccountPayment {
   payer?: string
   /** Cabinas cobradas juntas (en la cabeza del cobro). */
   cabins?: number[]
+  line?: BillingLine
   invoiceStatus: InvoiceStatus
   invoiceNumber: string
   invoiceError: string
@@ -726,6 +732,7 @@ export interface Payment {
   reference?: string
   cashConfirmed: boolean
   billing: { name: string; idNumber: string; email: string; country: string }
+  line?: BillingLine
   invoiceStatus: InvoiceStatus
   invoiceId: string
   invoiceNumber?: string

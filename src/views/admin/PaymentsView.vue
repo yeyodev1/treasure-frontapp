@@ -261,7 +261,7 @@ function collectorName(payment: Payment): string {
         >
           <span class="c-date">{{ formatDateTime(payment.createdAt) }}</span>
           <span class="c-id">
-            <strong>Cabina {{ payment.cabinNumber }}</strong>
+            <strong>Cabina {{ payment.cabinNumber }}<template v-if="payment.line === 'wetsuit'"> · Wetsuits</template></strong>
             <small v-if="cruiseName(payment)">Crucero {{ cruiseName(payment) }}</small>
           </span>
           <span class="c-method">

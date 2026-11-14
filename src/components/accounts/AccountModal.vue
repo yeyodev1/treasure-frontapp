@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, shallowRef, useTemplateRef, watch } from 'vue'
-import type { AccountSummary, Cabin, Order } from '@/types'
+import type { AccountSummary, BillingLine, Cabin, Order } from '@/types'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import PayerForm from '@/components/accounts/PayerForm.vue'
 import PaymentLines from '@/components/accounts/PaymentLines.vue'
@@ -123,8 +123,21 @@ const openOrders = computed(() =>
       total: o.total,
       consumerId: o.consumerId && peopleIds.value.has(o.consumerId) ? o.consumerId : null,
       consumerName: o.consumerName,
+      line: o.line ?? 'bar',
     })),
 )
+
+// ---- Bar y wetsuits por separado (pedido del cliente, 14-nov-2026) ----
+// Son empresas distintas en Contífico: cada uno se cobra aparte y lleva su factura.
+const collectLine = shallowRef<BillingLine>('bar')
+const lineTotals = computed(() => {
+  const sum = (line: BillingLine) =>
+    Math.round(openOrders.value.filter((o) => o.line === line).reduce((s, o) => s + o.total, 0) * 100) / 100
+  return { bar: sum('bar'), wetsuit: sum('wetsuit') }
+})
+const mixed = computed(() => lineTotals.value.bar > 0 && lineTotals.value.wetsuit > 0)
+/** Lo que entra en este cobro: con bar y wetsuits, solo los de la línea elegida. */
+const lineOrders = computed(() => (mixed.value ? openOrders.value.filter((o) => o.line === collectLine.value) : openOrders.value))
 
 /**
  * Cada uno lo suyo: la persona elegida ve lo suyo ya marcado, lo sin asignar
@@ -134,7 +147,7 @@ const openOrders = computed(() =>
 const collectOrders = computed(() => {
   const me = payerBilling.value.passengerId
   const rank = (o: (typeof openOrders.value)[number]) => (o.consumerId && o.consumerId === me ? 0 : o.consumerId ? 2 : 1)
-  return [...openOrders.value]
+  return [...lineOrders.value]
     .map((o) => ({ ...o, mine: Boolean(me) && o.consumerId === me, other: Boolean(o.consumerId) && o.consumerId !== me }))
     .sort((a, b) => rank(a) - rank(b))
 })
@@ -144,9 +157,13 @@ const selectable = computed(() => collectOrders.value.filter((o) => !o.other))
 function syncSelection() {
   if (splitMode.value !== 'consumos') return
   const me = payerBilling.value.passengerId
-  selected.value = new Set(me ? openOrders.value.filter((o) => o.consumerId === me).map((o) => o.id) : [])
+  selected.value = new Set(me ? lineOrders.value.filter((o) => o.consumerId === me).map((o) => o.id) : [])
 }
 watch([() => payerBilling.value.passengerId, splitMode], syncSelection)
+watch(collectLine, () => {
+  payLines.value = [newLine()]
+  syncSelection()
+})
 
 // ---- Quién consumió qué (pedido del cliente, 3-nov-2026) ----
 // Se asigna antes de aprobar; no es un cargo: no anula la aprobación.
@@ -207,6 +224,9 @@ const target = computed(() => {
   if (splitMode.value === 'consumos') {
     return Math.round(openOrders.value.filter((o) => selected.value.has(o.id)).reduce((s, o) => s + o.total, 0) * 100) / 100
   }
+  if (mixed.value && splitMode.value === 'una') {
+    return Math.round(lineOrders.value.reduce((s, o) => s + o.total, 0) * 100) / 100
+  }
   if (splitMode.value === 'porcentaje') {
     if (!percentOk.value) return 0
     const share = Math.round(acc.total * percentValue.value) / 100
@@ -215,13 +235,16 @@ const target = computed(() => {
   return acc.due
 })
 
-const payState = computed(() => linesState(payLines.value, target.value, splitMode.value === 'una'))
+const payState = computed(() => linesState(payLines.value, target.value, splitMode.value === 'una' && !mixed.value))
 const payerError = computed(() => billingError(payerBilling.value))
 
 const collectBlocked = computed(() => {
   if (!account.value?.readyToCollect) return 'Aprueba la cuenta para cobrar.'
   if (splitMode.value === 'consumos' && !selected.value.size) return 'Marca los consumos que paga esta persona.'
   if (splitMode.value === 'porcentaje' && !percentOk.value) return 'El porcentaje va de 1 a 100.'
+  if (mixed.value && splitMode.value === 'porcentaje') {
+    return 'Con bar y wetsuits en la cuenta no se divide en porcentaje: cobra cada uno por separado.'
+  }
   if (target.value <= 0) return 'No hay importe para cobrar.'
   return payerError.value || payState.value.error
 })
@@ -484,12 +507,13 @@ async function collect() {
   const amount = payState.value.total
   const who = payerBilling.value.name.trim()
   const how = methodsLabel(payLines.value, payState.value, formatMoney)
+  const lineName = mixed.value ? (collectLine.value === 'wetsuit' ? 'wetsuits' : 'bar') : ''
   const what =
     splitMode.value === 'consumos'
-      ? `${selected.value.size} consumo(s) de ${who}`
+      ? `${selected.value.size} consumo(s) de ${who}${lineName ? ` (${lineName})` : ''}`
       : splitMode.value === 'porcentaje'
         ? `${percentValue.value}% de la cuenta (${who})`
-        : `cabina ${props.cabin.number}`
+        : `${lineName ? `${lineName} de la ` : ''}cabina ${props.cabin.number}`
   const ok = await confirmStore.ask({
     title: `¿Cobrar ${formatMoney(amount)}?`,
     message: payState.value.partial
@@ -505,7 +529,12 @@ async function collect() {
       cruiseId: props.cruiseId,
       cabinNumber: props.cabin.number,
       lines: toPayload(payLines.value, payState.value),
-      orderIds: splitMode.value === 'consumos' ? [...selected.value] : undefined,
+      orderIds:
+        splitMode.value === 'consumos'
+          ? [...selected.value]
+          : mixed.value && splitMode.value === 'una'
+            ? lineOrders.value.map((o) => o.id)
+            : undefined,
       percent: splitMode.value === 'porcentaje' ? percentValue.value : undefined,
       expectedDue: acc.due,
       notify: notifyClient.value,
@@ -837,6 +866,7 @@ async function resendSummary() {
                   {{ formatDateTime(p.createdAt) }}<template v-if="p.payer"> · {{ p.payer }}</template>
                   <template v-if="p.cabins && p.cabins.length > 1"> · cabinas {{ p.cabins.join(', ') }} juntas</template>
                   <template v-if="p.part"> · parte de la cuenta</template>
+                  <template v-if="p.line === 'wetsuit'"> · wetsuits</template>
                 </span>
               </span>
               <span class="payment-states">
@@ -934,6 +964,29 @@ async function resendSummary() {
         </h4>
 
         <template v-if="account.readyToCollect && userStore.canCollect">
+          <!-- Bar y wetsuits: cada uno se cobra aparte, con su factura (14-nov-2026) -->
+          <template v-if="mixed">
+            <div class="split" role="radiogroup" aria-label="Qué se cobra">
+              <button
+                v-for="opt in ([
+                  { key: 'bar', label: 'Bar', icon: 'fa-martini-glass-citrus' },
+                  { key: 'wetsuit', label: 'Wetsuits', icon: 'fa-person-swimming' },
+                ] as const)"
+                :key="opt.key"
+                type="button"
+                role="radio"
+                class="split-opt"
+                :class="{ 'split-opt--on': collectLine === opt.key }"
+                :aria-checked="collectLine === opt.key"
+                @click="collectLine = opt.key"
+              >
+                <i class="fa-solid" :class="opt.icon" aria-hidden="true" />
+                <strong>Cobrar {{ opt.label.toLowerCase() }}</strong>
+                <small>{{ formatMoney(lineTotals[opt.key]) }} · con su propia factura</small>
+              </button>
+            </div>
+            <p class="muted">El bar y los wetsuits se cobran por separado: cada uno lleva su factura.</p>
+          </template>
           <!-- ¿Cómo pagan? Una persona, o cada uno lo suyo -->
           <div class="split" role="radiogroup" aria-label="Cómo pagan">
             <button
