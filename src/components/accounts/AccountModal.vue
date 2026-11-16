@@ -20,7 +20,9 @@ import {
   apiResendSummary,
   apiProforma,
   apiReviewAnnulment,
+  apiUpgradeCourtesy,
 } from '@/services/api'
+import { useCatalogStore } from '@/stores/catalog'
 import { apiErrorMessage } from '@/services/httpBase'
 import {
   METHOD_OPTIONS,
@@ -484,6 +486,47 @@ async function retire(line: AccountLine) {
   )
 }
 
+/**
+ * Cortesía cambiada por algo de más valor (pedido del cliente, 16-nov-2026):
+ * la cortesía queda con su valor y el pasajero paga solo la diferencia.
+ */
+const catalogStore = useCatalogStore()
+async function upgrade(line: Line) {
+  try {
+    await catalogStore.load()
+  } catch (err) {
+    toast.error(apiErrorMessage(err))
+    return
+  }
+  const original = catalogStore.sellable.find((p) => p._id === line.productId)
+  const options = catalogStore.sellable
+    .filter((p) => !p.legs?.length && p.price > line.unitPrice && (!original || p.category === original.category))
+    .sort((a, b) => a.price - b.price)
+    .map((p) => ({
+      value: p._id,
+      label: `${p.name} · paga ${formatMoney(Math.round((p.price - line.unitPrice) * line.chargeableQty * 100) / 100)}`,
+      hint: `Precio ${formatMoney(p.price)} − cortesía ${formatMoney(line.unitPrice)}`,
+    }))
+  if (!options.length) {
+    toast.error(`No hay ${original ? 'productos de esa categoría' : 'productos'} de más valor que ${line.name}`)
+    return
+  }
+  const answer = await confirmStore.askChoice({
+    title: `Cambiar la cortesía: ${line.name}`,
+    message: 'La cortesía se mantiene por su valor y el pasajero paga solo la diferencia. Lo que se devuelve vuelve al stock.',
+    confirmLabel: 'Cambiar y cobrar diferencia',
+    icon: 'fa-right-left',
+    choice: { label: '¿Por cuál la cambia?', options },
+    reason: { label: 'Motivo', suggestions: ['El pasajero pidió una de mejor valor'] },
+  })
+  if (!answer) return
+  await correct(async () => {
+    await apiUpgradeCourtesy(line.orderId, answer.choice, answer.reason)
+    const chosen = catalogStore.sellable.find((p) => p._id === answer.choice)
+    return { message: `Cortesía cambiada por ${chosen?.name ?? 'el nuevo producto'}: se cobra la diferencia.` }
+  })
+}
+
 async function correct(action: () => Promise<{ message: string } | null>) {
   busy.value = true
   try {
@@ -800,6 +843,15 @@ async function resendSummary() {
                 @click="bonify(line)"
               >
                 <i class="fa-solid fa-gift" aria-hidden="true" /> Cortesía
+              </button>
+              <button
+                v-if="line.courtesy && !line.pendingQty && line.productId && !line.name.includes('(cambiada por')"
+                type="button"
+                class="btn-text line-link"
+                :disabled="busy"
+                @click="upgrade(line)"
+              >
+                <i class="fa-solid fa-right-left" aria-hidden="true" /> Cambiar y pagar diferencia
               </button>
               <button type="button" class="btn-text line-link line-link--danger" :disabled="busy" @click="retire(line)">
                 <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Retirar consumo

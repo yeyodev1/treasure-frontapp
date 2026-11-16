@@ -684,6 +684,12 @@ export async function apiUndoConsumption(id: string, reason?: string) {
   return data
 }
 
+/** Cambia una cortesía por algo de más valor: se cobra solo la diferencia (16-nov-2026). */
+export async function apiUpgradeCourtesy(id: string, productId: string, reason: string) {
+  const { data } = await http.post<{ summary: CabinSummary }>(`/consumptions/${id}/upgrade`, { productId, reason })
+  return data
+}
+
 export async function apiBonifyConsumption(id: string, reason: string, kind: CourtesyKind = 'casa') {
   const { data } = await http.post<{ order: Order; summary?: CabinSummary }>(`/consumptions/${id}/bonify`, { reason, kind })
   return data

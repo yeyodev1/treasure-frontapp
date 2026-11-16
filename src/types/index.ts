@@ -549,6 +549,8 @@ export type AccountStatus = 'abierta' | 'en_revision' | 'aprobada' | 'cobrada'
 
 export interface AccountLineItem {
   index: number
+  /** Producto del catálogo (para cambiar una cortesía por otro de más valor). */
+  productId?: string
   name: string
   qty: number
   deliveredQty: number
