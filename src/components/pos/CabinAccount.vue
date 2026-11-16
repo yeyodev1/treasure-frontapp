@@ -24,6 +24,8 @@ const props = defineProps<{
   courtesyMode: string | null
   /** Consumo que se está corrigiendo (deshabilita las demás correcciones). */
   correcting: string
+  /** Línea a la que se le está cambiando la persona. */
+  assigning: string
 }>()
 
 /** Pasajero al que se carga lo próximo (cuentas separadas, 16-nov-2026); null = a la cabina. */
@@ -34,6 +36,7 @@ const emit = defineEmits<{
   retire: [item: CabinConsumption]
   courtesy: [item: CabinConsumption]
   toggleCourtesy: []
+  assign: [orderIds: string[], passengerId: string | null, lineKey: string]
 }>()
 
 /**
@@ -180,6 +183,13 @@ function names(c: Cabin) {
 
 const people = computed(() => props.cabin.passengers.filter((p) => p._id))
 const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name
+
+/** Un consumo ya cargado también se asigna (o se quita) desde el bar, como en Cuentas. */
+function assignLine(line: AccountLine, passengerId: string) {
+  const ids = [...new Set(line.items.map((c) => c.orderId))]
+  if (ids.length) emit('assign', ids, line.consumerId === passengerId ? null : passengerId, line.key)
+}
+const canAssign = computed(() => people.value.length > 1 && props.summary?.accountStatus !== 'cobrada')
 </script>
 
 <template>
@@ -330,6 +340,32 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name
             </button>
           </div>
           <span class="line-total">{{ line.courtesy ? '$0,00' : formatMoney(line.total + line.pending * line.unitPrice) }}</span>
+          <div
+            v-if="canAssign && !line.courtesy && line.items.length"
+            class="line-who"
+            role="radiogroup"
+            :aria-label="`Quién consumió ${line.name}`"
+          >
+            <span class="who-label">¿Quién?</span>
+            <button
+              v-for="p in people"
+              :key="p._id"
+              type="button"
+              role="radio"
+              class="who-btn who-btn--sm"
+              :class="{ 'who-btn--on': line.consumerId === p._id }"
+              :aria-checked="line.consumerId === p._id"
+              :disabled="Boolean(assigning)"
+              @click="assignLine(line, p._id!)"
+            >
+              <i
+                class="fa-solid"
+                :class="assigning === line.key ? 'fa-spinner fa-spin' : line.consumerId === p._id ? 'fa-circle-check' : 'fa-user'"
+                aria-hidden="true"
+              />
+              {{ firstName(p.name) }}
+            </button>
+          </div>
         </li>
         </template>
       </TransitionGroup>
@@ -474,8 +510,18 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name
     color: var(--navy-600);
   }
 
-  &:active {
+  &:active:not(:disabled) {
     transform: scale(0.97);
+  }
+
+  &:disabled {
+    cursor: progress;
+  }
+
+  &--sm {
+    min-height: 40px;
+    padding: 0 0.7rem;
+    font-size: 0.82rem;
   }
 
   &--on {
@@ -487,6 +533,15 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name
       color: var(--powder-300);
     }
   }
+}
+
+.line-who {
+  grid-area: who;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding-top: 0.35rem;
 }
 
 .tag--who {
@@ -640,7 +695,8 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name
   grid-template-columns: minmax(0, 1fr) auto auto 5.2rem;
   grid-template-areas:
     'name gift stepper total'
-    'meta gift stepper total';
+    'meta gift stepper total'
+    'who who who who';
   align-items: center;
   column-gap: 0.4rem;
   padding: 0.5rem 0;
@@ -660,7 +716,8 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name
     grid-template-columns: minmax(0, 1fr) auto auto auto;
     grid-template-areas:
       'name name name name'
-      'meta gift stepper total';
+      'meta gift stepper total'
+      'who who who who';
     row-gap: 0.25rem;
   }
 

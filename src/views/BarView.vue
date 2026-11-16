@@ -10,7 +10,7 @@ import { useConfirmStore } from '@/stores/confirm'
 import { useSound } from '@/composables/useSound'
 import { useConsumptionQueue, type QueueOutcome } from '@/composables/useConsumptionQueue'
 import { useConsumptionCorrections } from '@/composables/useConsumptionCorrections'
-import { apiAvailability, apiCabinSummary, apiCreateRequisition } from '@/services/api'
+import { apiAssignConsumers, apiAvailability, apiCabinSummary, apiCreateRequisition } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { TIMEZONE, formatMoney, formatTime } from '@/utils/format'
 import ProductCatalog, { type CatalogFilter } from '@/components/pos/ProductCatalog.vue'
@@ -472,6 +472,23 @@ function addById(productId: string, consumerId: string | null) {
   if (product) tap(product, undefined, consumerId)
 }
 
+/** Cambia quién consumió una línea ya cargada (cuentas separadas). */
+const assigning = shallowRef('')
+async function assignLine(orderIds: string[], passengerId: string | null, lineKey: string) {
+  const c = cabin.value
+  if (!cruise.value || !c || assigning.value) return
+  assigning.value = lineKey
+  try {
+    await apiAssignConsumers(cruise.value._id, c.number, orderIds.map((orderId) => ({ orderId, passengerId })))
+    await loadSummary(c.number)
+  } catch (err) {
+    play('error')
+    toast.error(apiErrorMessage(err))
+  } finally {
+    assigning.value = ''
+  }
+}
+
 /** Cortesía o Retirar consumo sobre un consumo de la cuenta. */
 async function correctRecent(item: CabinConsumption, kind: 'courtesy' | 'retire') {
   if (correcting.value) return
@@ -685,11 +702,13 @@ function onEmptyCabin(number: number) {
               :can-add="canAdd"
               :courtesy-mode="courtesyText"
               :correcting="correcting"
+              :assigning="assigning"
               v-model:consumer="consumer"
               @add="addById"
               @retire="(item) => correctRecent(item, 'retire')"
               @courtesy="(item) => correctRecent(item, 'courtesy')"
               @toggle-courtesy="toggleCourtesy"
+              @assign="assignLine"
             />
           </Transition>
         </aside>
