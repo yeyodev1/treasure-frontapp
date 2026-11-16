@@ -26,8 +26,11 @@ const props = defineProps<{
   correcting: string
 }>()
 
+/** Pasajero al que se carga lo próximo (cuentas separadas, 16-nov-2026); null = a la cabina. */
+const consumer = defineModel<string | null>('consumer', { default: null })
+
 const emit = defineEmits<{
-  add: [productId: string]
+  add: [productId: string, consumerId: string | null]
   retire: [item: CabinConsumption]
   courtesy: [item: CabinConsumption]
   toggleCourtesy: []
@@ -72,6 +75,8 @@ interface AccountLine {
   /** Día de registro (Galápagos): la misma bebida en otro día es otra línea (7-nov-2026). */
   day: string
   fromCruise: string
+  consumerId: string | null
+  consumerName: string
 }
 
 const consumptions = computed(() => props.summary?.recent ?? [])
@@ -87,11 +92,13 @@ const lines = computed<AccountLine[]>(() => {
     agency = false,
     day = today,
     fromCruise = '',
+    consumerId: string | null = null,
+    consumerName = '',
   ) => {
-    const key = `${day}|${fromCruise}|${productId}|${name}|${courtesy ? (agency ? 'a' : 'c') : 'p'}|${unitPrice}`
+    const key = `${day}|${fromCruise}|${productId}|${name}|${courtesy ? (agency ? 'a' : 'c') : 'p'}|${unitPrice}|${consumerId ?? ''}`
     let line = map.get(key)
     if (!line) {
-      line = { key, productId, name, unitPrice, courtesy, agency, qty: 0, pending: 0, total: 0, items: [], lastAt: 0, day, fromCruise }
+      line = { key, productId, name, unitPrice, courtesy, agency, qty: 0, pending: 0, total: 0, items: [], lastAt: 0, day, fromCruise, consumerId, consumerName }
       map.set(key, line)
     }
     return line
@@ -100,7 +107,7 @@ const lines = computed<AccountLine[]>(() => {
     if (scope.value === 'hoy' && !c.today) continue
     if (c.qty <= 0) continue
     const unit = c.unitPrice ?? (c.qty ? c.total / c.qty : 0)
-    const line = lineFor(c.productId ?? '', c.name, unit, c.courtesy, c.courtesyKind === 'agencia', dayKeyOf(c.at), c.fromCruise ?? '')
+    const line = lineFor(c.productId ?? '', c.name, unit, c.courtesy, c.courtesyKind === 'agencia', dayKeyOf(c.at), c.fromCruise ?? '', c.consumerId ?? null, c.consumerName ?? '')
     line.qty += c.qty
     line.total += c.total
     line.items.push(c)
@@ -108,7 +115,7 @@ const lines = computed<AccountLine[]>(() => {
   }
   // Lo que esta tableta aún envía es de hoy: suma a su línea como pendiente.
   for (const e of props.queued) {
-    const line = lineFor(e.productId, e.productName, e.price, e.courtesy, e.courtesyKind === 'agencia')
+    const line = lineFor(e.productId, e.productName, e.price, e.courtesy, e.courtesyKind === 'agencia', todayKey(), '', e.consumerId ?? null, e.consumerName ?? '')
     line.pending += 1
     line.lastAt = Math.max(line.lastAt, new Date(e.clientAt).getTime())
   }
@@ -170,6 +177,9 @@ function gift(line: AccountLine) {
 function names(c: Cabin) {
   return c.passengers.map((p) => p.name).join(', ')
 }
+
+const people = computed(() => props.cabin.passengers.filter((p) => p._id))
+const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name
 </script>
 
 <template>
@@ -191,6 +201,25 @@ function names(c: Cabin) {
         {{ courtesyMode ? 'Quitar cortesía' : 'Cortesía' }}
       </button>
     </header>
+
+    <!-- Cuentas separadas: lo que se toque va a esta persona y llega asignado a Cuentas -->
+    <div v-if="people.length > 1" class="who" role="radiogroup" aria-label="Para quién es lo próximo">
+      <span class="who-label">¿Para quién?</span>
+      <button
+        v-for="p in people"
+        :key="p._id"
+        type="button"
+        role="radio"
+        class="who-btn"
+        :class="{ 'who-btn--on': consumer === p._id }"
+        :aria-checked="consumer === p._id"
+        @click="consumer = consumer === p._id ? null : p._id!"
+      >
+        <i class="fa-solid" :class="consumer === p._id ? 'fa-circle-check' : 'fa-user'" aria-hidden="true" />
+        {{ firstName(p.name) }}
+      </button>
+      <span v-if="!consumer" class="who-hint">Sin elegir: va a la cabina</span>
+    </div>
 
     <Transition name="fade">
       <p v-if="courtesyMode" class="courtesy-on">
@@ -230,7 +259,7 @@ function names(c: Cabin) {
 
     <p v-if="collapsed" class="account-last">
       <template v-if="summary?.last">
-        Último registro: <strong>{{ summary.last.qty }} × {{ summary.last.name }}</strong> · {{ whenOf(summary.last.at) }}
+        Último registro: <strong>{{ summary.last.qty }} × {{ summary.last.name }}</strong><template v-if="summary.last.consumerName"> · {{ firstName(summary.last.consumerName) }}</template> · {{ whenOf(summary.last.at) }}
       </template>
       <template v-else-if="summary">Sin consumos todavía. Toca una bebida para agregarla.</template>
     </p>
@@ -255,6 +284,7 @@ function names(c: Cabin) {
         <li v-else class="line" :class="{ 'line--courtesy': line.courtesy }">
           <span class="line-name">{{ line.name }}</span>
           <span class="line-meta">
+              <span v-if="line.consumerName" class="tag tag--who"><i class="fa-solid fa-user" aria-hidden="true" /> {{ firstName(line.consumerName) }}</span>
               <template v-if="line.courtesy"><span class="tag" :class="{ 'tag--agency': line.agency }">{{ line.agency ? 'Cortesía agencia' : 'Cortesía casa' }}</span></template>
               <span v-else class="nowrap">{{ formatMoney(line.unitPrice) }} c/u</span>
               <span v-if="line.lastAt" class="nowrap">{{ formatHour(new Date(line.lastAt)) }}</span>
@@ -294,7 +324,7 @@ function names(c: Cabin) {
               class="step"
               :disabled="line.courtesy || !line.productId || !canAdd(line.productId)"
               :aria-label="`Agregar 1 ${line.name}`"
-              @click="emit('add', line.productId)"
+              @click="emit('add', line.productId, line.consumerId)"
             >
               <i class="fa-solid fa-plus" aria-hidden="true" />
             </button>
@@ -404,6 +434,64 @@ function names(c: Cabin) {
     border-color: var(--navy-800);
     color: #fff;
   }
+}
+
+.who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.9rem 0.6rem;
+}
+
+.who-label {
+  font-size: 0.8rem;
+  color: var(--ink-600);
+}
+
+.who-hint {
+  font-size: 0.78rem;
+  color: var(--ink-600);
+}
+
+.who-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--cream-200);
+  background: var(--surface);
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.12s ease;
+
+  i {
+    color: var(--navy-600);
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
+
+  &--on {
+    background: var(--navy-800);
+    border-color: var(--navy-800);
+    color: #fff;
+
+    i {
+      color: var(--powder-300);
+    }
+  }
+}
+
+.tag--who {
+  background: var(--navy-800);
+  color: #fff;
 }
 
 .courtesy-on {

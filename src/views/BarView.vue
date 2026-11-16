@@ -49,6 +49,9 @@ const summaries = ref<Record<number, CabinSummary>>({})
 const availability = ref<Availability>({})
 /** Modo Cortesía: motivo de la próxima bebida (null = se cobra normal). */
 const courtesyMode = shallowRef<{ reason: string; kind: CourtesyKind } | null>(null)
+/** Pasajero de la cabina al que se carga (cuentas separadas); se reinicia al cambiar de cabina. */
+const consumer = shallowRef<string | null>(null)
+watch(selectedCabin, () => (consumer.value = null))
 /** Lo que muestra la cuenta mientras la cortesía está activa. */
 const courtesyText = computed(() =>
   courtesyMode.value
@@ -257,7 +260,11 @@ function confirmSwap(swaps: Array<{ from: string; to: string }>, name: string, p
 }
 
 /** Un toque intencional suma una unidad a la cabina elegida. */
-function tap(product: Product, change?: { swaps: Array<{ from: string; to: string }>; name: string; price: number }) {
+function tap(
+  product: Product,
+  change?: { swaps: Array<{ from: string; to: string }>; name: string; price: number },
+  consumerId: string | null = consumer.value,
+) {
   if (blockedReason.value || !cruise.value || !cabin.value) {
     play('error')
     toast.error(blockedReason.value || 'Elige la cabina')
@@ -279,6 +286,8 @@ function tap(product: Product, change?: { swaps: Array<{ from: string; to: strin
     courtesy: Boolean(courtesyMode.value),
     courtesyReason: courtesyMode.value?.reason,
     courtesyKind: courtesyMode.value?.kind,
+    consumerId: consumerId ?? undefined,
+    consumerName: cabin.value.passengers.find((p) => p._id === consumerId)?.name,
   })
   rememberUse(product._id)
   const prev = lastTap.value
@@ -458,9 +467,9 @@ function canAdd(productId: string) {
   return sellableById.value.has(productId) && availability.value[productId]?.available !== false
 }
 
-function addById(productId: string) {
+function addById(productId: string, consumerId: string | null) {
   const product = sellableById.value.get(productId)
-  if (product) tap(product)
+  if (product) tap(product, undefined, consumerId)
 }
 
 /** Cortesía o Retirar consumo sobre un consumo de la cuenta. */
@@ -676,6 +685,7 @@ function onEmptyCabin(number: number) {
               :can-add="canAdd"
               :courtesy-mode="courtesyText"
               :correcting="correcting"
+              v-model:consumer="consumer"
               @add="addById"
               @retire="(item) => correctRecent(item, 'retire')"
               @courtesy="(item) => correctRecent(item, 'courtesy')"

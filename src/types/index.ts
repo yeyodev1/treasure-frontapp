@@ -347,6 +347,9 @@ export interface CabinConsumption {
   /** Crucero unido: código del crucero anterior de donde viene el consumo. */
   fromCruise?: string | null
   by: string
+  /** Pasajero de la cabina al que se cargó (cuentas separadas). */
+  consumerId?: string | null
+  consumerName?: string
   canUndo: boolean
   canCourtesy?: boolean
 }
