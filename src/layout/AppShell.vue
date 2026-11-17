@@ -197,7 +197,11 @@ async function checkWeeklyOrder() {
     const toReview = all.find((o) => o.status === 'directora')
     const toServe = all.find((o) => o.phase === 'atender' || o.phase === 'en_curso')
     const forBar = all.find((o) => o.status === 'bar')
-    if (r === 'direccion' && overdue) {
+    const toReceive = all.find((o) => o.toReceive)
+    if ((r === 'bartender' || r === 'direccion') && toReceive) {
+      // Flujo simple (16-nov-2026): el inventario del barco sube solo cuando el bar confirma.
+      orderNotice.value = { id: toReceive._id, tone: 'warn', action: 'Confirmar lo recibido', text: `Llegó mercadería del pedido ${toReceive.code}.` }
+    } else if (r === 'direccion' && overdue) {
       orderNotice.value = { id: overdue._id, tone: 'warn', action: 'Revisar y aprobar', text: `El bar no revisó el pedido ${overdue.code}.` }
     } else if (r === 'direccion' && toReview) {
       orderNotice.value = { id: toReview._id, tone: 'info', action: 'Revisar y aprobar', text: `El bar envió el pedido ${toReview.code} a revisión.` }

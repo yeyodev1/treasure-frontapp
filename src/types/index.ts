@@ -978,6 +978,8 @@ export interface WeeklyOrderContribution {
   kind: 'entrega' | 'envio'
   source: DeliverySource
   qty: number
+  /** Lo que el bar confirmó recibir (null = aún no confirma). */
+  received: number | null
   byName: string
   at: string
   arrived: boolean
@@ -988,10 +990,12 @@ export interface WeeklyOrderDelivery {
   kind: 'entrega' | 'envio'
   at: string
   byName: string
-  items: Array<{ product: string; name: string; source: DeliverySource; qty: number; cost: number }>
+  items: Array<{ product: string; name: string; source: DeliverySource; qty: number; cost: number; received: number | null }>
   document: string
   arrivedAt: string | null
   arrivedByName: string
+  /** Espera que el bar confirme lo recibido (las entregas anteriores ya sumaron al barco). */
+  awaitsBar: boolean
 }
 
 export interface WeeklyOrderLine {
@@ -1010,6 +1014,8 @@ export interface WeeklyOrderLine {
   barQty: number | null
   approvedQty: number | null
   observation: string
+  /** Envases que contó el bar a bordo; null = no contó. */
+  counted: number | null
   editedByName: string
   editedAt: string | null
   /** Avance en envases: ya en el barco, enviado sin llegar y lo que falta atender. */
@@ -1029,6 +1035,7 @@ export interface WeeklyOrder {
   phase: WeeklyOrderPhase
   phaseLabel: string
   overdue: boolean
+  toReceive?: boolean
   version: number
   revision: number
   changedAt: string | null
@@ -1042,6 +1049,16 @@ export interface WeeklyOrder {
 
 export interface WeeklyOrderCurrent {
   order: WeeklyOrder | null
-  others: Array<{ _id: string; code: string; week: string; cutAt: string; status: WeeklyOrderStatus; phase: WeeklyOrderPhase; overdue: boolean }>
+  others: Array<{
+    _id: string
+    code: string
+    week: string
+    cutAt: string
+    status: WeeklyOrderStatus
+    phase: WeeklyOrderPhase
+    overdue: boolean
+    /** Hay algo esperando que el bar confirme lo recibido. */
+    toReceive?: boolean
+  }>
   nextCut: string
 }

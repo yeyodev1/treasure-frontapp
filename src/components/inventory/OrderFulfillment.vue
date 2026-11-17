@@ -16,8 +16,9 @@ import type { DeliverySource, WeeklyOrder, WeeklyOrderLine } from '@/types'
  * Entrega compartida del pedido aprobado (guía 4 perfiles, 4-nov-2026). En la
  * misma lista cada responsable dice cuánto atiende y de dónde sale:
  * administradora (Bodega de puerto · Compra nueva) → "Confirmar mi entrega";
- * dueña (Bodega de Quito · Compra nueva) → "Confirmar mi envío". El envío de
- * Quito suma al barco al confirmar su llegada, sin descontar Quito otra vez.
+ * dueña (Bodega de Quito · Compra nueva) → "Confirmar mi envío".
+ * Flujo simple (Gabriel, 16-nov-2026): nada sube al barco hasta que el bar
+ * confirma lo recibido; el inventario suma lo que llegó de verdad.
  */
 const props = defineProps<{ order: WeeklyOrder }>()
 const emit = defineEmits<{ updated: [order: WeeklyOrder] }>()
@@ -34,7 +35,7 @@ const mine = computed<'entrega' | 'envio' | null>(() => {
   if (userStore.role === 'admin') return 'entrega'
   return null
 })
-const canArrive = computed(() => userStore.isDirector || userStore.role === 'admin')
+const canReceive = computed(() => userStore.isDirector || userStore.role === 'bartender')
 const store = computed<DeliverySource>(() => (mine.value === 'envio' ? 'quito' : 'puerto'))
 const STORE_LABEL: Record<'puerto' | 'quito', string> = { puerto: 'Bodega de puerto', quito: 'Bodega de Quito' }
 
@@ -49,7 +50,18 @@ const busy = shallowRef(false)
 let key = crypto.randomUUID()
 
 const open = computed(() => props.order.lines.filter((l) => l.pending > 0))
-const inTransit = computed(() => props.order.deliveries.filter((d) => d.kind === 'envio' && !d.arrivedAt))
+const inTransit = computed(() => props.order.deliveries.filter((d) => !d.arrivedAt && (d.kind === 'envio' || d.awaitsBar)))
+
+/** Lo que el bar dice que llegó, por entrega y producto; empieza con lo enviado. */
+const got = ref<Record<string, Record<string, number>>>({})
+const itemKey = (i: { product: string; source: DeliverySource }) => `${i.product}:${i.source}`
+watch(
+  inTransit,
+  (list) => {
+    for (const d of list) got.value[d.key] ??= Object.fromEntries(d.items.map((i) => [itemKey(i), i.qty]))
+  },
+  { immediate: true },
+)
 
 watch(
   () => props.order._id,
@@ -108,7 +120,7 @@ async function confirmMine() {
     title: isEnvio ? '¿Confirmar tu envío desde Quito?' : '¿Confirmar tu entrega al barco?',
     message: isEnvio
       ? `${total.value} envase(s). Se descuenta de la Bodega de Quito una sola vez. El barco los suma cuando se confirme la llegada.`
-      : `${total.value} envase(s). Se descuenta de la Bodega de puerto lo que tomas y se suma al barco todo lo entregado.`,
+      : `${total.value} envase(s). Se descuenta de la Bodega de puerto lo que tomas. El barco lo suma cuando el bar confirme lo recibido.`,
     confirmLabel: isEnvio ? 'Confirmar mi envío' : 'Confirmar mi entrega',
     icon: isEnvio ? 'fa-truck-fast' : 'fa-ship',
   })
@@ -126,7 +138,7 @@ async function confirmMine() {
     emit('updated', order)
     void catalog.load(true)
     play('success')
-    toast.success(isEnvio ? 'Envío confirmado: queda en camino al barco' : 'Entrega confirmada: ya está en el barco')
+    toast.success(isEnvio ? 'Envío confirmado: queda en camino al barco' : 'Entrega confirmada: el bar confirma lo recibido')
   } catch (err) {
     play('error')
     toast.error(apiErrorMessage(err))
@@ -135,21 +147,26 @@ async function confirmMine() {
   }
 }
 
-async function arrive(deliveryKey: string) {
+async function receive(d: (typeof inTransit.value)[number]) {
   if (busy.value) return
+  const counts = got.value[d.key] ?? {}
+  const items = d.items.map((i) => ({ productId: i.product, source: i.source, received: counts[itemKey(i)] ?? i.qty }))
+  const short = d.items.filter((i) => (counts[itemKey(i)] ?? i.qty) < i.qty)
   const ok = await confirmStore.ask({
-    title: '¿Llegó el envío de Quito?',
-    message: 'Se suma al barco lo enviado. Quito no se descuenta otra vez.',
-    confirmLabel: 'Confirmar llegada',
+    title: '¿Confirmar lo recibido?',
+    message: short.length
+      ? `Llegó menos de ${short.map((i) => i.name).join(', ')}. El barco suma solo lo que llegó y lo que falta vuelve a quedar pendiente en el pedido.`
+      : 'Llegó todo lo enviado. Se suma al inventario del barco.',
+    confirmLabel: 'Confirmar lo recibido',
     icon: 'fa-box-open',
   })
   if (!ok) return
   busy.value = true
   try {
-    const order = await apiArriveWeeklyOrder(props.order._id, deliveryKey)
+    const order = await apiArriveWeeklyOrder(props.order._id, d.key, items)
     void catalog.load(true)
     play('success')
-    toast.success('Llegada confirmada: ya está en el barco')
+    toast.success(short.length ? 'Recibido: lo que faltó quedó pendiente' : 'Recibido: ya está en el inventario del barco')
     emit('updated', order)
   } catch (err) {
     play('error')
@@ -170,16 +187,36 @@ const SOURCE: Record<DeliverySource, string> = { puerto: 'puerto', quito: 'Quito
       dueña envía desde la Bodega de Quito. Todos ven lo que aportó cada uno.
     </p>
 
-    <!-- Envíos de Quito en camino: se confirma la llegada en el mismo pedido -->
+    <!-- Por recibir: el bar cuenta lo que llegó y lo confirma -->
     <div v-for="d in inTransit" :key="d.key" class="transit">
-      <i class="fa-solid fa-truck-fast" aria-hidden="true" />
-      <span>
-        <strong>En camino desde Quito</strong> · envió {{ d.byName }} el {{ formatDateTime(d.at) }}
-        <small>{{ d.items.map((i) => `${i.name} ${i.qty} (${SOURCE[i.source]})`).join(' · ') }}</small>
-      </span>
-      <button v-if="canArrive" type="button" class="btn btn-primary" :disabled="busy" @click="arrive(d.key)">
-        <i class="fa-solid fa-box-open" aria-hidden="true" /> Confirmar llegada
-      </button>
+      <p class="transit-head">
+        <i class="fa-solid" :class="d.kind === 'envio' ? 'fa-truck-fast' : 'fa-ship'" aria-hidden="true" />
+        <span>
+          <strong>Por recibir en el barco</strong> · {{ d.kind === 'envio' ? 'envió' : 'entregó' }} {{ d.byName }} el
+          {{ formatDateTime(d.at) }}
+        </span>
+      </p>
+      <template v-if="canReceive">
+        <p class="muted">Cuenta lo que llegó. Si llegó menos, baja la cantidad: el barco suma solo lo recibido.</p>
+        <div class="mine-list">
+          <div v-for="i in d.items" :key="itemKey(i)" class="mine-row receive-row">
+            <div class="mine-name">
+              <strong>{{ i.name }}</strong>
+              <small>Enviaron {{ i.qty }} ({{ SOURCE[i.source] }})</small>
+            </div>
+            <label class="mine-field">
+              <span>Llegó</span>
+              <QtyStepper v-model="got[d.key]![itemKey(i)]" :min="0" :max="i.qty" :step="1" allow-zero :label="`${i.name}: cuánto llegó`" />
+            </label>
+          </div>
+        </div>
+        <button type="button" class="btn btn-gold btn-lg" :disabled="busy" @click="receive(d)">
+          <i class="fa-solid fa-box-open" aria-hidden="true" /> Confirmar lo recibido
+        </button>
+      </template>
+      <small v-else>
+        {{ d.items.map((i) => `${i.name} ${i.qty} (${SOURCE[i.source]})`).join(' · ') }} · espera que el bar confirme lo recibido
+      </small>
     </div>
 
     <p v-if="!open.length && !inTransit.length" class="done">
@@ -244,24 +281,23 @@ const SOURCE: Record<DeliverySource, string> = { puerto: 'puerto', quito: 'Quito
 }
 
 .transit {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  display: grid;
   gap: 0.6rem;
   padding: 0.75rem;
   border: 1px solid var(--warning);
   border-radius: var(--radius);
   background: var(--surface);
 
-  > span {
-    flex: 1 1 240px;
-    display: grid;
-    gap: 0.15rem;
-  }
-
   small {
     color: var(--ink-600);
   }
+}
+
+.transit-head {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  margin: 0;
 }
 
 .done {

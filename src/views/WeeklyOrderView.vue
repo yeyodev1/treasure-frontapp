@@ -45,6 +45,8 @@ const { play } = useSound()
 interface Edit {
   qty: number
   observation: string
+  /** Envases que contó el bar a bordo; null = no contó. */
+  counted: number | null
 }
 
 const current = shallowRef<WeeklyOrderCurrent | null>(null)
@@ -82,7 +84,7 @@ const editable = computed(() => {
 const draftKey = computed(() => (order.value ? `pedido-semanal:${order.value._id}` : ''))
 
 function resetLocal(o: WeeklyOrder) {
-  edits.value = Object.fromEntries(o.lines.map((l) => [l.product, { qty: l.qty, observation: l.observation }]))
+  edits.value = Object.fromEntries(o.lines.map((l) => [l.product, { qty: l.qty, observation: l.observation, counted: l.counted ?? null }]))
   added.value = []
   removed.value = new Set()
 }
@@ -92,7 +94,10 @@ function restoreDraft(o: WeeklyOrder) {
   const raw = localStorage.getItem(`pedido-semanal:${o._id}`)
   if (!raw) return
   try {
-    const draft = JSON.parse(raw) as { version: number; lines: Array<{ productId: string; qty: number; observation: string }> }
+    const draft = JSON.parse(raw) as {
+      version: number
+      lines: Array<{ productId: string; qty: number; observation: string; counted?: number | null }>
+    }
     if (draft.version !== o.version || !editable.value || approved.value) {
       localStorage.removeItem(`pedido-semanal:${o._id}`)
       if (draft.version !== o.version) toast.push('El pedido cambió en otro equipo: tu borrador sin enviar no se aplicó.', 'info')
@@ -101,7 +106,7 @@ function restoreDraft(o: WeeklyOrder) {
     const known = new Set(o.lines.map((l) => l.product))
     removed.value = new Set([...known].filter((id) => !draft.lines.some((l) => l.productId === id)))
     for (const l of draft.lines) {
-      edits.value[l.productId] = { qty: l.qty, observation: l.observation }
+      edits.value[l.productId] = { qty: l.qty, observation: l.observation, counted: l.counted ?? null }
       if (!known.has(l.productId)) {
         const p = catalog.physical.find((x) => x._id === l.productId)
         if (p) added.value.push(addedLine(p))
@@ -159,6 +164,7 @@ function addedLine(p: Product): WeeklyOrderLine {
     barQty: null,
     approvedQty: null,
     observation: '',
+    counted: null,
     editedByName: '',
     editedAt: null,
     delivered: 0,
@@ -193,6 +199,7 @@ function payload() {
     productId: l.product,
     qty: edits.value[l.product]?.qty ?? 0,
     observation: (edits.value[l.product]?.observation ?? '').trim(),
+    counted: edits.value[l.product]?.counted ?? null,
   }))
 }
 
@@ -215,7 +222,10 @@ const changedSinceSave = computed(() => {
   if (!order.value) return false
   if (added.value.length || removed.value.size) return true
   return order.value.lines.some(
-    (l) => edits.value[l.product]?.qty !== l.qty || (edits.value[l.product]?.observation ?? '') !== l.observation,
+    (l) =>
+      edits.value[l.product]?.qty !== l.qty ||
+      (edits.value[l.product]?.observation ?? '') !== l.observation ||
+      (edits.value[l.product]?.counted ?? null) !== (l.counted ?? null),
   )
 })
 
@@ -271,12 +281,38 @@ async function flush(): Promise<boolean> {
 }
 
 function setQty(l: WeeklyOrderLine, qty: number) {
-  edits.value[l.product] = { qty, observation: edits.value[l.product]?.observation ?? '' }
+  edits.value[l.product] = { qty, observation: edits.value[l.product]?.observation ?? '', counted: edits.value[l.product]?.counted ?? null }
   touch()
 }
 
 function setObservation(l: WeeklyOrderLine, text: string) {
-  edits.value[l.product] = { qty: edits.value[l.product]?.qty ?? 0, observation: text }
+  edits.value[l.product] = { qty: edits.value[l.product]?.qty ?? 0, observation: text, counted: edits.value[l.product]?.counted ?? null }
+  touch()
+}
+
+// ---- Conteo del bar (flujo simple, Gabriel 16-nov-2026) ----
+/** Envases a bordo según el sistema, para empezar a contar desde ahí. */
+const systemCount = (l: WeeklyOrderLine) => Math.floor(onHand(l) / (l.containerSize || 1))
+
+/** Misma cuenta que el servidor (suggest), pero con lo que contó el bar en vez del sistema. */
+function suggestFromCount(l: WeeklyOrderLine, counted: number): number | null {
+  const size = l.containerSize > 0 ? l.containerSize : 1
+  const available = counted * size + l.incoming
+  const envases = (base: number) => Math.max(0, Math.ceil(Math.round((base / size) * 100) / 100 - 1e-9))
+  if (l.basis === 'objetivo') return envases(l.target * size - available)
+  if (l.basis === 'consumo') return envases(l.consumption - available)
+  return null
+}
+
+/** Contar: la cantidad a pedir se recalcula con lo contado; el bar la puede ajustar después. */
+function setCounted(l: WeeklyOrderLine, counted: number | null) {
+  const prev = edits.value[l.product]
+  const suggested = counted === null ? l.suggested : suggestFromCount(l, counted)
+  edits.value[l.product] = {
+    qty: suggested ?? prev?.qty ?? 0,
+    observation: prev?.observation ?? '',
+    counted,
+  }
   touch()
 }
 
@@ -298,7 +334,7 @@ function addProduct(p: Product) {
     removed.value = new Set([...removed.value].filter((id) => id !== p._id))
   } else {
     added.value.push(addedLine(p))
-    edits.value[p._id] = { qty: 1, observation: '' }
+    edits.value[p._id] = { qty: 1, observation: '', counted: null }
   }
   touch()
 }
@@ -614,9 +650,31 @@ const SYNC_TEXT: Record<SyncState, string> = {
               <ProductIcon :icon="catalog.physical.find((p) => p._id === l.product)?.icon ?? 'bottle'" :size="22" />
               <span>
                 <strong>{{ l.name }}</strong>
-                <small class="hay">Hay a bordo: <b>{{ stockText(onHand(l), l) }}</b></small>
+                <small class="hay">
+                  Sistema: <b>{{ stockText(onHand(l), l) }}</b>
+                  <template v-if="edits[l.product]?.counted != null">
+                    · contaron <b>{{ containerText(edits[l.product]!.counted!, l) }}</b>
+                  </template>
+                </small>
                 <small v-if="l.basis === 'revisar'" class="check">Revisa esta cantidad</small>
               </span>
+            </div>
+
+            <div v-if="editable && !approved" class="line-qty">
+              <span class="qty-label">Conté a bordo</span>
+              <QtyStepper
+                v-if="edits[l.product]?.counted != null"
+                :model-value="edits[l.product]!.counted!"
+                :min="0"
+                :step="1"
+                allow-zero
+                :unit="containerText(edits[l.product]!.counted!, l).replace(/^[\d.,]+\s/, '')"
+                :label="`Conteo de ${l.name}`"
+                @update:model-value="setCounted(l, $event)"
+              />
+              <button v-else type="button" class="btn btn-secondary count-btn" @click="setCounted(l, systemCount(l))">
+                <i class="fa-solid fa-clipboard-check" aria-hidden="true" /> Contar
+              </button>
             </div>
 
             <div class="line-qty">
@@ -973,6 +1031,10 @@ const SYNC_TEXT: Record<SyncState, string> = {
 .qty-label {
   font-size: 0.8rem;
   color: var(--ink-600);
+}
+
+.count-btn {
+  min-height: 48px;
 }
 
 .qty-read {

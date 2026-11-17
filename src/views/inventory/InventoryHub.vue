@@ -16,12 +16,11 @@ const tabs = computed(() => {
     { to: '/inventario/existencias', label: 'Existencias', icon: 'fa-boxes-stacked', show: true },
     { to: '/inventario/pedido', label: 'Pedido semanal', icon: 'fa-list-check', show: true },
     {
-      // El bar solo ve sus solicitudes; compras y recepciones son de Administración y Bodega.
-      to: isBar ? '/inventario/compras/solicitudes' : '/inventario/compras',
-      match: '/inventario/compras',
-      label: isBar ? 'Mis solicitudes' : 'Compras y entregas',
+      // Flujo simple (Gabriel, 16-nov-2026): el bar pide solo en el Pedido semanal.
+      to: '/inventario/compras',
+      label: 'Compras y entregas',
       icon: 'fa-truck-ramp-box',
-      show: true,
+      show: !isBar,
     },
     { to: '/inventario/conteos', label: 'Conteos', icon: 'fa-clipboard-list', show: !isBar },
   ].filter((t) => t.show)

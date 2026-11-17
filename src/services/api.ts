@@ -499,7 +499,7 @@ export async function apiWeeklyOrder(id: string) {
 export async function apiSaveWeeklyOrder(
   id: string,
   version: number,
-  lines: Array<{ productId: string; qty: number; observation: string }>,
+  lines: Array<{ productId: string; qty: number; observation: string; counted: number | null }>,
 ) {
   const { data } = await http.put<{ order: WeeklyOrder }>(`/weekly-orders/${id}/lines`, { version, lines })
   return data.order
@@ -525,8 +525,17 @@ export async function apiFulfillWeeklyOrder(
   return data.order
 }
 
-export async function apiArriveWeeklyOrder(id: string, key: string) {
-  const { data } = await http.post<{ order: WeeklyOrder }>(`/weekly-orders/${id}/deliveries/${encodeURIComponent(key)}/arrive`)
+/** El bar confirma lo recibido: por producto, cuántos envases llegaron. */
+export async function apiArriveWeeklyOrder(
+  id: string,
+  key: string,
+  items: Array<{ productId: string; source: DeliverySource; received: number }>,
+  note = '',
+) {
+  const { data } = await http.post<{ order: WeeklyOrder }>(
+    `/weekly-orders/${id}/deliveries/${encodeURIComponent(key)}/arrive`,
+    { items, note },
+  )
   return data.order
 }
 
