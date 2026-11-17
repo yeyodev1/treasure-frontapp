@@ -183,8 +183,8 @@ const SOURCE: Record<DeliverySource, string> = { puerto: 'puerto', quito: 'Quito
   <section class="card fulfil" aria-labelledby="fulfil-title">
     <h2 id="fulfil-title" class="fulfil-title">Entrega del pedido</h2>
     <p class="muted">
-      Cada responsable confirma solo su parte. Administración entrega desde la Bodega de puerto o con compra nueva; la
-      dueña envía desde la Bodega de Quito. Todos ven lo que aportó cada uno.
+      Administración entrega desde la Bodega de puerto o con compra nueva; la dueña envía desde la Bodega de Quito. Nada
+      sube al inventario del barco hasta que el bar confirma lo que recibió.
     </p>
 
     <!-- Por recibir: el bar cuenta lo que llegó y lo confirma -->
@@ -256,7 +256,7 @@ const SOURCE: Record<DeliverySource, string> = { puerto: 'puerto', quito: 'Quito
       </button>
     </template>
     <p v-else-if="!mine && open.length" class="muted">
-      Lo atienden Administración (puerto o compra nueva) y la dueña (Quito). Aquí ves su avance.
+      Lo atienden Administración (puerto o compra nueva) y la dueña (Quito). Cuando llegue, aquí confirmas lo recibido.
     </p>
   </section>
 </template>
