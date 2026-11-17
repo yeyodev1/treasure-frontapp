@@ -180,7 +180,7 @@ async function register() {
           <p class="hint">
             {{ payer === 'agencia'
               ? 'No se cobra a la cabina: va a «Cortesías de agencia» para la factura de la agencia.'
-              : 'Se suma a la cuenta de la cabina junto con las bebidas, antes de que paguen.' }}
+              : 'Va a la cuenta de la cabina, pero se cobra y se factura aparte del bar.' }}
           </p>
         </div>
 

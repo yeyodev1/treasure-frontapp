@@ -9,12 +9,12 @@ import { useConfirmStore } from '@/stores/confirm'
 import { useSound } from '@/composables/useSound'
 import { apiAgencyCourtesies, apiCobroBar, apiCruiseAccounts, apiCruises, apiOrders, apiReviewHeld } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
-import { formatDateTime, formatMoney, TIMEZONE } from '@/utils/format'
+import { formatDateTime, formatMoney } from '@/utils/format'
 import AccountModal from '@/components/accounts/AccountModal.vue'
 import GroupCollectModal from '@/components/accounts/GroupCollectModal.vue'
 import AgencyCourtesiesModal from '@/components/accounts/AgencyCourtesiesModal.vue'
 import CruiseFinishModal from '@/components/cruises/CruiseFinishModal.vue'
-import BaseSelect from '@/components/ui/BaseSelect.vue'
+import CruisePicker from '@/components/cruises/CruisePicker.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import type { AccountStatus, Cabin, CabinAccountRow, Cruise, Order } from '@/types'
 
@@ -101,18 +101,6 @@ function paidShare(row: CabinAccountRow) {
   return row.consumed > 0 ? Math.min(100, (row.paid / row.consumed) * 100) : 0
 }
 
-/** "14 nov" en hora de Galápagos. */
-const shortDay = (d: string) =>
-  new Date(d).toLocaleDateString('es-EC', { day: 'numeric', month: 'short', timeZone: TIMEZONE }).replace('.', '')
-
-// Con las fechas se encuentra el crucero (pedido del cliente, 14-nov-2026).
-const cruiseOptions = computed(() =>
-  cruises.value.map((c) => ({
-    value: c._id,
-    label: `${shortDay(c.startDate)}${c.endDate ? ` → ${shortDay(c.endDate)}` : ''} · ${c.code || c.name}${c.status === 'abordo' ? ' · en curso' : c.status === 'cerrado' ? ' · finalizado' : ' · programado'}`,
-  })),
-)
-
 const totals = computed(() => {
   const withDue = rows.value.filter((r) => r.due > 0)
   const approved = rows.value.filter((r) => r.status === 'aprobada')
@@ -175,12 +163,12 @@ async function downloadCobroBar() {
 
 async function loadCruises() {
   const list = await apiCruises()
-  // En curso primero, luego finalizadas recientes y programadas próximas.
+  // En curso primero, luego programadas próximas y finalizadas; el selector las agrupa y busca.
   const byStart = (a: Cruise, b: Cruise) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
   cruises.value = [
     ...list.filter((c) => c.status === 'abordo'),
-    ...list.filter((c) => c.status === 'planificado').sort(byStart).slice(0, 3),
-    ...list.filter((c) => c.status === 'cerrado').sort((a, b) => byStart(b, a)).slice(0, 20),
+    ...list.filter((c) => c.status === 'planificado').sort(byStart),
+    ...list.filter((c) => c.status === 'cerrado').sort((a, b) => byStart(b, a)),
   ]
 }
 
@@ -301,8 +289,8 @@ async function reviewHeld(order: Order, decision: 'aceptar' | 'rechazar') {
           <template v-if="cruise.routeFrom"> · {{ cruise.routeFrom }} → {{ cruise.routeTo }}</template>
         </p>
       </div>
-      <div v-if="!isBar && cruiseOptions.length" class="cruise-pick">
-        <BaseSelect :model-value="selectedId" :options="cruiseOptions" aria-label="Crucero" @update:model-value="changeCruise" />
+      <div v-if="!isBar && cruises.length" class="cruise-pick">
+        <CruisePicker :model-value="selectedId" :cruises="cruises" @update:model-value="changeCruise" />
         <button v-if="cruise" type="button" class="btn btn-secondary cobro-bar" :disabled="downloading" @click="downloadCobroBar">
           <i class="fa-solid" :class="downloading ? 'fa-spinner fa-spin' : 'fa-file-excel'" aria-hidden="true" />
           {{ downloading ? 'Generando…' : 'Descargar cobro bar (Excel)' }}

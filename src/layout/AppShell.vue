@@ -20,6 +20,8 @@ interface NavItem {
   roles: UserRole[]
   /** Activo también en sus subrutas (Inventario y pedidos y sus pestañas). */
   prefix?: boolean
+  /** Con prefix: ruta que marca la pestaña activa, si no es la de `to`. */
+  match?: string
 }
 
 interface NavSection {
@@ -65,7 +67,7 @@ const NAV_SECTIONS: NavSection[] = [
  */
 const PEDIDOS: NavItem = { to: '/inventario/pedido', label: 'Pedido semanal', short: 'Pedidos', icon: 'fa-list-check', roles: [] }
 /** Bar y directora: una sola pestaña; Existencias queda adentro (17-nov-2026). */
-const INVENTARIO: NavItem = { to: '/inventario', label: 'Inventario', icon: 'fa-boxes-stacked', roles: [], prefix: true }
+const INVENTARIO: NavItem = { to: '/inventario/pedido', match: '/inventario', label: 'Inventario', icon: 'fa-boxes-stacked', roles: [], prefix: true }
 const ROLE_TABS: Partial<Record<UserRole, NavItem[]>> = {
   bartender: [
     // Los wetsuits los cobra la directora de crucero, no el bar (pedido del cliente, 6-nov-2026).
@@ -143,7 +145,7 @@ const hasMore = computed(
 
 function matches(item: NavItem): boolean {
   const [path, qs] = item.to.split('?')
-  const pathOk = item.prefix ? route.path.startsWith(path!) : route.path === path
+  const pathOk = item.prefix ? route.path.startsWith(item.match ?? path!) : route.path === path
   if (!pathOk) return false
   return [...new URLSearchParams(qs ?? '')].every(([k, v]) => route.query[k] === v)
 }

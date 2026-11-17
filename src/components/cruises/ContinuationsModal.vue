@@ -3,11 +3,11 @@ import { computed, ref, shallowRef, watch } from 'vue'
 import type { Cruise } from '@/types'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
+import CruisePicker from '@/components/cruises/CruisePicker.vue'
 import { useToastStore } from '@/stores/toast'
 import { useSound } from '@/composables/useSound'
 import { apiUpdateContinuations } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
-import { formatDate } from '@/utils/format'
 
 /**
  * Crucero unido (pedido del cliente, 6-nov-2026): qué cabinas de este crucero
@@ -25,9 +25,6 @@ const origins = computed(() =>
   props.cruises
     .filter((c) => c._id !== props.cruise._id && c.startDate < props.cruise.startDate)
     .sort((a, b) => b.startDate.localeCompare(a.startDate)),
-)
-const originOptions = computed(() =>
-  origins.value.map((c) => ({ value: c._id, label: `${name(c)} · ${formatDate(c.startDate)}` })),
 )
 
 const linkedOrigin = props.cruise.cabins.find((c) => c.continuesFrom)?.continuesFrom?.cruise
@@ -107,7 +104,7 @@ async function save() {
     <div v-else class="join">
       <div class="field">
         <label>Viene del crucero</label>
-        <BaseSelect v-model="originId" :options="originOptions" />
+        <CruisePicker v-model="originId" :cruises="origins" title="¿De qué crucero viene?" />
       </div>
       <div class="quick">
         <button type="button" class="btn btn-secondary" @click="wholeShip">

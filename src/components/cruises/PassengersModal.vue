@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { ref, shallowRef } from 'vue'
+import { computed, ref, shallowRef } from 'vue'
 import type { Cabin, Passenger } from '@/types'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { useToastStore } from '@/stores/toast'
 import { useConfirmStore } from '@/stores/confirm'
 import { useSound } from '@/composables/useSound'
-import { apiUpdatePassengers } from '@/services/api'
+import { apiMoveCabin, apiUpdatePassengers } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { COUNTRY_OPTIONS } from '@/utils/countries'
 
-const props = defineProps<{ cruiseId: string; cruiseLabel: string; cabin: Cabin; readonly: boolean }>()
+const props = defineProps<{ cruiseId: string; cruiseLabel: string; cabin: Cabin; readonly: boolean; cabins?: Cabin[] }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
 
 const toast = useToastStore()
@@ -76,6 +76,47 @@ function touchEmail(index: number) {
   touchedEmail.value = new Set(touchedEmail.value).add(index)
 }
 
+// ---- Cambio de cabina (pedido del cliente, 17-nov-2026: upgrades, piden arriba) ----
+const saved = props.cabin.passengers.filter((p) => p._id)
+const otherCabins = computed(() => (props.cabins ?? []).filter((c) => c.number !== props.cabin.number))
+const showMove = shallowRef(false)
+const moveTo = shallowRef(0)
+const moveIds = ref<string[]>(saved.map((p) => p._id!))
+const movingAll = computed(() => moveIds.value.length === saved.length)
+const target = computed(() => otherCabins.value.find((c) => c.number === moveTo.value) ?? null)
+const moveHint = computed(() => {
+  if (!target.value) return ''
+  if (movingAll.value && !target.value.passengers.length) {
+    return `Toda la cabina pasa a la ${target.value.number}, con su cuenta y sus consumos.`
+  }
+  return `${target.value.passengers.length ? 'Se suman a' : 'Pasan a'} la cabina ${target.value.number}. La cuenta y los consumos se quedan en la cabina ${props.cabin.number}.`
+})
+
+async function move() {
+  const t = target.value
+  if (!t || !moveIds.value.length) return
+  const names = saved.filter((p) => moveIds.value.includes(p._id!)).map((p) => p.name).join(', ')
+  const ok = await confirmStore.ask({
+    title: `¿Mover a la cabina ${t.number}?`,
+    message: `${names}. ${moveHint.value}`,
+    confirmLabel: `Mover a la cabina ${t.number}`,
+    icon: 'fa-right-left',
+  })
+  if (!ok) return
+  saving.value = true
+  try {
+    await apiMoveCabin(props.cruiseId, props.cabin.number, t.number, movingAll.value ? undefined : moveIds.value)
+    play('success')
+    toast.success(`${names}: ahora en la cabina ${t.number}`)
+    emit('saved')
+  } catch (err) {
+    play('error')
+    toast.error(apiErrorMessage(err))
+  } finally {
+    saving.value = false
+  }
+}
+
 async function save() {
   const clean = passengers.value.filter((p) => p.name.trim())
   if (passengers.value.some((p) => !p.name.trim() && (p.email || p.idNumber))) {
@@ -118,6 +159,52 @@ async function save() {
     @close="emit('close')"
   >
     <div class="pax">
+      <button
+        v-if="!readonly && saved.length && otherCabins.length && !showMove"
+        type="button"
+        class="btn btn-secondary move-open"
+        @click="showMove = true"
+      >
+        <i class="fa-solid fa-right-left" aria-hidden="true" /> Cambiar de cabina
+      </button>
+
+      <section v-if="showMove" class="move" aria-labelledby="move-title">
+        <h3 id="move-title" class="move-title">¿A qué cabina se cambian?</h3>
+        <div class="move-cabins" role="radiogroup" aria-labelledby="move-title">
+          <button
+            v-for="c in otherCabins"
+            :key="c.number"
+            type="button"
+            role="radio"
+            class="move-cabin"
+            :class="{ 'move-cabin--on': moveTo === c.number }"
+            :aria-checked="moveTo === c.number"
+            @click="moveTo = c.number"
+          >
+            <strong>{{ c.number }}</strong>
+            <span>{{ c.passengers.length ? c.guestName : 'Vacía' }}</span>
+          </button>
+        </div>
+
+        <fieldset v-if="saved.length > 1" class="move-who">
+          <legend>¿Quién se cambia?</legend>
+          <label v-for="p in saved" :key="p._id" class="move-person">
+            <input v-model="moveIds" type="checkbox" :value="p._id" />
+            {{ p.name }}
+          </label>
+        </fieldset>
+
+        <p v-if="moveHint" class="move-hint">
+          <i class="fa-solid fa-circle-info" aria-hidden="true" /> {{ moveHint }}
+        </p>
+        <div class="move-actions">
+          <button type="button" class="btn btn-secondary" @click="showMove = false">Cancelar</button>
+          <button type="button" class="btn btn-primary" :disabled="!target || !moveIds.length || saving" @click="move">
+            <i class="fa-solid fa-right-left" aria-hidden="true" />
+            {{ target ? `Mover a la cabina ${target.number}` : 'Elige la cabina' }}
+          </button>
+        </div>
+      </section>
 
       <div v-if="!readonly" class="capacity">
         <span>Plazas de la cabina</span>
@@ -258,6 +345,120 @@ async function save() {
     font-size: 1.25rem;
     font-variant-numeric: tabular-nums;
   }
+}
+
+.move-open {
+  align-self: flex-start;
+}
+
+.move {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid var(--powder-300);
+  border-radius: var(--radius-sm);
+  background: var(--powder-100);
+}
+
+.move-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.move-cabins {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 0.5rem;
+}
+
+.move-cabin {
+  min-width: 0;
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0.5rem 0.7rem;
+  text-align: left;
+  border: 2px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-600);
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+
+  strong {
+    font-size: 1.2rem;
+    color: var(--ink-900);
+  }
+
+  span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.9rem;
+  }
+
+  &--on {
+    border-color: var(--navy-800);
+    background: var(--navy-800);
+    color: var(--powder-300);
+
+    strong {
+      color: #fff;
+    }
+  }
+}
+
+.move-who {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+
+  legend {
+    margin-bottom: 0.4rem;
+    font-weight: 700;
+  }
+}
+
+.move-person {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 48px;
+  padding: 0 0.8rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 1rem;
+  font-weight: 600;
+
+  input {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+.move-hint {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  margin: 0;
+  font-weight: 600;
+  color: var(--navy-800);
+}
+
+.move-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.6rem;
 }
 
 .pax {

@@ -191,6 +191,17 @@ export async function apiUpdatePassengers(
   return data.cabin
 }
 
+/** Eliminar un crucero programado sin nada registrado (17-nov-2026). */
+export async function apiDeleteCruise(id: string) {
+  await http.delete(`/cruises/${id}`)
+}
+
+/** Cambio de cabina: sin passengerIds se mueve toda la cabina (con su cuenta si la de destino está vacía). */
+export async function apiMoveCabin(cruiseId: string, cabinNumber: number, to: number, passengerIds?: string[]) {
+  const { data } = await http.post<{ cruise: Cruise }>(`/cruises/${cruiseId}/cabins/${cabinNumber}/move`, { to, passengerIds })
+  return data.cruise
+}
+
 // Pedidos
 export async function apiCreateOrder(payload: {
   cruiseId: string
@@ -376,6 +387,29 @@ export interface CruiseCalendarRow {
 export async function apiCruiseCalendar() {
   const { data } = await http.get<{ cruises: CruiseCalendarRow[] }>('/reports/cruise-calendar')
   return data.cruises
+}
+
+/** Paras y dique del barco en el registro de cruceros (17-nov-2026). */
+export interface ShipStopRow {
+  id: string
+  kind: 'para' | 'dique'
+  from: string
+  to: string
+  note: string
+  createdByName: string
+}
+
+export async function apiShipStops() {
+  const { data } = await http.get<{ stops: ShipStopRow[] }>('/ship-stops')
+  return data.stops
+}
+
+export async function apiCreateShipStop(payload: { kind: ShipStopRow['kind']; from: string; to: string; note: string }) {
+  await http.post('/ship-stops', payload)
+}
+
+export async function apiDeleteShipStop(id: string) {
+  await http.delete(`/ship-stops/${id}`)
 }
 
 export async function apiAgencyBilling() {

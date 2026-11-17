@@ -11,6 +11,7 @@ import {
   apiCreatePlannedCruise,
   apiCruises,
   apiCycleSettings,
+  apiDeleteCruise,
   apiGenerateCycle,
   apiNewCruiseOptions,
   apiPlanCruise,
@@ -187,6 +188,8 @@ async function createCruise() {
     // Queda listo el siguiente del ciclo.
     await loadOptions(true)
     void showCruise(cruise._id)
+    // Pedido del cliente (17-nov-2026): al crear, de una vez la lista de pasajeros en PDF.
+    importTarget.value = cruises.value.find((c) => c._id === cruise._id) ?? cruise
   } catch (err) {
     const code = axios.isAxiosError(err) ? (err.response?.data as { code?: string } | undefined)?.code : undefined
     play('error')
@@ -322,6 +325,29 @@ function linkNote(cruise: Cruise, cabin: Cabin) {
     return `Viene de ${c?.code || c?.name || 'otro crucero'} · ${from.cabinNumber}`
   }
   return continuesTo.value.get(`${cruise._id}:${cabin.number}`) ?? ''
+}
+
+/** Eliminar un crucero programado sin nada registrado (pedido del cliente, 17-nov-2026). */
+async function deleteCruise(cruise: Cruise) {
+  const ok = await confirmStore.ask({
+    title: `¿Eliminar el ${label(cruise)}?`,
+    message: `Del ${formatDate(cruise.startDate)}${cruise.endDate ? ` al ${formatDate(cruise.endDate)}` : ''}. Se borra con sus cabinas y pasajeros. No se puede deshacer.`,
+    confirmLabel: 'Eliminar crucero',
+    danger: true,
+    icon: 'fa-trash-can',
+  })
+  if (!ok) return
+  try {
+    await apiDeleteCruise(cruise._id)
+    play('success')
+    toast.success(`${label(cruise)} eliminado`)
+    await refresh()
+    await loadOptions(true)
+    await cruiseStore.loadActive(true)
+  } catch (err) {
+    play('error')
+    toast.error(apiErrorMessage(err))
+  }
 }
 
 async function onJoined() {
@@ -662,6 +688,14 @@ async function onPassengersSaved() {
           >
             <i class="fa-solid fa-file-import" aria-hidden="true" /> Importar lista de pasajeros (PDF)
           </button>
+          <button
+            v-if="cruise.status === 'planificado' && userStore.isDirector"
+            type="button"
+            class="btn btn-secondary delete-btn"
+            @click="deleteCruise(cruise)"
+          >
+            <i class="fa-solid fa-trash-can" aria-hidden="true" /> Eliminar crucero
+          </button>
           <p v-if="cruise.closeReason" class="close-reason">
             <i class="fa-solid fa-circle-info" aria-hidden="true" /> Cierre excepcional: {{ cruise.closeReason }}
           </p>
@@ -686,6 +720,7 @@ async function onPassengersSaved() {
       :cruise-id="paxTarget.cruise._id"
       :cruise-label="label(paxTarget.cruise)"
       :cabin="paxTarget.cabin"
+      :cabins="paxTarget.cruise.cabins"
       :readonly="paxTarget.cruise.status === 'cerrado'"
       @close="paxTarget = null"
       @saved="onPassengersSaved"
@@ -1394,6 +1429,14 @@ async function onPassengersSaved() {
   margin-top: 1rem;
   padding-top: 1rem;
   border-top: 1px solid var(--rule);
+}
+
+.delete-btn {
+  color: var(--danger-ink);
+
+  @include tablet {
+    margin-left: auto;
+  }
 }
 
 .close-reason {
