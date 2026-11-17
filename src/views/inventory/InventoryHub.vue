@@ -11,18 +11,13 @@ const route = useRoute()
 const userStore = useUserStore()
 
 const tabs = computed(() => {
-  const isBar = userStore.role === 'bartender'
+  // Bar y directora: solo contar y pedir, y ver existencias (pedido del cliente, 17-nov-2026).
+  const simple = userStore.role === 'bartender' || userStore.role === 'direccion'
   return [
+    { to: '/inventario/pedido', label: simple ? 'Contar y pedir' : 'Pedido semanal', icon: 'fa-list-check', show: true },
     { to: '/inventario/existencias', label: 'Existencias', icon: 'fa-boxes-stacked', show: true },
-    { to: '/inventario/pedido', label: 'Pedido semanal', icon: 'fa-list-check', show: true },
-    {
-      // Flujo simple (Gabriel, 16-nov-2026): el bar pide solo en el Pedido semanal.
-      to: '/inventario/compras',
-      label: 'Compras y entregas',
-      icon: 'fa-truck-ramp-box',
-      show: !isBar,
-    },
-    { to: '/inventario/conteos', label: 'Conteos', icon: 'fa-clipboard-list', show: !isBar },
+    { to: '/inventario/compras', label: 'Compras y entregas', icon: 'fa-truck-ramp-box', show: !simple },
+    { to: '/inventario/conteos', label: 'Conteos', icon: 'fa-clipboard-list', show: !simple },
   ].filter((t) => t.show)
 })
 

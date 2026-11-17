@@ -999,6 +999,12 @@ async function resendSummary() {
         >
           <i class="fa-solid fa-shield-halved" aria-hidden="true" /> Aprobar {{ formatMoney(account.due) }}
         </button>
+        <!-- Se ve antes de aprobar: son dos cobros y dos facturas (17-nov-2026) -->
+        <p v-if="mixed" class="line-split">
+          <span><i class="fa-solid fa-martini-glass-citrus" aria-hidden="true" /> Bar <b>{{ formatMoney(lineTotals.bar) }}</b></span>
+          <span><i class="fa-solid fa-person-swimming" aria-hidden="true" /> Wetsuits <b>{{ formatMoney(lineTotals.wetsuit) }}</b></span>
+          <small>Se cobran por separado, cada uno con su factura.</small>
+        </p>
         <p v-if="account.pendingAnnulments > 0" class="muted">Resuelve las anulaciones pendientes para aprobar.</p>
       </section>
 
@@ -2374,5 +2380,24 @@ async function resendSummary() {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.line-split {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.35rem 1rem;
+  margin: 0.5rem 0 0;
+
+  b {
+    font-variant-numeric: tabular-nums;
+  }
+
+  small {
+    flex-basis: 100%;
+    text-align: center;
+    color: var(--ink-600);
+  }
 }
 </style>

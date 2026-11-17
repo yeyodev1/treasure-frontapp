@@ -14,7 +14,7 @@ const userStore = useUserStore()
 
 /**
  * Entrada como en Registros ISM (pedido del cliente, 12-nov-2026): eliges tu
- * departamento y pones tu clave de 4 números. El correo queda como respaldo.
+ * departamento y pones tu clave de 4 números. Sin botón de correo (pedido del cliente, 17-nov-2026).
  */
 // Animales y colores de cada departamento (pedido del cliente, 13-nov-2026; ilustraciones nuevas 16-nov-2026). Sin Bodega: no la usan.
 const DEPARTMENTS = [
@@ -87,9 +87,6 @@ async function submit() {
             <span>{{ d.label }}</span>
           </button>
         </div>
-        <button type="button" class="btn btn-ghost" @click="byEmail = true">
-          <i class="fa-solid fa-envelope" aria-hidden="true" /> Entrar con correo
-        </button>
       </template>
 
       <template v-else>

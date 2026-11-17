@@ -31,6 +31,9 @@ const qty = shallowRef(1)
 const payer = shallowRef<Payer>('cabina')
 /** Otro valor por persona (pedido del cliente, 13-nov-2026): vacío = precio del catálogo. */
 const otherPrice = shallowRef(false)
+/** $50 y $80 siempre a la vista, más «Otro valor» (pedido del cliente, 17-nov-2026). */
+const PRESETS = [50, 80]
+const preset = shallowRef<number | null>(null)
 const customPrice = shallowRef('')
 const sending = shallowRef(false)
 /** Misma clave hasta que se guarde: reintentar sin señal nunca duplica. */
@@ -39,7 +42,14 @@ let key = crypto.randomUUID()
 const cabin = computed(() => cabins.value.find((c) => c.number === selectedCabin.value) ?? null)
 const cruiseLabel = computed(() => (cruise.value ? (cruise.value.code ? `Crucero ${cruise.value.code}` : cruise.value.name) : ''))
 const parsedCustom = computed(() => Number(customPrice.value.replace(',', '.')))
-const unitPrice = computed(() => (otherPrice.value ? parsedCustom.value : (wetsuit.value?.price ?? 0)))
+const unitPrice = computed(() => (otherPrice.value ? parsedCustom.value : (preset.value ?? wetsuit.value?.price ?? 0)))
+/** Se manda como «otro valor» solo si difiere del precio del catálogo de este trayecto. */
+const sentPrice = computed(() => (unitPrice.value !== wetsuit.value?.price ? Math.round(unitPrice.value * 100) / 100 : null))
+
+function pickPrice(p: number | 'otro') {
+  otherPrice.value = p === 'otro'
+  preset.value = p === 'otro' ? null : p
+}
 const total = computed(() => (wetsuit.value && unitPrice.value > 0 ? Math.round(unitPrice.value * qty.value * 100) / 100 : 0))
 
 const blockedReason = computed(() => {
@@ -68,7 +78,7 @@ function pickCabin(number: number, hasPassengers: boolean) {
 }
 
 // Cambiar lo que se registra es otro registro: nueva clave.
-watch([selectedCabin, qty, payer, otherPrice, customPrice], () => {
+watch([selectedCabin, qty, payer, otherPrice, customPrice, preset], () => {
   key = crypto.randomUUID()
 })
 
@@ -94,7 +104,7 @@ async function register() {
       cabinNumber: cabin.value.number,
       productId: wetsuit.value._id,
       qty: n,
-      ...(otherPrice.value ? { customPrice: Math.round(parsedCustom.value * 100) / 100 } : {}),
+      ...(sentPrice.value !== null ? { customPrice: sentPrice.value } : {}),
       // Lo que paga la agencia va como cortesía de agencia: no se cobra a la cabina y entra en su factura.
       ...(payer.value === 'agencia'
         ? { courtesy: true, courtesyKind: 'agencia' as const, courtesyReason: 'Wetsuit pagado por la agencia' }
@@ -108,6 +118,7 @@ async function register() {
     qty.value = 1
     payer.value = 'cabina'
     otherPrice.value = false
+    preset.value = null
     customPrice.value = ''
     selectedCabin.value = null
   } catch (err) {
@@ -124,7 +135,7 @@ async function register() {
     <header class="head">
       <h1 class="page-title"><i class="fa-solid fa-person-swimming" aria-hidden="true" /> Wetsuits</h1>
       <p class="lead">
-        <template v-if="cruise">{{ cruiseLabel }}<template v-if="wetsuit"> · {{ formatMoney(wetsuit.price) }} por persona (IVA incluido)</template></template>
+        <template v-if="cruise">{{ cruiseLabel }}<template v-if="wetsuit"> · precio del trayecto {{ formatMoney(wetsuit.price) }} por persona (IVA incluido)</template></template>
         <template v-else>Sin crucero</template>
       </p>
     </header>
@@ -176,10 +187,18 @@ async function register() {
         <div class="row">
           <h2 class="step">4. Valor por persona</h2>
           <div class="seg" role="radiogroup" aria-label="Valor por persona">
-            <button type="button" role="radio" :aria-checked="!otherPrice" :class="{ on: !otherPrice }" @click="otherPrice = false">
-              <i class="fa-solid fa-tag" aria-hidden="true" /> {{ wetsuit ? formatMoney(wetsuit.price) : 'Catálogo' }}
+            <button
+              v-for="p in PRESETS"
+              :key="p"
+              type="button"
+              role="radio"
+              :aria-checked="!otherPrice && unitPrice === p"
+              :class="{ on: !otherPrice && unitPrice === p }"
+              @click="pickPrice(p)"
+            >
+              <i class="fa-solid fa-tag" aria-hidden="true" /> {{ formatMoney(p) }}
             </button>
-            <button type="button" role="radio" :aria-checked="otherPrice" :class="{ on: otherPrice }" @click="otherPrice = true">
+            <button type="button" role="radio" :aria-checked="otherPrice" :class="{ on: otherPrice }" @click="pickPrice('otro')">
               <i class="fa-solid fa-pen" aria-hidden="true" /> Otro valor
             </button>
           </div>
@@ -316,7 +335,8 @@ async function register() {
 
 .seg {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 0.4rem;
 
   button {

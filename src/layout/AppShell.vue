@@ -64,17 +64,19 @@ const NAV_SECTIONS: NavSection[] = [
  * demás que el rol puede abrir queda en «Más». Los permisos no cambian.
  */
 const PEDIDOS: NavItem = { to: '/inventario/pedido', label: 'Pedido semanal', short: 'Pedidos', icon: 'fa-list-check', roles: [] }
+/** Bar y directora: una sola pestaña; Existencias queda adentro (17-nov-2026). */
+const INVENTARIO: NavItem = { to: '/inventario', label: 'Inventario', icon: 'fa-boxes-stacked', roles: [], prefix: true }
 const ROLE_TABS: Partial<Record<UserRole, NavItem[]>> = {
   bartender: [
     // Los wetsuits los cobra la directora de crucero, no el bar (pedido del cliente, 6-nov-2026).
     { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: [] },
-    { ...PEDIDOS, short: 'Pedido semanal' },
+    // Inventario simple (pedido del cliente, 17-nov-2026): tengo, me falta, pedir.
+    INVENTARIO,
   ],
   direccion: [
     { to: '/admin/salidas', label: 'Cruceros', icon: 'fa-ship', roles: [] },
     { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: [] },
-    PEDIDOS,
-    { to: '/inventario/existencias', label: 'Existencias', icon: 'fa-boxes-stacked', roles: [] },
+    INVENTARIO,
     { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: [] },
     { to: '/wetsuits', label: 'Wetsuits', icon: 'fa-person-swimming', roles: [] },
     { to: '/admin/pagos', label: 'Cobros', icon: 'fa-cash-register', roles: [] },

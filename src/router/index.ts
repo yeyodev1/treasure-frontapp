@@ -45,7 +45,8 @@ const routes: Array<RouteRecordRaw> = [
     children: [
       {
         path: '',
-        redirect: () => (useUserStore().role === 'bartender' ? '/inventario/pedido' : '/inventario/existencias'),
+        // El bar y la directora entran a contar y pedir (inventario simple, 17-nov-2026).
+        redirect: () => (['bartender', 'direccion'].includes(useUserStore().role ?? '') ? '/inventario/pedido' : '/inventario/existencias'),
       },
       {
         path: 'existencias',

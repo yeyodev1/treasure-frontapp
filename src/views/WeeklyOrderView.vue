@@ -304,6 +304,11 @@ function suggestFromCount(l: WeeklyOrderLine, counted: number): number | null {
   return null
 }
 
+/** Lo que falta para el objetivo (o lo consumido) con lo que tengo; null = sin referencia. */
+function missing(l: WeeklyOrderLine): number | null {
+  return suggestFromCount({ ...l, incoming: 0 }, edits.value[l.product]?.counted ?? systemCount(l))
+}
+
 /** Contar: la cantidad a pedir se recalcula con lo contado; el bar la puede ajustar después. */
 function setCounted(l: WeeklyOrderLine, counted: number | null) {
   const prev = edits.value[l.product]
@@ -514,8 +519,7 @@ const SYNC_TEXT: Record<SyncState, string> = {
       <div class="page-head-text">
         <h1 class="page-title">Pedido semanal</h1>
         <p class="page-lead">
-          El sistema lo prepara cada miércoles a las 15h00 (hora de Galápagos). El bar lo revisa, la directora lo aprueba y
-          cada responsable confirma su entrega aquí mismo.
+          Cuenta lo que tienes a bordo, mira lo que falta y pide. La directora lo aprueba y tierra lo compra.
         </p>
       </div>
     </header>
@@ -650,7 +654,7 @@ const SYNC_TEXT: Record<SyncState, string> = {
               <ProductIcon :icon="catalog.physical.find((p) => p._id === l.product)?.icon ?? 'bottle'" :size="22" />
               <span>
                 <strong>{{ l.name }}</strong>
-                <small class="hay">
+                <small v-if="isLead" class="hay">
                   Sistema: <b>{{ stockText(onHand(l), l) }}</b>
                   <template v-if="edits[l.product]?.counted != null">
                     · contaron <b>{{ containerText(edits[l.product]!.counted!, l) }}</b>
@@ -661,24 +665,31 @@ const SYNC_TEXT: Record<SyncState, string> = {
             </div>
 
             <div v-if="editable && !approved" class="line-qty">
-              <span class="qty-label">Conté a bordo</span>
+              <span class="qty-label">
+                Tengo
+                <i v-if="edits[l.product]?.counted != null" class="fa-solid fa-circle-check counted" aria-label="contado" />
+              </span>
               <QtyStepper
-                v-if="edits[l.product]?.counted != null"
-                :model-value="edits[l.product]!.counted!"
+                :model-value="edits[l.product]?.counted ?? systemCount(l)"
                 :min="0"
                 :step="1"
                 allow-zero
-                :unit="containerText(edits[l.product]!.counted!, l).replace(/^[\d.,]+\s/, '')"
-                :label="`Conteo de ${l.name}`"
+                :unit="containerText(edits[l.product]?.counted ?? systemCount(l), l).replace(/^[\d.,]+\s/, '')"
+                :label="`Cuántos tengo de ${l.name}`"
                 @update:model-value="setCounted(l, $event)"
               />
-              <button v-else type="button" class="btn btn-secondary count-btn" @click="setCounted(l, systemCount(l))">
-                <i class="fa-solid fa-clipboard-check" aria-hidden="true" /> Contar
-              </button>
+            </div>
+
+            <div v-if="editable && !approved" class="line-qty falta">
+              <span class="qty-label">Me falta</span>
+              <strong class="qty-read" :class="{ 'qty-read--ok': missing(l) === 0 }">
+                {{ missing(l) === null ? '—' : missing(l) === 0 ? 'Nada' : containerText(missing(l)!, l) }}
+              </strong>
+              <small v-if="l.incoming > 0" class="muted">vienen {{ stockText(l.incoming, l) }}</small>
             </div>
 
             <div class="line-qty">
-              <span class="qty-label">Cantidad a pedir</span>
+              <span class="qty-label">Pedir</span>
               <QtyStepper
                 v-if="editable"
                 :model-value="edits[l.product]?.qty ?? 0"
@@ -702,6 +713,7 @@ const SYNC_TEXT: Record<SyncState, string> = {
           </p>
 
           <button
+            v-if="isLead"
             type="button"
             class="btn-text detail-toggle"
             :aria-expanded="detail === l.product"
@@ -737,9 +749,6 @@ const SYNC_TEXT: Record<SyncState, string> = {
           </p>
 
           <div v-if="editable" class="line-actions">
-            <button v-if="!approved" type="button" class="btn-text" @click="noting = noting === l.product ? null : l.product">
-              <i class="fa-solid fa-eye" aria-hidden="true" /> Hay otra cantidad
-            </button>
             <button type="button" class="btn-text danger" @click="removeLine(l)">
               <i class="fa-solid" :class="approved ? 'fa-ban' : 'fa-trash-can'" aria-hidden="true" />
               {{ approved ? 'Cancelar lo pendiente' : 'Quitar' }}
@@ -1029,12 +1038,21 @@ const SYNC_TEXT: Record<SyncState, string> = {
 }
 
 .qty-label {
-  font-size: 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 600;
   color: var(--ink-600);
 }
 
-.count-btn {
-  min-height: 48px;
+.falta {
+  min-width: 6.5rem;
+}
+
+.counted {
+  color: var(--success-ink);
+}
+
+.qty-read--ok {
+  color: var(--success-ink);
 }
 
 .qty-read {
