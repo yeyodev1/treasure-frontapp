@@ -39,4 +39,32 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') void userStore.refreshIfNeeded()
 })
 
+// Versión nueva publicada (16-nov-2026): la tableta con la app abierta no se
+// enteraba. Se revisa cada 5 min y al volver a la app; se recarga al cambiar
+// de pantalla (nunca a mitad de un formulario) o de inmediato en la entrada.
+const loadedBuild =
+  document.querySelector<HTMLScriptElement>('script[type="module"][src*="/assets/index-"]')?.getAttribute('src') ?? ''
+let newBuild = false
+async function checkBuild() {
+  if (!loadedBuild || newBuild) return
+  try {
+    const html = await (await fetch('/', { cache: 'no-store' })).text()
+    newBuild = html.includes('/assets/index-') && !html.includes(loadedBuild)
+  } catch {
+    // Sin señal: se revisa la próxima vez.
+  }
+  if (newBuild && router.currentRoute.value.name === 'Login') window.location.reload()
+}
+setInterval(() => void checkBuild(), 5 * 60_000)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') void checkBuild()
+})
+router.beforeEach((to, from) => {
+  if (!newBuild || !from.matched.length) return
+  window.location.assign(to.fullPath)
+  return false
+})
+// Tras publicar, una pantalla vieja pide archivos que ya no existen: se recarga.
+window.addEventListener('vite:preloadError', () => window.location.reload())
+
 app.mount('#app')
