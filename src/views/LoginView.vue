@@ -16,12 +16,12 @@ const userStore = useUserStore()
  * Entrada como en Registros ISM (pedido del cliente, 12-nov-2026): eliges tu
  * departamento y pones tu clave de 4 números. El correo queda como respaldo.
  */
-// Animales y colores de cada departamento (pedido del cliente, 13-nov-2026). Sin Bodega: no la usan.
+// Animales y colores de cada departamento (pedido del cliente, 13-nov-2026; ilustraciones nuevas 16-nov-2026). Sin Bodega: no la usan.
 const DEPARTMENTS = [
-  { key: 'bartender', label: 'Bar', animal: 'booby', color: '#497C7A' },
-  { key: 'direccion', label: 'Dirección de crucero', animal: 'tortoise', color: '#B69C72' },
-  { key: 'admin', label: 'Administración', animal: 'sealion', color: '#7C9299' },
-  { key: 'duena', label: 'Gerencia', animal: 'frigate', color: '#354B62' },
+  { key: 'bartender', label: 'Bar', animal: 'ave-tropical', color: '#497C7A' },
+  { key: 'direccion', label: 'Dirección de crucero', animal: 'lobo-marino', color: '#B69C72' },
+  { key: 'admin', label: 'Administración', animal: 'manta', color: '#7C9299' },
+  { key: 'duena', label: 'Gerencia', animal: 'tortuga', color: '#354B62' },
 ] as const
 type Department = (typeof DEPARTMENTS)[number]
 const department = shallowRef<Department | null>(null)
