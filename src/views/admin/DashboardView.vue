@@ -2,6 +2,7 @@
 import OwnerPanel from '@/components/owner/OwnerPanel.vue'
 import BartenderCommissions from '@/components/owner/BartenderCommissions.vue'
 import AgencyBilling from '@/components/owner/AgencyBilling.vue'
+import CruiseCalendar from '@/components/owner/CruiseCalendar.vue'
 
 /**
  * Resumen del negocio (solo Gerencia; el servidor también lo restringe).
@@ -20,6 +21,7 @@ import AgencyBilling from '@/components/owner/AgencyBilling.vue'
     <OwnerPanel />
     <BartenderCommissions />
     <AgencyBilling />
+    <CruiseCalendar />
   </div>
 </template>
 

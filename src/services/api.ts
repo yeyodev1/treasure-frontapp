@@ -10,6 +10,7 @@ import type {
   CabinSummary,
   ContificoInfo,
   Cruise,
+  CruiseStatus,
   CruiseSales,
   FinishCheck,
   OwnerPanel,
@@ -358,6 +359,25 @@ export async function apiAgencyCourtesies(cruiseId: string) {
 }
 
 /** Factura mensual a la agencia: cruceros con cortesías de agencia, lo facturado y el aviso del 28. */
+/** Registro de cruceros de Gerencia: pasajeros y países por salida (16-nov-2026). */
+export interface CruiseCalendarRow {
+  id: string
+  code: string
+  name: string
+  leg: string
+  route: string
+  startDate: string
+  endDate: string | null
+  status: CruiseStatus
+  passengers: number
+  countries: Array<{ country: string; count: number }>
+}
+
+export async function apiCruiseCalendar() {
+  const { data } = await http.get<{ cruises: CruiseCalendarRow[] }>('/reports/cruise-calendar')
+  return data.cruises
+}
+
 export async function apiAgencyBilling() {
   const { data } = await http.get<AgencyBilling>('/agency-billing')
   return data
