@@ -26,6 +26,7 @@ import CycleSettingsModal from '@/components/cruises/CycleSettingsModal.vue'
 import CruiseStartModal from '@/components/cruises/CruiseStartModal.vue'
 import CruiseFinishModal from '@/components/cruises/CruiseFinishModal.vue'
 import ContinuationsModal from '@/components/cruises/ContinuationsModal.vue'
+import ImportPassengersModal from '@/components/cruises/ImportPassengersModal.vue'
 import { useUserStore } from '@/stores/user'
 import type { Cabin, Cruise, CruiseStatus, CycleSettings, NewCruiseOptions, NewCruisePlan } from '@/types'
 
@@ -45,6 +46,7 @@ const paxTarget = shallowRef<{ cruise: Cruise; cabin: Cabin } | null>(null)
 const startTarget = shallowRef<Cruise | null>(null)
 const finishTarget = shallowRef<Cruise | null>(null)
 const joinTarget = shallowRef<Cruise | null>(null)
+const importTarget = shallowRef<Cruise | null>(null)
 const userStore = useUserStore()
 
 const startDate = shallowRef('')
@@ -329,6 +331,7 @@ async function onJoined() {
 
 async function onPassengersSaved() {
   paxTarget.value = null
+  importTarget.value = null
   await refresh()
   await cruiseStore.loadActive(true)
 }
@@ -651,6 +654,14 @@ async function onPassengersSaved() {
           >
             <i class="fa-solid fa-link" aria-hidden="true" /> Unir con crucero anterior
           </button>
+          <button
+            v-if="cruise.status !== 'cerrado' && userStore.isDirector"
+            type="button"
+            class="btn btn-secondary"
+            @click="importTarget = cruise"
+          >
+            <i class="fa-solid fa-file-import" aria-hidden="true" /> Importar lista de pasajeros (PDF)
+          </button>
           <p v-if="cruise.closeReason" class="close-reason">
             <i class="fa-solid fa-circle-info" aria-hidden="true" /> Cierre excepcional: {{ cruise.closeReason }}
           </p>
@@ -661,6 +672,14 @@ async function onPassengersSaved() {
     <CruiseStartModal v-if="startTarget" :cruise="startTarget" @close="startTarget = null" @started="onStarted" />
     <CruiseFinishModal v-if="finishTarget" :cruise="finishTarget" @close="finishTarget = null" @finished="onLifecycleDone" />
     <ContinuationsModal v-if="joinTarget" :cruise="joinTarget" :cruises="cruises" @close="joinTarget = null" @saved="onJoined" />
+
+    <ImportPassengersModal
+      v-if="importTarget"
+      :cruise="importTarget"
+      :cruise-label="label(importTarget)"
+      @close="importTarget = null"
+      @saved="onPassengersSaved"
+    />
 
     <PassengersModal
       v-if="paxTarget"
