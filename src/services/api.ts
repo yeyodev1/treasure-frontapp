@@ -381,6 +381,8 @@ export interface CruiseCalendarRow {
   endDate: string | null
   status: CruiseStatus
   passengers: number
+  /** Total consumido en el crucero (bar y wetsuits), sin pedidos cancelados. */
+  consumed: number
   countries: Array<{ country: string; count: number }>
 }
 

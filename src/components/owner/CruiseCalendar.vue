@@ -14,7 +14,7 @@ import {
   type ShipStopRow,
 } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
-import { TIMEZONE, todayKey } from '@/utils/format'
+import { TIMEZONE, formatMoney, todayKey } from '@/utils/format'
 
 /**
  * Registro de cruceros (pedido de Gerencia, 16-nov-2026): mes a mes, cada
@@ -77,12 +77,15 @@ const inMonth = computed(() =>
 const totals = computed(() => {
   const countries = new Map<string, number>()
   let passengers = 0
+  let consumed = 0
   for (const c of inMonth.value) {
     passengers += c.passengers
+    consumed += c.consumed
     for (const k of c.countries) countries.set(k.country, (countries.get(k.country) ?? 0) + k.count)
   }
   return {
     passengers,
+    consumed,
     countries: [...countries].map(([country, count]) => ({ country, count })).sort((a, b) => b.count - a.count),
   }
 })
@@ -305,6 +308,10 @@ function range(c: CruiseCalendarRow) {
           <dt>Países</dt>
           <dd>{{ totals.countries.filter((k) => k.country !== 'Sin país').length }}</dd>
         </div>
+        <div>
+          <dt>Consumo</dt>
+          <dd>{{ formatMoney(totals.consumed) }}</dd>
+        </div>
       </dl>
 
       <ul v-if="stopsInMonth.length" class="c-list c-stops" aria-label="Paras y dique del mes">
@@ -345,6 +352,7 @@ function range(c: CruiseCalendarRow) {
           <p class="c-pax">
             <strong>{{ c.passengers }}</strong>
             <span>{{ c.passengers === 1 ? 'pasajero' : 'pasajeros' }}</span>
+            <span class="c-consumed">{{ formatMoney(c.consumed) }} consumido</span>
           </p>
         </li>
       </ol>
@@ -744,6 +752,13 @@ function range(c: CruiseCalendarRow) {
   span {
     font-size: 0.75rem;
     color: var(--ink-600);
+  }
+
+  .c-consumed {
+    margin-top: 0.25rem;
+    font-weight: 600;
+    color: var(--ink-900);
+    font-variant-numeric: tabular-nums;
   }
 }
 </style>
