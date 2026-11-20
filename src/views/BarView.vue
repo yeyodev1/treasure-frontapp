@@ -16,6 +16,7 @@ import { TIMEZONE, formatMoney, formatTime } from '@/utils/format'
 import ProductCatalog, { type CatalogFilter } from '@/components/pos/ProductCatalog.vue'
 import CocktailBuilder from '@/components/pos/CocktailBuilder.vue'
 import CocktailSwap from '@/components/pos/CocktailSwap.vue'
+import MixerPick from '@/components/pos/MixerPick.vue'
 import CabinAccount from '@/components/pos/CabinAccount.vue'
 import TapConfirmation, { type TapState } from '@/components/pos/TapConfirmation.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
@@ -259,10 +260,19 @@ function confirmSwap(swaps: Array<{ from: string; to: string }>, name: string, p
   if (product) tap(product, { swaps, name, price })
 }
 
+/** Trago o cóctel al que se le está eligiendo el acompañante (gaseosa, agua o jugo). */
+const mixing = shallowRef<Product | null>(null)
+
+function confirmMixers(mixers: string[], name: string, price: number) {
+  const product = mixing.value
+  mixing.value = null
+  if (product) tap(product, { mixers, name, price })
+}
+
 /** Un toque intencional suma una unidad a la cabina elegida. */
 function tap(
   product: Product,
-  change?: { swaps: Array<{ from: string; to: string }>; name: string; price: number },
+  change?: { swaps?: Array<{ from: string; to: string }>; mixers?: string[]; name: string; price: number },
   consumerId: string | null = consumer.value,
 ) {
   if (blockedReason.value || !cruise.value || !cabin.value) {
@@ -283,6 +293,7 @@ function tap(
     productName: change?.name ?? product.name,
     price: change?.price ?? product.price,
     swaps: change?.swaps,
+    mixers: change?.mixers,
     courtesy: Boolean(courtesyMode.value),
     courtesyReason: courtesyMode.value?.reason,
     courtesyKind: courtesyMode.value?.kind,
@@ -730,6 +741,7 @@ function onEmptyCabin(number: number) {
             :target="cabin ? `la Cabina ${cabin.number}` : ''"
             @add="(p: Product) => tap(p)"
             @swap="(p: Product) => (swapping = p)"
+            @mix="(p: Product) => (mixing = p)"
             @toggle-favorite="toggleFavorite"
             @request-review="requestReview"
             @create-cocktail="showBuilder = true"
@@ -828,6 +840,15 @@ function onEmptyCabin(number: number) {
       :target="cabin ? `la Cabina ${cabin.number}` : ''"
       @close="swapping = null"
       @confirm="confirmSwap"
+    />
+
+    <MixerPick
+      v-if="mixing"
+      :product="mixing"
+      :physical="physical"
+      :target="cabin ? `la Cabina ${cabin.number}` : ''"
+      @close="mixing = null"
+      @confirm="confirmMixers"
     />
 
     <CocktailBuilder
