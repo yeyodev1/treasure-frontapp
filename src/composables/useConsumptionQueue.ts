@@ -26,6 +26,8 @@ export interface QueueEntry {
   courtesyKind?: CourtesyKind
   /** Cóctel con cambio de gaseosa o licor; nombre y precio ya lo incluyen. */
   swaps?: Array<{ from: string; to: string }>
+  /** Trago o cóctel con acompañante; el nombre ya lo incluye. */
+  mixers?: string[]
   /** Pasajero de la cabina que lo consume (cuentas separadas). */
   consumerId?: string
   consumerName?: string
@@ -143,6 +145,7 @@ export function useConsumptionQueue(options: {
             courtesyReason: entry.courtesyReason,
             courtesyKind: entry.courtesyKind,
             swaps: entry.swaps,
+            mixers: entry.mixers,
             consumerId: entry.consumerId,
             idempotencyKey: entry.key,
             clientAt: entry.clientAt,
