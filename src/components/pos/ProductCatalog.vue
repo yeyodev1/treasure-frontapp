@@ -63,6 +63,8 @@ const emit = defineEmits<{
   createCocktail: []
   /** Cóctel con cambio de gaseosa o licor. */
   swap: [Product]
+  /** Trago o cóctel con acompañante (gaseosa, agua o jugo). */
+  mix: [Product]
 }>()
 
 const NON_ALCOHOLIC: ProductCategory[] = ['gaseosa', 'agua', 'jugo', 'snack']
@@ -448,6 +450,16 @@ function onTap(p: Product) {
             >
               <i class="fa-solid fa-right-left" aria-hidden="true" />
               <span class="bottle-label">Con cambio</span>
+            </button>
+            <button
+              v-if="!editingFavorites && card.main.kind === 'receta' && ['licor', 'coctel'].includes(card.main.category)"
+              type="button"
+              class="bottle"
+              :aria-label="`${baseName(card.main)} con acompañante (gaseosa, agua o jugo)`"
+              @click="emit('mix', card.main)"
+            >
+              <i class="fa-solid fa-glass-water" aria-hidden="true" />
+              <span class="bottle-label">Con acompañante</span>
             </button>
             <button
               v-if="card.bottle"
