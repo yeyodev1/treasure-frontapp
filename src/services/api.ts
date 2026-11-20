@@ -716,6 +716,8 @@ export interface ConsumptionPayload {
   clientAt?: string
   /** Cóctel con cambio de gaseosa o licor (ids de insumos). */
   swaps?: Array<{ from: string; to: string }>
+  /** Trago o cóctel con acompañante (ids de gaseosa, agua o jugo que también se descuentan). */
+  mixers?: string[]
   /** Wetsuit con otro valor por persona (IVA incluido). */
   customPrice?: number
   /** Pasajero de la cabina que lo consume (cuentas separadas). */
