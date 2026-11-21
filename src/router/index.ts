@@ -38,7 +38,15 @@ const routes: Array<RouteRecordRaw> = [
     meta: { title: 'Cuentas', roles: ['direccion'] },
   },
   {
+    // BAR - STOCK (pedido del cliente, 19-nov-2026): inventario de bebidas, una pantalla por perfil.
+    path: '/bar-stock',
+    name: 'BarStock',
+    component: () => import('@/views/BarStockView.vue'),
+    meta: { title: 'BAR - STOCK', roles: ['admin', 'direccion', 'bartender', 'bodega'] },
+  },
+  {
     // Inventario y pedidos (guía 4-nov-2026): un acceso, cuatro pestañas.
+    // El bar y la directora usan BAR - STOCK; esto queda para Gerencia y Administración.
     path: '/inventario',
     component: () => import('@/views/inventory/InventoryHub.vue'),
     meta: { title: 'Inventario y pedidos', roles: ['admin', 'direccion', 'bartender', 'bodega'] },
@@ -46,7 +54,7 @@ const routes: Array<RouteRecordRaw> = [
       {
         path: '',
         // El bar y la directora entran a contar y pedir (inventario simple, 17-nov-2026).
-        redirect: () => (['bartender', 'direccion'].includes(useUserStore().role ?? '') ? '/inventario/pedido' : '/inventario/existencias'),
+        redirect: () => (['bartender', 'direccion'].includes(useUserStore().role ?? '') ? '/bar-stock' : '/inventario/existencias'),
       },
       {
         path: 'existencias',

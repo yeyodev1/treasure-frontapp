@@ -40,7 +40,10 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: ['duena', 'direccion', 'bartender'] },
       { to: '/wetsuits', label: 'Wetsuits', icon: 'fa-person-swimming', roles: ['duena', 'direccion'] },
       { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: ['duena', 'direccion'] },
-      { to: '/inventario', label: 'Inventario y pedidos', short: 'Inventario', icon: 'fa-boxes-stacked', roles: ['duena', 'admin', 'direccion', 'bartender', 'bodega'], prefix: true },
+      // BAR - STOCK (pedido del cliente, 19-nov-2026): el inventario de bebidas en una sola sección.
+      { to: '/bar-stock', label: 'BAR - STOCK', icon: 'fa-boxes-stacked', roles: ['duena', 'admin', 'direccion', 'bartender', 'bodega'] },
+      // Las funciones detalladas siguen para Gerencia y Administración, fuera de las pestañas.
+      { to: '/inventario', label: 'Inventario detallado', short: 'Inventario', icon: 'fa-warehouse', roles: ['duena', 'admin', 'bodega'], prefix: true },
     ],
   },
   {
@@ -65,40 +68,30 @@ const NAV_SECTIONS: NavSection[] = [
  * 4-nov-2026). Siempre arriba y con texto, también en tableta horizontal. Lo
  * demás que el rol puede abrir queda en «Más». Los permisos no cambian.
  */
-const PEDIDOS: NavItem = { to: '/inventario/pedido', label: 'Pedido semanal', short: 'Pedidos', icon: 'fa-list-check', roles: [] }
-/** Bar y directora: una sola pestaña; Existencias queda adentro (17-nov-2026). */
-const INVENTARIO: NavItem = { to: '/inventario/pedido', match: '/inventario', label: 'Inventario', icon: 'fa-boxes-stacked', roles: [], prefix: true }
+/** BAR - STOCK (19-nov-2026): una sola pestaña de inventario; adentro cada uno ve lo suyo. */
+const BAR_STOCK: NavItem = { to: '/bar-stock', label: 'BAR - STOCK', icon: 'fa-boxes-stacked', roles: [] }
 const ROLE_TABS: Partial<Record<UserRole, NavItem[]>> = {
   bartender: [
     // Los wetsuits los cobra la directora de crucero, no el bar (pedido del cliente, 6-nov-2026).
     { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: [] },
-    // Inventario simple (pedido del cliente, 17-nov-2026): tengo, me falta, pedir.
-    INVENTARIO,
+    BAR_STOCK,
   ],
   direccion: [
     { to: '/admin/salidas', label: 'Cruceros', icon: 'fa-ship', roles: [] },
     { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: [] },
-    INVENTARIO,
+    BAR_STOCK,
     { to: '/', label: 'Bar', icon: 'fa-martini-glass-citrus', roles: [] },
     { to: '/wetsuits', label: 'Wetsuits', icon: 'fa-person-swimming', roles: [] },
     { to: '/admin/pagos', label: 'Cobros', icon: 'fa-cash-register', roles: [] },
   ],
-  admin: [
-    PEDIDOS,
-    { to: '/inventario/existencias?ubicacion=puerto', label: 'Bodega de puerto', icon: 'fa-anchor', roles: [] },
-    { to: '/inventario/conteos', label: 'Conteo del barco', icon: 'fa-clipboard-list', roles: [] },
-    { to: '/inventario/conteos?vista=diferencias', label: 'Diferencias', icon: 'fa-scale-unbalanced', roles: [] },
-    { to: '/inventario/compras', label: 'Compras', icon: 'fa-truck-ramp-box', roles: [], prefix: true },
-  ],
+  // Tierra: entregas y auditoría dentro de BAR - STOCK; lo demás queda en «Más».
+  admin: [BAR_STOCK],
   duena: [
     { to: '/admin', label: 'Resumen del negocio', short: 'Resumen', icon: 'fa-chart-line', roles: [] },
     // Gerencia ve cada cuenta y si su factura se emitió (pedido del cliente, 14-nov-2026).
     { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: [] },
     { to: '/admin/pagos', label: 'Cobros', icon: 'fa-cash-register', roles: [] },
-    PEDIDOS,
-    { to: '/inventario/existencias?ubicacion=quito', label: 'Bodega de Quito', icon: 'fa-city', roles: [] },
-    { to: '/inventario/existencias', label: 'Inventario', icon: 'fa-boxes-stacked', roles: [] },
-    { to: '/inventario/compras', label: 'Compras', icon: 'fa-truck-ramp-box', roles: [], prefix: true },
+    BAR_STOCK,
     { to: '/admin/equipo', label: 'Equipo', icon: 'fa-users', roles: [] },
   ],
 }
@@ -202,21 +195,21 @@ async function checkWeeklyOrder() {
     const toServe = all.find((o) => o.phase === 'atender' || o.phase === 'en_curso')
     const forBar = all.find((o) => o.status === 'bar')
     const toReceive = all.find((o) => o.toReceive)
-    if ((r === 'bartender' || r === 'direccion') && toReceive) {
-      // Flujo simple (16-nov-2026): el inventario del barco sube solo cuando el bar confirma.
-      orderNotice.value = { id: toReceive._id, tone: 'warn', action: 'Confirmar lo recibido', text: `Llegó mercadería del pedido ${toReceive.code}.` }
+    if (r === 'bartender' && toReceive) {
+      // El inventario del barco sube solo cuando el bar confirma lo recibido.
+      orderNotice.value = { id: toReceive._id, tone: 'warn', action: 'Recibir', text: `Pedido por recibir: ${toReceive.code}.` }
     } else if (r === 'direccion' && overdue) {
       orderNotice.value = { id: overdue._id, tone: 'warn', action: 'Revisar y aprobar', text: `El bar no revisó el pedido ${overdue.code}.` }
     } else if (r === 'direccion' && toReview) {
       orderNotice.value = { id: toReview._id, tone: 'info', action: 'Revisar y aprobar', text: `El bar envió el pedido ${toReview.code} a revisión.` }
     } else if (r === 'bartender' && forBar) {
-      orderNotice.value = { id: forBar._id, tone: forBar.overdue ? 'warn' : 'info', action: 'Revisar pedido', text: `El pedido semanal ${forBar.code} está listo para que lo revises.` }
+      orderNotice.value = { id: forBar._id, tone: forBar.overdue ? 'warn' : 'info', action: 'Contar y pedir', text: `Toca el inventario y pedido de la semana (${forBar.code}).` }
     } else if ((r === 'admin' || r === 'duena') && toServe) {
       orderNotice.value = {
         id: toServe._id,
         tone: 'info',
-        action: r === 'admin' ? 'Confirmar mi entrega' : 'Confirmar mi envío',
-        text: `El pedido ${toServe.code} está aprobado: atiende tu parte.`,
+        action: 'Enviar',
+        text: `El pedido ${toServe.code} está aprobado: por enviar al barco.`,
       }
     } else {
       orderNotice.value = null
@@ -250,7 +243,7 @@ onBeforeUnmount(() => {
 watch(
   () => route.path,
   (path) => {
-    if (path === '/inventario/pedido') void checkWeeklyOrder()
+    if (path === '/bar-stock') void checkWeeklyOrder()
   },
 )
 
@@ -447,8 +440,8 @@ async function logout() {
       <main class="content">
         <Transition name="fade">
           <RouterLink
-            v-if="orderNotice && route.path !== '/inventario/pedido'"
-            :to="{ path: '/inventario/pedido', query: { id: orderNotice.id } }"
+            v-if="orderNotice && route.path !== '/bar-stock'"
+            :to="{ path: '/bar-stock', query: userStore.role === 'duena' && orderNotice.action === 'Enviar' ? { vista: 'entregas' } : {} }"
             class="order-notice"
             :class="`order-notice--${orderNotice.tone}`"
           >

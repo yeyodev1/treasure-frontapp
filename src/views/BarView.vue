@@ -794,10 +794,10 @@ function onEmptyCabin(number: number) {
     <!-- Menú del bar: abastecimiento -->
     <BaseModal v-if="showMenu" title="Atajos del bar" @close="showMenu = false">
       <div class="menu-grid">
-        <RouterLink to="/inventario/pedido" class="menu-tile" @click="showMenu = false">
+        <RouterLink to="/bar-stock" class="menu-tile" @click="showMenu = false">
           <i class="fa-solid fa-calendar-week" aria-hidden="true" />
-          <strong>Pedido semanal</strong>
-          <small>Revisa la propuesta del miércoles y envíala a revisión.</small>
+          <strong>BAR - STOCK</strong>
+          <small>Cuenta lo que tienes, pide lo que falta y recibe lo que llega.</small>
         </RouterLink>
         <RouterLink to="/inventario/compras/solicitudes?nuevo=1" class="menu-tile" @click="showMenu = false">
           <i class="fa-solid fa-dolly" aria-hidden="true" />
