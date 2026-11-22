@@ -5,6 +5,8 @@ export interface OwnerBarRow {
   label: string
   value: number
   detail?: string
+  /** Con id, la fila se puede tocar para abrir su detalle. */
+  id?: string
 }
 
 /**
@@ -17,6 +19,8 @@ const props = withDefaults(
   { tone: 'quiet', empty: 'Sin datos en este alcance.' },
 )
 
+const emit = defineEmits<{ pick: [id: string] }>()
+
 const max = computed(() => Math.max(...props.rows.map((r) => r.value), 0))
 const fmt = (v: number) => (props.format ? props.format(v) : String(v))
 const share = (v: number) => (max.value > 0 ? Math.max(0, (v / max.value) * 100) : 0)
@@ -25,7 +29,10 @@ const share = (v: number) => (max.value > 0 ? Math.max(0, (v / max.value) * 100)
 <template>
   <ul v-if="rows.length" class="bars" :class="`bars--${tone}`">
     <li v-for="(row, i) in rows" :key="`${row.label}-${i}`" class="bar" :class="{ 'bar--top': i === 0 }">
-      <span class="bar-label">{{ row.label }}</span>
+      <button v-if="row.id" type="button" class="bar-label bar-pick" @click="emit('pick', row.id)">
+        {{ row.label }} <i class="fa-solid fa-chevron-right" aria-hidden="true" />
+      </button>
+      <span v-else class="bar-label">{{ row.label }}</span>
       <span class="bar-value">{{ fmt(row.value) }}</span>
       <span v-if="row.detail" class="bar-detail">{{ row.detail }}</span>
       <span class="bar-track" aria-hidden="true">
@@ -60,6 +67,25 @@ const share = (v: number) => (max.value > 0 ? Math.max(0, (v / max.value) * 100)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.bar-pick {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--navy-700);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+
+  i {
+    font-size: 0.75em;
+  }
+
+  &:hover {
+    text-decoration: underline;
+  }
 }
 
 .bar-value {

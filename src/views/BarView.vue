@@ -10,7 +10,7 @@ import { useConfirmStore } from '@/stores/confirm'
 import { useSound } from '@/composables/useSound'
 import { useConsumptionQueue, type QueueOutcome } from '@/composables/useConsumptionQueue'
 import { useConsumptionCorrections } from '@/composables/useConsumptionCorrections'
-import { apiAssignConsumers, apiAvailability, apiCabinSummary, apiCreateRequisition } from '@/services/api'
+import { apiAssignConsumers, apiCabinSummary } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { TIMEZONE, formatMoney, formatTime } from '@/utils/format'
 import ProductCatalog, { type CatalogFilter } from '@/components/pos/ProductCatalog.vue'
@@ -21,7 +21,7 @@ import CabinAccount from '@/components/pos/CabinAccount.vue'
 import TapConfirmation, { type TapState } from '@/components/pos/TapConfirmation.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
-import type { Availability, CabinConsumption, CabinSummary, CourtesyKind, Product } from '@/types'
+import type { CabinConsumption, CabinSummary, CourtesyKind, Product } from '@/types'
 
 /**
  * Bar (guía auditada 27-oct-2026): elegir cabina y tocar la bebida registra
@@ -47,7 +47,6 @@ const { active: cruise, cabins } = storeToRefs(cruiseStore)
 const loading = shallowRef(true)
 const selectedCabin = shallowRef<number | null>(null)
 const summaries = ref<Record<number, CabinSummary>>({})
-const availability = ref<Availability>({})
 /** Modo Cortesía: motivo de la próxima bebida (null = se cobra normal). */
 const courtesyMode = shallowRef<{ reason: string; kind: CourtesyKind } | null>(null)
 /** Pasajero de la cabina al que se carga (cuentas separadas); se reinicia al cambiar de cabina. */
@@ -93,7 +92,7 @@ const confirmAnchor = shallowRef<{ top?: number; bottom?: number }>({})
 /** Alto aproximado de la confirmación más su margen. */
 const CONFIRM_SPACE = 104
 
-let availabilityTimer: ReturnType<typeof setInterval> | null = null
+let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 /**
  * Modo noche opcional (Especificación de color e iconos, 7-nov-2026): apagado,
@@ -205,14 +204,6 @@ function passengerNames(c: { passengers: Array<{ name: string; isPayer?: boolean
   return c.passengers.length > 1 ? `${first} +${c.passengers.length - 1}` : first
 }
 
-async function loadAvailability() {
-  try {
-    availability.value = await apiAvailability()
-  } catch {
-    // Informativo: el servidor igual bloquea lo que no tiene stock.
-  }
-}
-
 async function loadSummary(number: number) {
   if (!cruise.value) return
   try {
@@ -228,7 +219,7 @@ watch(selectedCabin, (n) => {
 
 onMounted(async () => {
   try {
-    await Promise.all([catalogStore.load(true), cruiseStore.loadActive(true), loadAvailability()])
+    await Promise.all([catalogStore.load(true), cruiseStore.loadActive(true)])
   } catch (err) {
     toast.error(apiErrorMessage(err))
   } finally {
@@ -237,9 +228,8 @@ onMounted(async () => {
   restoreContext()
   queue.start()
   // Otra tableta pudo cargar a la misma cabina: la cuenta se refresca sola.
-  availabilityTimer = setInterval(() => {
+  refreshTimer = setInterval(() => {
     hourNow.value = galapagosHour()
-    void loadAvailability()
     if (selectedCabin.value) void loadSummary(selectedCabin.value)
   }, 60_000)
 })
@@ -247,7 +237,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   document.documentElement.classList.remove('bar-night')
   queue.stop()
-  if (availabilityTimer) clearInterval(availabilityTimer)
+  if (refreshTimer) clearInterval(refreshTimer)
   if (confirmedTimer) clearTimeout(confirmedTimer)
 })
 
@@ -278,12 +268,6 @@ function tap(
   if (blockedReason.value || !cruise.value || !cabin.value) {
     play('error')
     toast.error(blockedReason.value || 'Elige la cabina')
-    return
-  }
-  const state = availability.value[product._id]
-  if (state && !state.available) {
-    play('error')
-    toast.error(`${product.name} no está disponible: falta ${state.missing}`)
     return
   }
   const entry = queue.enqueue({
@@ -426,7 +410,6 @@ function onOutcome(outcome: QueueOutcome) {
     markLast(outcome.entry.key, 'saved')
     flashConfirmed(outcome.entry.productId, outcome.entry.cabinNumber)
     play('success')
-    void loadAvailability()
     return
   }
   // Retenido y no guardado los dice la confirmación grande; si no es el
@@ -440,7 +423,6 @@ function onOutcome(outcome: QueueOutcome) {
   markLast(outcome.entry.key, 'rejected', outcome.message)
   play('error')
   if (!isLast) toast.error(`No se guardó ${outcome.entry.productName} (cabina ${outcome.entry.cabinNumber}): ${outcome.message}`)
-  void loadAvailability()
 }
 
 function flashConfirmed(productId: string, cabinNumber: number) {
@@ -473,9 +455,9 @@ const todayCounts = computed(() => {
 
 const sellableById = computed(() => new Map(sellable.value.map((p) => [p._id, p])))
 
-/** + en la cuenta: la bebida sigue en la carta y no está agotada. */
+/** + en la cuenta: la bebida sigue en la carta (nunca se bloquea por stock). */
 function canAdd(productId: string) {
-  return sellableById.value.has(productId) && availability.value[productId]?.available !== false
+  return sellableById.value.has(productId)
 }
 
 function addById(productId: string, consumerId: string | null) {
@@ -514,7 +496,6 @@ async function correctRecent(item: CabinConsumption, kind: 'courtesy' | 'retire'
     lastTap.value = null
     play('success')
     toast.success(result.message)
-    void loadAvailability()
   } catch (err) {
     play('error')
     toast.error(apiErrorMessage(err))
@@ -540,34 +521,6 @@ async function cancelQueued(key: string, name: string) {
   if (t?.keys.includes(key)) {
     const keys = t.keys.filter((k) => k !== key)
     lastTap.value = keys.length ? { ...t, keys } : null
-  }
-}
-
-/** El producto aparece agotado pero está en la barra: pedir revisión de inventario. */
-async function requestReview(product: Product) {
-  const reason = await confirmStore.askReason({
-    title: `¿Pedir revisión de inventario de ${product.name}?`,
-    message: 'Se revisará con un conteo físico. No se registra el consumo hasta corregir el stock.',
-    confirmLabel: 'Pedir revisión',
-    icon: 'fa-clipboard-question',
-    reason: { label: 'Qué ves', suggestions: ['Hay una botella abierta en la barra', 'Llegó mercadería sin registrar'] },
-  })
-  if (!reason) return
-  const missingId = availability.value[product._id]?.missing
-    ? physical.value.find((p) => p.name === availability.value[product._id]!.missing)?._id ?? product._id
-    : product._id
-  try {
-    const req = await apiCreateRequisition({
-      kind: 'revision',
-      lines: [{ productId: missingId, qty: 0 }],
-      note: `${product.name}: ${reason}`,
-      idempotencyKey: crypto.randomUUID(),
-    })
-    play('success')
-    toast.success(`Revisión ${req.code} enviada · Se revisará con un conteo.`)
-  } catch (err) {
-    play('error')
-    toast.error(apiErrorMessage(err))
   }
 }
 
@@ -605,7 +558,6 @@ function onCocktailCreated(product: Product) {
   showBuilder.value = false
   play('success')
   toast.success(`Cóctel "${product.name}" creado por ${formatMoney(product.price)}: tócalo para registrarlo`)
-  void loadAvailability()
 }
 
 /** Cócteles creados en el bar que siguen en la carta (se pueden eliminar). */
@@ -730,7 +682,6 @@ function onEmptyCabin(number: number) {
           <ProductCatalog
             v-else
             :products="sellable"
-            :availability="availability"
             v-model:filter="catalogFilter"
             :favorites="effectiveFavorites"
             :pinned="favorites"
@@ -743,7 +694,6 @@ function onEmptyCabin(number: number) {
             @swap="(p: Product) => (swapping = p)"
             @mix="(p: Product) => (mixing = p)"
             @toggle-favorite="toggleFavorite"
-            @request-review="requestReview"
             @create-cocktail="showBuilder = true"
           />
         </section>

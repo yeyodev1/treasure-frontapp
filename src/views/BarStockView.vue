@@ -21,7 +21,7 @@ const VIEWS = {
   pedidos: { label: 'Pedidos', icon: 'fa-stamp', component: defineAsyncComponent(() => import('@/components/barstock/StockDirector.vue')) },
   entregas: { label: 'Entregas', icon: 'fa-truck-fast', component: defineAsyncComponent(() => import('@/components/barstock/StockLand.vue')) },
   control: { label: 'Control', icon: 'fa-scale-unbalanced', component: defineAsyncComponent(() => import('@/components/barstock/StockControl.vue')) },
-  auditoria: { label: 'Auditoría', icon: 'fa-clipboard-check', component: defineAsyncComponent(() => import('@/components/barstock/StockControl.vue')) },
+  auditoria: { label: 'Auditoría', icon: 'fa-clipboard-check', component: defineAsyncComponent(() => import('@/components/barstock/StockAudit.vue')) },
   consulta: { label: 'Consulta general', icon: 'fa-chart-column', component: defineAsyncComponent(() => import('@/components/barstock/StockOverview.vue')) },
 } as const
 type ViewKey = keyof typeof VIEWS

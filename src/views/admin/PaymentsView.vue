@@ -3,16 +3,17 @@ import { computed, onMounted, ref, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToastStore } from '@/stores/toast'
 import { useUserStore } from '@/stores/user'
-import { apiPayments, apiRetryInvoice, apiReversePayment } from '@/services/api'
+import { apiCruises, apiPayments, apiRetryInvoice, apiReversePayment } from '@/services/api'
 import { useConfirmStore } from '@/stores/confirm'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatMoney, formatDateTime } from '@/utils/format'
+import { fmt } from '@/components/owner/insights'
 import BaseDatePicker from '@/components/ui/BaseDatePicker.vue'
 import BaseSpinner from '@/components/ui/BaseSpinner.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import { useInfiniteScroll } from '@/composables/useInfiniteScroll'
 import { useSound } from '@/composables/useSound'
-import type { InvoiceStatus, Payment } from '@/types'
+import type { Cruise, InvoiceStatus, Payment } from '@/types'
 
 /**
  * Cobros y facturas: el pago registrado y la factura son estados separados
@@ -34,6 +35,9 @@ const hasMore = shallowRef(false)
 const sentinel = shallowRef<HTMLElement | null>(null)
 /** Desde las alertas del resumen: solo facturas pendientes. */
 const onlyPending = shallowRef(route.query.factura === 'pendiente')
+/** Cobros por crucero (pedido del cliente, 21-nov): abre en el más reciente; '' = todos. */
+const cruises = shallowRef<Cruise[]>([])
+const cruiseId = shallowRef('')
 
 /** Paso de la factura en el SRI, en palabras claras (12-nov-2026). */
 const SRI_LABELS: Record<string, string> = {
@@ -73,6 +77,7 @@ function rangeParams() {
     // Días completos en hora de Galápagos (el servidor interpreta 'YYYY-MM-DD').
     from: from.value || undefined,
     to: to.value || undefined,
+    cruiseId: cruiseId.value || undefined,
     invoice: onlyPending.value ? ('pendiente' as const) : undefined,
   }
 }
@@ -115,7 +120,20 @@ async function loadMore() {
 
 useInfiniteScroll({ sentinel, onReach: loadMore })
 
-onMounted(refresh)
+onMounted(async () => {
+  try {
+    cruises.value = (await apiCruises()).sort((a, b) => b.startDate.localeCompare(a.startDate))
+    // Facturas pendientes se ven de todos los cruceros.
+    if (!onlyPending.value) cruiseId.value = cruises.value.find((c) => c.status === 'abordo')?._id ?? cruises.value[0]?._id ?? ''
+  } catch {
+    // Sin la lista de cruceros se ven todos los cobros.
+  }
+  await refresh()
+})
+
+const day = (d: string) => fmt(d, { day: 'numeric', month: 'short' })
+const cruiseLabel = (c: Cruise) => `${c.code} · ${day(c.startDate)}${c.endDate ? ` – ${day(c.endDate)}` : ''}`
+const cruiseCode = computed(() => cruises.value.find((c) => c._id === cruiseId.value)?.code ?? '')
 
 const retrying = shallowRef('')
 
@@ -219,6 +237,13 @@ function collectorName(payment: Payment): string {
         </button>
       </div>
       <div class="dates">
+        <div class="field">
+          <label for="f-cruise">Crucero</label>
+          <select id="f-cruise" v-model="cruiseId" class="cruise-select" @change="refresh">
+            <option value="">Todos los cruceros</option>
+            <option v-for="c in cruises" :key="c._id" :value="c._id">{{ cruiseLabel(c) }}</option>
+          </select>
+        </div>
         <div class="field">
           <label id="f-from-label">Desde</label>
           <BaseDatePicker v-model="from" clearable aria-labelledby="f-from-label" @update:model-value="refresh" />
@@ -342,7 +367,7 @@ function collectorName(payment: Payment): string {
       </TransitionGroup>
 
       <p v-if="!payments.length" class="empty">
-        {{ onlyPending ? 'Sin facturas pendientes en este rango.' : 'Sin cobros en este rango.' }}
+        {{ onlyPending ? 'Sin facturas pendientes' : 'Sin cobros' }}{{ cruiseCode ? ` en el crucero ${cruiseCode}` : ' en este rango' }}.
       </p>
       <div v-if="hasMore" ref="sentinel" class="sentinel">
         <BaseSpinner v-if="loadingMore" label="Cargando más cobros…" />
@@ -416,13 +441,24 @@ function collectorName(payment: Payment): string {
 .dates {
   flex: 1 1 360px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 0.75rem;
-  max-width: 520px;
+  max-width: 780px;
 
   .field label {
     font-size: 0.9375rem;
   }
+}
+
+.cruise-select {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 0.75rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink-900);
+  font-size: 1rem;
 }
 
 .list-card {

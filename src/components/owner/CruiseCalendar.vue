@@ -13,6 +13,7 @@ import {
   type CruiseCalendarRow,
   type ShipStopRow,
 } from '@/services/api'
+import { loadCalendar, stopCruise } from '@/components/owner/insights'
 import { apiErrorMessage } from '@/services/httpBase'
 import { TIMEZONE, formatMoney, todayKey } from '@/utils/format'
 
@@ -174,6 +175,7 @@ async function save() {
   try {
     await apiCreateShipStop({ kind: kind.value, from: from.value, to: to.value, note: note.value.trim() })
     stops.value = await apiShipStops()
+    void loadCalendar(true)
     month.value = from.value.slice(0, 7)
     year.value = Number(from.value.slice(0, 4))
     formOpen.value = false
@@ -197,6 +199,7 @@ async function remove(s: ShipStopRow) {
   try {
     await apiDeleteShipStop(s.id)
     stops.value = stops.value.filter((x) => x.id !== s.id)
+    void loadCalendar(true)
     toast.success('Quitado del registro')
   } catch (err) {
     toast.error(apiErrorMessage(err))
@@ -319,7 +322,7 @@ function range(c: CruiseCalendarRow) {
           <i class="fa-solid c-stop-icon" :class="STOP[st.kind].icon" aria-hidden="true" />
           <div class="c-body">
             <p class="c-title"><strong>{{ STOP[st.kind].label }}</strong></p>
-            <p class="c-meta">{{ stopRange(st) }}<template v-if="st.note"> · {{ st.note }}</template></p>
+            <p class="c-meta">{{ stopRange(st) }} · {{ stopCruise(st, rows) }}<template v-if="st.note"> · {{ st.note }}</template></p>
           </div>
           <button type="button" class="btn-text c-stop-del" @click="remove(st)">
             <i class="fa-solid fa-trash" aria-hidden="true" /> Quitar
