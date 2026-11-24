@@ -7,6 +7,7 @@ import { apiErrorMessage } from '@/services/httpBase'
 import { useToastStore } from '@/stores/toast'
 import { useSound } from '@/composables/useSound'
 import { formatDateTime, formatMoney } from '@/utils/format'
+import { useUserStore } from '@/stores/user'
 import type { Cruise, FinishCheck } from '@/types'
 
 /**
@@ -27,7 +28,11 @@ const refreshing = shallowRef(false)
 const reason = shallowRef('')
 
 const label = computed(() => (props.cruise.code ? `Crucero ${props.cruise.code}` : props.cruise.name))
-const exceptional = computed(() => Boolean(check.value?.issues.length))
+const userStore = useUserStore()
+/** Conteo del bar obligatorio (especificación del Resumen): sin él solo Gerencia finaliza, con motivo. */
+const noCount = computed(() => Boolean(check.value && !check.value.barCount))
+const blockedByCount = computed(() => noCount.value && !userStore.isOwner)
+const exceptional = computed(() => Boolean(check.value?.issues.length) || noCount.value)
 const FINANCE_LABELS = { por_revisar: 'Por revisar', por_cobrar: 'Por cobrar', liquidada: 'Liquidada' } as const
 const ACCOUNT_LABELS: Record<string, string> = {
   abierta: 'Abierta',
@@ -121,6 +126,18 @@ async function finish() {
         </p>
       </div>
 
+      <p v-if="noCount" class="count-alert" role="alert">
+        <i class="fa-solid fa-clipboard-list" aria-hidden="true" />
+        <span>
+          Falta el conteo del bar de este crucero. Cuéntalo en
+          <RouterLink to="/inventario/conteos">Inventario → Conteos</RouterLink> antes de finalizar: sin conteo no se calcula la merma.
+          <template v-if="userStore.isOwner"> Gerencia puede finalizar igual, con motivo.</template>
+        </span>
+      </p>
+      <p v-else-if="check.barCount" class="muted">
+        <i class="fa-solid fa-clipboard-check" aria-hidden="true" /> Conteo del bar {{ check.barCount.code }} · {{ formatDateTime(check.barCount.cutAt) }}
+      </p>
+
       <p v-if="check.held" class="muted">
         <i class="fa-solid fa-hourglass-half" aria-hidden="true" /> {{ check.held }} consumo(s) retenido(s) por envío tardío esperan tu revisión en Cuentas.
       </p>
@@ -158,7 +175,7 @@ async function finish() {
 
     <template #footer>
       <button type="button" class="btn btn-secondary" @click="emit('close')">Cancelar</button>
-      <button type="button" class="btn btn-primary btn-lg" :disabled="!check || finishing" @click="finish">
+      <button type="button" class="btn btn-primary btn-lg" :disabled="!check || finishing || blockedByCount" @click="finish">
         <i class="fa-solid" :class="finishing ? 'fa-spinner fa-spin' : 'fa-anchor'" aria-hidden="true" />
         {{ finishing ? 'Finalizando…' : exceptional ? 'Finalizar operación con cierre excepcional' : 'Finalizar operación del crucero' }}
       </button>
@@ -167,6 +184,21 @@ async function finish() {
 </template>
 
 <style scoped lang="scss">
+.count-alert {
+  display: flex;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--radius-sm);
+  background: var(--pill-warn-bg);
+  color: var(--pill-warn-ink);
+
+  a {
+    font-weight: 700;
+    color: inherit;
+  }
+}
+
 .finish {
   display: flex;
   flex-direction: column;

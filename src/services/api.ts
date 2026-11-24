@@ -451,6 +451,9 @@ export async function apiPayments(
     /** 'pendiente': facturas pendientes o con error de cobros vigentes. */
     invoice?: 'pendiente'
     line?: BillingLine
+    method?: string
+    /** 'pendiente': efectivo que sigue en caja (sin depósito). */
+    deposit?: 'pendiente'
   } = {},
 ) {
   const { data } = await http.get<{ payments: Payment[]; hasMore: boolean }>('/payments', {
@@ -728,6 +731,8 @@ export interface ConsumptionPayload {
   mixers?: string[]
   /** Wetsuit con otro valor por persona (IVA incluido). */
   customPrice?: number
+  /** Motivo del otro valor (solo Gerencia). */
+  priceReason?: string
   /** Pasajero de la cabina que lo consume (cuentas separadas). */
   consumerId?: string
 }
@@ -916,12 +921,256 @@ export async function apiCommissions() {
   return data
 }
 
-export async function apiCreateCommissionPayment(payload: { cruiseIds: string[]; paidAt: string; note: string }) {
-  const { data } = await http.post<CommissionSummary>('/commissions/payments', payload)
+export async function apiCreateCommissionPayment(payload: {
+  cruiseIds: string[]
+  paidAt: string
+  note: string
+  method?: 'transferencia' | 'efectivo'
+  reference?: string
+}) {
+  const { data } = await http.post<CommissionSummary & { paymentId: string }>('/commissions/payments', payload)
   return data
 }
 
 export async function apiVoidCommissionPayment(id: string, reason: string) {
   const { data } = await http.post<CommissionSummary>(`/commissions/payments/${id}/void`, { reason })
+  return data
+}
+
+// ── Resumen de Gerencia en dos vistas (especificación, 24-nov-2026) ──────────
+export type SummaryPeriodKind = 'ano' | 'mes' | 'crucero'
+export type Tone = 'verde' | 'amarillo' | 'rojo' | 'gris'
+
+export interface SummaryPeriod {
+  kind: SummaryPeriodKind
+  value: string
+  label: string
+  from: string
+  to: string
+}
+
+export interface SummaryAction {
+  tone: 'rojo' | 'amarillo'
+  text: string
+  amount?: number
+  count?: number
+  to: string
+  label: string
+}
+
+export interface BarSummary {
+  period: SummaryPeriod
+  partial: { since: string; label: string } | null
+  cruise: { id: string; code: string; route: string; leg: string; status: string; start: string; end: string; bartender: string; agency: string } | null
+  cruises: Array<{ id: string; code: string; status: string; start: string; end: string }>
+  goals: Record<string, number | null>
+  figures: {
+    bar: number
+    wetsuits: number
+    services: number
+    consumed: number
+    collected: number
+    collectedPct: number | null
+    pendingCollection: number
+    pendingCabins: number
+    openCruises: string[]
+    margin: number | null
+    marginPct: number | null
+    marginTone: Tone
+    servedCost: number | null
+    commissionCost: number
+    productsWithoutCost: number
+    compare: Array<{ label: string; value: number | null }>
+  }
+  actions: SummaryAction[]
+  byMonth: Array<{ month: string; bar: number; wetsuits: number }>
+  byDay: Array<{ day: string; total: number }>
+  collectedRows: Array<{ id: string; code: string; status: string; consumed: number; collected: number; diff: number; noInvoice: number; tone: Tone }>
+  cabins: Array<{ cabin: number; consumed: number; paid: number; due: number; status: string }>
+  wetsuits: {
+    income: number
+    rented: number
+    passengers: number
+    rentPct: number | null
+    avgPrice: number | null
+    rates: { ab: number | null; c: number | null }
+    noInvoice: number
+    rows: Array<{
+      id: string
+      code: string
+      rented: number
+      passengers: number
+      income: number
+      payer: string
+      payerCabins: number[]
+      state: string
+      noInvoice: number
+      offRate: boolean
+      overCabins: Array<{ cabin: number; pax: number; rented: number }>
+      tone: Tone
+    }>
+  }
+  commissions: {
+    rate: number
+    divisor: number | null
+    generated: number
+    paid: number
+    pending: number
+    retained: number
+    projected: number
+    projectedFrom: string[]
+    paidInYear: number
+    rows: Array<{
+      id: string
+      code: string
+      bartenderId: string | null
+      bartenderName: string
+      generic: boolean
+      sales: number
+      salesAll: number
+      commission: number
+      projected: number
+      paid: number
+      pending: number
+      state: 'pagada' | 'parcial' | 'pendiente' | 'en_curso' | 'retenida'
+    }>
+    payments: Array<{ id: string; amount: number; paidAt: string; method: string; reference: string; status: string; bartenderName: string; items: Array<{ code: string; amount: number }>; voided: { reason: string } | null }>
+  }
+  agency: {
+    rows: Array<{
+      id: string
+      code: string
+      start: string
+      end: string | null
+      status: string
+      agency: string
+      agencyRuc: string
+      agencyEmail: string
+      bar: number
+      barCount: number
+      wetsuits: number
+      wetsuitCount: number
+      total: number
+      pending: number
+      state: string
+    }>
+    toInvoice: number
+    invoicedUnpaid: number
+    collected: number
+    invoices: Array<{ id: string; number: string; month: string; agency: string; cruises: string[]; amount: number; paid: number; due: number; days: number; orphan: boolean; createdAt: string; tone: Tone }>
+    maxDays: number
+  }
+  money: {
+    methods: Array<{ method: string; count: number; total: number }>
+    cashUndeposited: { count: number; total: number; oldestDays: number }
+    depositsRegistered: number
+    tone: Tone
+  }
+  perPaxDay: {
+    value: number | null
+    goal: number | null
+    tone: Tone
+    perCruise: Array<{ id: string; code: string; leg: string; value: number | null; tone: Tone }>
+    perMonth: Array<{ month: string; value: number | null; tone: Tone }>
+    byLeg: Array<{ leg: string; value: number | null }>
+    compare: { label: string; value: number | null } | null
+  }
+  waste: {
+    value: number | null
+    pct: number | null
+    finished: number
+    counted: number
+    missingCost: boolean
+    belowZero: number
+    belowZeroNames: string[]
+    lastCount: string | null
+    tone: Tone
+  }
+  team: Array<{ id: string; name: string; bar: number; wetsuits: number; annulments: number | null; unapproved: number; generic: boolean; tone: Tone }>
+  served: Array<{ name: string; qty: number; amount: number }>
+  commissionCruise: BarSummary['commissions']['rows'][number] | null
+  agencyCruise: number | null
+}
+
+export interface OperationSummary {
+  period: SummaryPeriod
+  partial: { since: string; label: string } | null
+  capacity: number
+  figures: {
+    cruises: number
+    finished: number
+    running: number
+    passengers: number
+    seats: number
+    occupancy: number | null
+    operatedDays: number
+    paraDays: number
+    diqueDays: number
+    upcomingDays: number
+    since: string | null
+    compare: Array<{ label: string; cruises: number; pax: number }>
+  }
+  occupancy: Array<{ id: string; code: string; pax: number; capacity: number }>
+  legs: Array<{ leg: string; pax: number }>
+  countries: { total: number; rows: Array<{ country: string; count: number; pct: number }> }
+  days: Array<{ day: string; state: 'navegando' | 'para' | 'dique' | 'por_venir' | 'sin_registro'; code: string; departs: boolean; arrives: boolean; today: boolean }>
+  months: Array<{ month: string; navegando: number; para: number; dique: number; porVenir: number; sinRegistro: number; passengers: number; active: boolean }>
+  years: Array<{ year: string; passengers: number; occupancy: number | null; nights: number }>
+  cruise: {
+    id: string
+    code: string
+    route: string
+    leg: string
+    status: string
+    start: string
+    end: string
+    startTime: string
+    endTime: string | null
+    nights: number
+    usedCabins: number
+    cabinCount: number
+    cabins: Array<{ number: number; holder: string; pax: number }>
+  } | null
+}
+
+export interface GoalRow {
+  key: string
+  label: string
+  unit: string
+  initial: number | null
+  value: number | null
+}
+
+export async function apiBarSummary(periodo: SummaryPeriodKind, valor: string) {
+  const { data } = await http.get<BarSummary>('/reports/summary/bar', { params: { periodo, valor } })
+  return data
+}
+
+export async function apiOperationSummary(periodo: SummaryPeriodKind, valor: string) {
+  const { data } = await http.get<OperationSummary>('/reports/summary/operacion', { params: { periodo, valor } })
+  return data
+}
+
+export async function apiGoals() {
+  const { data } = await http.get<{ goals: GoalRow[]; history: Array<{ key: string; value: number | null; from: string; by: string }> }>('/goals')
+  return data
+}
+
+export async function apiSaveGoal(key: string, value: number | null, from?: string) {
+  await http.post('/goals', { key, value, from })
+}
+
+export async function apiDepositCash(ids: string[], reference: string, date?: string) {
+  const { data } = await http.post<{ deposited: number; total: number }>('/payments/deposit', { ids, reference, date })
+  return data
+}
+
+export async function apiAgencyInvoicePayment(id: string, payload: { amount: number; date?: string; reference?: string }) {
+  await http.post(`/agency-billing/invoices/${id}/payments`, payload)
+}
+
+/** Recibo en PDF del pago de comisión (para firma): se abre en una pestaña nueva. */
+export async function apiCommissionReceipt(id: string) {
+  const { data } = await http.get<Blob>(`/commissions/payments/${id}/receipt`, { responseType: 'blob' })
   return data
 }

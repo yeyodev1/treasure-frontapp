@@ -3,15 +3,51 @@ import { computed, shallowRef, watch } from 'vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import BaseDatePicker from '@/components/ui/BaseDatePicker.vue'
 import { useToastStore } from '@/stores/toast'
-import { apiCreateShipStop } from '@/services/api'
+import { apiCreateShipStop, apiDeleteShipStop, apiShipStops, type ShipStopRow } from '@/services/api'
+import { useConfirmStore } from '@/stores/confirm'
+import { formatDate } from '@/utils/format'
 import { daysBetween } from '@/components/owner/insights'
 import { apiErrorMessage } from '@/services/httpBase'
 
-/** Marcar una para (no sale el crucero) o el dique (arreglo del barco). Sale del antiguo «Registro» (23-nov-2026). */
+/**
+ * Registrar el dique (arreglo del barco) con fechas y motivo. Desde la
+ * especificación del Resumen (24-nov-2026) se registra en Cruceros; las paras
+ * no se marcan: son los días sin crucero ni dique.
+ */
 const emit = defineEmits<{ close: []; saved: [from: string] }>()
 const toast = useToastStore()
+const confirm = useConfirmStore()
 
-const kind = shallowRef<'para' | 'dique' | ''>('')
+/** Diques ya registrados, para quitar uno mal puesto. */
+const diques = shallowRef<ShipStopRow[]>([])
+async function loadDiques() {
+  try {
+    diques.value = (await apiShipStops()).filter((s) => s.kind === 'dique')
+  } catch {
+    diques.value = []
+  }
+}
+void loadDiques()
+
+async function remove(s: ShipStopRow) {
+  const ok = await confirm.ask({
+    title: '¿Quitar este dique?',
+    message: `${formatDate(s.from)} a ${formatDate(s.to)}. Esos días vuelven a contar como para o navegando.`,
+    confirmLabel: 'Quitar',
+    danger: true,
+    icon: 'fa-trash',
+  })
+  if (!ok) return
+  try {
+    await apiDeleteShipStop(s.id)
+    await loadDiques()
+    toast.success('Dique quitado')
+  } catch (err) {
+    toast.error(apiErrorMessage(err))
+  }
+}
+
+const kind = shallowRef<'para' | 'dique' | ''>('dique')
 const from = shallowRef('')
 const to = shallowRef('')
 const note = shallowRef('')
@@ -25,6 +61,7 @@ watch(from, (v) => {
 
 const formError = computed(() => {
   if (!kind.value) return 'Elige si es para o dique'
+  if (!note.value.trim()) return 'Escribe el motivo del dique'
   if (!from.value || !to.value) return 'Elige los días desde y hasta'
   if (to.value < from.value) return '«Hasta» no puede ser antes de «Desde»'
   if (daysBetween(from.value, to.value) > 367) return 'Máximo un año por registro'
@@ -49,26 +86,11 @@ async function save() {
 
 <template>
   <BaseModal
-    title="Marcar para o dique"
-    subtitle="Días en que el barco no sale. Se suma al resumen del año."
+    title="Registrar dique"
+    subtitle="Días de arreglo del barco. Las paras (días sin crucero) salen solas del calendario."
     @close="emit('close')"
   >
     <form id="ship-stop-form" class="stop-form" novalidate @submit.prevent="save">
-      <fieldset class="stop-kind">
-        <legend>¿Qué pasó?</legend>
-        <label class="stop-kind-opt">
-          <input v-model="kind" type="radio" name="ship-stop-kind" value="para" />
-          <i class="fa-solid fa-circle-pause" aria-hidden="true" />
-          <strong>Para</strong>
-          <span>No sale el crucero</span>
-        </label>
-        <label class="stop-kind-opt">
-          <input v-model="kind" type="radio" name="ship-stop-kind" value="dique" />
-          <i class="fa-solid fa-screwdriver-wrench" aria-hidden="true" />
-          <strong>Dique</strong>
-          <span>Arreglo del barco</span>
-        </label>
-      </fieldset>
       <div class="stop-dates">
         <div class="field">
           <label>Desde</label>
@@ -83,9 +105,15 @@ async function save() {
         Son {{ daysBetween(from, to) }} {{ daysBetween(from, to) === 1 ? 'día' : 'días' }}.
       </p>
       <div class="field">
-        <label for="ship-stop-note">Nota (opcional)</label>
-        <input id="ship-stop-note" v-model="note" type="text" maxlength="200" placeholder="Ej.: mal tiempo, mantenimiento" />
+        <label for="ship-stop-note">Motivo</label>
+        <input id="ship-stop-note" v-model="note" type="text" maxlength="200" placeholder="Ej.: mantenimiento de motores" />
       </div>
+      <ul v-if="diques.length" class="dique-list" aria-label="Diques registrados">
+        <li v-for="d in diques" :key="d.id">
+          <span><strong>{{ formatDate(d.from) }} – {{ formatDate(d.to) }}</strong><template v-if="d.note"> · {{ d.note }}</template></span>
+          <button type="button" class="btn-text" @click="remove(d)"><i class="fa-solid fa-trash" aria-hidden="true" /> Quitar</button>
+        </li>
+      </ul>
       <p v-if="tried && formError" class="campo-error" role="alert">
         <i class="fa-solid fa-circle-exclamation" aria-hidden="true" /> {{ formError }}
       </p>
@@ -101,78 +129,35 @@ async function save() {
 </template>
 
 <style scoped lang="scss">
+.dique-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px dashed var(--line-strong);
+    border-radius: var(--radius-sm);
+  }
+
+  .btn-text {
+    min-height: 44px;
+    color: var(--danger-ink);
+  }
+}
+
 .stop-form {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-}
-
-.stop-kind {
-  display: flex;
-  gap: 0.75rem;
-  margin: 0;
-  padding: 0;
-  border: 0;
-
-  legend {
-    margin-bottom: 0.4rem;
-    padding: 0;
-    font-size: 0.92rem;
-    font-weight: 600;
-    color: var(--ink-600);
-  }
-}
-
-.stop-kind-opt {
-  position: relative;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.2rem;
-  min-height: 96px;
-  padding: 0.85rem 0.5rem;
-  border: 2px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--navy-900);
-  text-align: center;
-  cursor: pointer;
-
-  input {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  i {
-    font-size: 1.5rem;
-    color: var(--navy-600);
-  }
-
-  strong {
-    font-size: 1.1rem;
-  }
-
-  span {
-    font-size: 0.85rem;
-    color: var(--ink-600);
-  }
-
-  &:has(input:checked) {
-    border-color: var(--navy-800);
-    background: var(--navy-800);
-    color: #fff;
-
-    i,
-    span {
-      color: var(--powder-300);
-    }
-  }
-
-  &:has(input:focus-visible) {
-    box-shadow: var(--focus-ring);
-  }
 }
 
 .stop-dates {

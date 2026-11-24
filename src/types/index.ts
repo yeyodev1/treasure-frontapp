@@ -180,6 +180,8 @@ export interface Cruise {
   /** Bartender del crucero (comisiones). */
   bartender?: string | null
   bartenderName?: string
+  /** Agencia del crucero: a quién se le facturan sus cortesías y wetsuits. */
+  agency?: { name: string; ruc: string; email: string }
 }
 
 export interface StartCheck {
@@ -214,6 +216,8 @@ export interface FinishCheck {
     silent: boolean
   }>
   issues: string[]
+  /** Conteo del bar del crucero (obligatorio para finalizar). */
+  barCount?: { code: string; cutAt: string; status: string } | null
   held: number
   finance: 'por_revisar' | 'por_cobrar' | 'liquidada'
   totals: { consumed: number; paid: number; due: number }
@@ -737,6 +741,8 @@ export interface Payment {
   reference?: string
   cashConfirmed: boolean
   billing: { name: string; idNumber: string; email: string; country: string; noEmail?: boolean }
+  /** Efectivo depositado en el banco; null = sigue en caja. */
+  deposit?: { at: string; reference: string; byName: string } | null
   line?: BillingLine
   invoiceStatus: InvoiceStatus
   invoiceId: string

@@ -60,7 +60,10 @@ const form = reactive({
   contificoId: editing?.contificoId ?? '',
   wineStyle: (editing?.wineStyle ?? '') as string,
   servingIcon: (editing?.servingIcon ?? '') as string,
+  /** Costo de un envase: obligatorio al crear un insumo físico (especificación del Resumen, 24-nov-2026). */
+  containerCost: editing?.costPerUnit ? Math.round(editing.costPerUnit * (editing.containerSize || 1) * 100) / 100 : ('' as number | ''),
 })
+const initialCost = form.containerCost
 
 const recipe = ref(
   (editing?.recipe ?? []).map((r) => ({
@@ -135,6 +138,14 @@ async function save() {
   }
   if (isAdmin.value) payload.price = form.price
   if (isAdmin.value && contificoReady.value) payload.contificoId = form.contificoId
+  if (form.kind === 'fisico' && userStore.isWarehouse) {
+    const cost = Number(form.containerCost)
+    if (!editing && !(cost > 0)) {
+      toast.error('Pon el costo del envase: sin costo no se calcula el margen')
+      return
+    }
+    if (cost > 0 && form.containerCost !== initialCost) payload.containerCost = cost
+  }
   if (form.kind === 'fisico') {
     Object.assign(payload, {
       sellable: form.sellable,
@@ -242,6 +253,11 @@ async function save() {
               <span>{{ unitShort(form.stockUnit) }}</span>
             </div>
           </div>
+        </div>
+        <div v-if="userStore.isWarehouse" class="field">
+          <label for="p-ccost">Costo por {{ form.containerLabel || 'envase' }} (USD, IVA incluido){{ editing ? '' : ' · obligatorio' }}</label>
+          <input id="p-ccost" v-model.number="form.containerCost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Ej. 12,50" />
+          <small v-if="editing && !editing.costPerUnit" class="field-hint">Sin costo: el margen del Resumen sale en gris hasta cargarlo.</small>
         </div>
         <div class="row">
           <div class="field">

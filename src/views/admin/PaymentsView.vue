@@ -3,7 +3,7 @@ import { computed, onMounted, ref, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToastStore } from '@/stores/toast'
 import { useUserStore } from '@/stores/user'
-import { apiCruises, apiDropInvoice, apiPayments, apiRetryInvoice, apiReversePayment } from '@/services/api'
+import { apiCruises, apiDepositCash, apiDropInvoice, apiPayments, apiRetryInvoice, apiReversePayment } from '@/services/api'
 import { useConfirmStore } from '@/stores/confirm'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatMoney, formatDateTime } from '@/utils/format'
@@ -40,7 +40,9 @@ const sentinel = shallowRef<HTMLElement | null>(null)
  * facturas pendientes (desde las alertas del resumen).
  */
 type View = 'crucero' | 'todos' | 'pendiente'
-const view = shallowRef<View>(route.query.factura === 'pendiente' ? 'pendiente' : 'crucero')
+const view = shallowRef<View>(route.query.factura === 'pendiente' ? 'pendiente' : route.query.metodo === 'efectivo' ? 'todos' : 'crucero')
+/** Efectivo que sigue en caja (desde «Dónde está la plata» del Resumen). */
+const cashOnly = shallowRef(route.query.metodo === 'efectivo')
 const onlyPending = computed(() => view.value === 'pendiente')
 const cruises = shallowRef<Cruise[]>([])
 const cruiseId = shallowRef('')
@@ -94,12 +96,51 @@ function rangeParams() {
     to: to.value || undefined,
     line: line.value || undefined,
     invoice: onlyPending.value ? ('pendiente' as const) : undefined,
+    deposit: cashOnly.value && view.value === 'todos' ? ('pendiente' as const) : undefined,
+  }
+}
+
+function toggleCash() {
+  cashOnly.value = !cashOnly.value
+  depositPick.value = new Set()
+  router.replace({ query: cashOnly.value ? { metodo: 'efectivo' } : {} })
+  refresh()
+}
+
+/** Depósito del efectivo en el banco (especificación del Resumen, bloque 8). */
+const depositPick = shallowRef<Set<string>>(new Set())
+const depositRef = shallowRef('')
+const depositing = shallowRef(false)
+const depositTotal = computed(() => payments.value.filter((p) => depositPick.value.has(p._id)).reduce((s, p) => s + p.total, 0))
+function togglePickDeposit(id: string) {
+  const next = new Set(depositPick.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  depositPick.value = next
+}
+async function registerDeposit() {
+  if (depositing.value || !depositPick.value.size) return
+  depositing.value = true
+  try {
+    const result = await apiDepositCash([...depositPick.value], depositRef.value.trim())
+    play('success')
+    toast.success(`Depósito registrado: ${result.deposited} cobro(s) · ${formatMoney(result.total)}`)
+    depositPick.value = new Set()
+    depositRef.value = ''
+    await refresh()
+  } catch (err) {
+    play('error')
+    toast.error(apiErrorMessage(err))
+  } finally {
+    depositing.value = false
   }
 }
 
 function setView(next: View) {
   if (view.value === next) return
   view.value = next
+  cashOnly.value = false
+  depositPick.value = new Set()
   router.replace({ query: next === 'pendiente' ? { factura: 'pendiente' } : {} })
   refresh()
 }
@@ -150,9 +191,11 @@ useInfiniteScroll({ sentinel, onReach: loadMore })
 onMounted(async () => {
   try {
     cruises.value = (await apiCruises()).sort((a, b) => b.startDate.localeCompare(a.startDate))
-    // Abre en el crucero en curso o, si no hay, en el último que salió.
+    // Abre en el crucero pedido (desde el Resumen), en el que está en curso o en el último que salió.
     const today = new Date().toISOString()
+    const asked = String(route.query.crucero ?? '')
     cruiseId.value =
+      cruises.value.find((c) => c._id === asked)?._id ??
       cruises.value.find((c) => c.status === 'abordo')?._id ??
       cruises.value.find((c) => c.startDate <= today)?._id ??
       cruises.value[0]?._id ??
@@ -316,6 +359,16 @@ function collectorName(payment: Payment): string {
           <span class="field-label" id="f-line-label">Línea</span>
           <div class="view view--line" role="group" aria-labelledby="f-line-label">
             <button
+              v-if="view === 'todos' && userStore.isAdmin"
+              type="button"
+              class="view-btn"
+              :class="{ 'view-btn--on': cashOnly }"
+              :aria-pressed="cashOnly"
+              @click="toggleCash"
+            >
+              <i class="fa-solid fa-money-bill-wave" aria-hidden="true" /> Efectivo sin depositar
+            </button>
+            <button
               v-for="l in LINES"
               :key="l.value"
               type="button"
@@ -383,7 +436,17 @@ function collectorName(payment: Payment): string {
           class="row"
           :class="{ 'row--reversed': payment.status === 'reversado' }"
         >
-          <span class="c-date">{{ formatDateTime(payment.createdAt) }}</span>
+          <span class="c-date">
+            <input
+              v-if="cashOnly && view === 'todos' && payment.method === 'efectivo' && !payment.deposit && payment.status !== 'reversado'"
+              type="checkbox"
+              class="deposit-check"
+              :checked="depositPick.has(payment._id)"
+              :aria-label="`Depositado: cabina ${payment.cabinNumber}, ${formatMoney(payment.total)}`"
+              @change="togglePickDeposit(payment._id)"
+            />
+            {{ formatDateTime(payment.createdAt) }}
+          </span>
           <span class="c-id">
             <strong>Cabina {{ payment.cabinNumber }}<template v-if="payment.line === 'wetsuit'"> · Wetsuits</template></strong>
             <small v-if="cruiseName(payment)">Crucero {{ cruiseName(payment) }}</small>
@@ -406,6 +469,9 @@ function collectorName(payment: Payment): string {
               <span class="pill" :class="`pill--${payment.invoiceStatus}`">
                 <i class="fa-regular fa-file-lines" aria-hidden="true" />
                 {{ INVOICE_LABELS[payment.invoiceStatus] }}
+              </span>
+              <span v-if="payment.method === 'efectivo' && payment.deposit" class="pill pill--paid">
+                <i class="fa-solid fa-building-columns" aria-hidden="true" /> Depositado
               </span>
               <span v-if="payment.billing?.noEmail" class="pill pill--no-email">
                 <i class="fa-solid fa-envelope-circle-check" aria-hidden="true" /> Sin correo del cliente
@@ -477,8 +543,16 @@ function collectorName(payment: Payment): string {
       </TransitionGroup>
       </section>
 
+      <div v-if="cashOnly && view === 'todos' && payments.length" class="deposit-bar">
+        <input v-model="depositRef" type="text" maxlength="80" aria-label="Referencia del depósito" placeholder="Nº de papeleta o referencia" />
+        <button type="button" class="act" :disabled="!depositPick.size || depositing" @click="registerDeposit">
+          <i class="fa-solid" :class="depositing ? 'fa-spinner fa-spin' : 'fa-building-columns'" aria-hidden="true" />
+          Registrar depósito<template v-if="depositPick.size"> · {{ depositPick.size }} · {{ formatMoney(depositTotal) }}</template>
+        </button>
+      </div>
+
       <p v-if="!payments.length && view !== 'crucero'" class="empty">
-        {{ onlyPending ? 'Sin facturas pendientes' : 'Sin cobros' }}{{ line === 'wetsuit' ? ' de wetsuits' : line === 'bar' ? ' del bar' : '' }} en este rango.
+        {{ onlyPending ? 'Sin facturas pendientes' : cashOnly ? 'Todo el efectivo está depositado' : 'Sin cobros' }}{{ line === 'wetsuit' ? ' de wetsuits' : line === 'bar' ? ' del bar' : '' }} en este rango.
       </p>
       <div v-if="hasMore" ref="sentinel" class="sentinel">
         <BaseSpinner v-if="loadingMore" label="Cargando más cobros…" />
@@ -630,6 +704,34 @@ function collectorName(payment: Payment): string {
   strong {
     font-size: 1.05rem;
     color: var(--navy-900);
+  }
+}
+
+.deposit-check {
+  width: 22px;
+  height: 22px;
+  margin-right: 0.4rem;
+  vertical-align: middle;
+  accent-color: var(--navy-700);
+}
+
+.deposit-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+
+  input {
+    flex: 1 1 220px;
+    min-height: 44px;
+    padding: 0 0.75rem;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    font-size: 1rem;
   }
 }
 

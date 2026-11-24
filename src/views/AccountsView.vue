@@ -200,7 +200,9 @@ onMounted(async () => {
   try {
     await cruiseStore.loadActive(true)
     if (!isBar.value) await loadCruises()
-    selectedId.value = active.value?._id ?? cruises.value[0]?._id ?? ''
+    // ?crucero=<id> llega desde «Qué hacer» del Resumen.
+    const asked = String(route.query.crucero ?? '')
+    selectedId.value = cruises.value.find((c) => c._id === asked)?._id ?? active.value?._id ?? cruises.value[0]?._id ?? ''
     await Promise.all([loadRows(), loadHeld()])
     openFromQuery()
   } finally {

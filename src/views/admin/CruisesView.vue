@@ -28,6 +28,8 @@ import CruiseStartModal from '@/components/cruises/CruiseStartModal.vue'
 import CruiseFinishModal from '@/components/cruises/CruiseFinishModal.vue'
 import ContinuationsModal from '@/components/cruises/ContinuationsModal.vue'
 import ImportPassengersModal from '@/components/cruises/ImportPassengersModal.vue'
+import CruiseAgencyModal from '@/components/cruises/CruiseAgencyModal.vue'
+import DiqueModal from '@/components/cruises/DiqueModal.vue'
 import { useUserStore } from '@/stores/user'
 import type { Cabin, Cruise, CruiseStatus, CycleSettings, NewCruiseOptions, NewCruisePlan } from '@/types'
 
@@ -164,9 +166,17 @@ async function loadPlan() {
 
 watch([newLeg, newStart], loadPlan)
 
+// Bartender obligatorio (especificación del Resumen, 24-nov-2026): la comisión no queda sin persona.
 const canCreate = computed(() =>
-  Boolean(plan.value && !plan.value.overlap && plan.value.weekday.ok && !planning.value && !creating.value),
+  Boolean(plan.value && !plan.value.overlap && plan.value.weekday.ok && newBartender.value && !planning.value && !creating.value),
 )
+/** Agencia del crucero y dique (Gerencia). */
+const agencyFor = shallowRef<Cruise | null>(null)
+const diqueOpen = shallowRef(false)
+async function onAgencySaved() {
+  agencyFor.value = null
+  await refresh()
+}
 
 async function createCruise() {
   const p = plan.value
@@ -371,6 +381,9 @@ async function onPassengersSaved() {
         <p class="page-lead">El siguiente crucero ya viene sugerido: revisa y crea. Solo zarpan viernes, sábado o martes.</p>
       </div>
       <div class="page-actions">
+        <button v-if="userStore.isOwner" type="button" class="btn btn-secondary" @click="diqueOpen = true">
+          <i class="fa-solid fa-screwdriver-wrench" aria-hidden="true" /> Registrar dique
+        </button>
         <button type="button" class="btn btn-secondary" @click="showSettings = true">
           <i class="fa-solid fa-sliders" aria-hidden="true" /> Configurar ciclo
         </button>
@@ -507,7 +520,7 @@ async function onPassengersSaved() {
       </Transition>
 
       <div class="field bartender-field">
-        <label>Bartender del crucero <small>(opcional: si no lo eliges, queda el primero que registre un consumo)</small></label>
+        <label>Bartender del crucero <small>(obligatorio: a él se le acredita la comisión)</small></label>
         <BaseSelect v-model="newBartender" :options="bartenderOptions" placeholder="Elegir bartender…" />
       </div>
 
@@ -619,6 +632,10 @@ async function onPassengersSaved() {
             <p v-else-if="cruise.bartenderName" class="cruise-dates">
               <i class="fa-solid fa-martini-glass" aria-hidden="true" /> {{ cruise.bartenderName }}
             </p>
+            <button v-if="userStore.isOwner" type="button" class="btn-text cruise-agency" @click="agencyFor = cruise">
+              <i class="fa-solid fa-building" aria-hidden="true" />
+              {{ cruise.agency?.name ? `Agencia: ${cruise.agency.name}` : 'Poner agencia' }}
+            </button>
           </div>
           <div class="cruise-side">
             <span class="estado" :class="STATUS_PILL[cruise.status]">
@@ -707,6 +724,8 @@ async function onPassengersSaved() {
     <CruiseFinishModal v-if="finishTarget" :cruise="finishTarget" @close="finishTarget = null" @finished="onLifecycleDone" />
     <ContinuationsModal v-if="joinTarget" :cruise="joinTarget" :cruises="cruises" @close="joinTarget = null" @saved="onJoined" />
 
+    <CruiseAgencyModal v-if="agencyFor" :cruise="agencyFor" @close="agencyFor = null" @saved="onAgencySaved" />
+    <DiqueModal v-if="diqueOpen" @close="diqueOpen = false" @saved="diqueOpen = false" />
     <ImportPassengersModal
       v-if="importTarget"
       :cruise="importTarget"
@@ -1097,6 +1116,16 @@ async function onPassengersSaved() {
     font-weight: 400;
     color: var(--ink-400);
   }
+}
+
+.cruise-agency {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 44px;
+  margin-top: 0.15rem;
+  color: var(--navy-700);
+  font-weight: 600;
 }
 
 .cruise-bartender {
