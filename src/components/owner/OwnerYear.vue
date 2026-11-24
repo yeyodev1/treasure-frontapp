@@ -3,6 +3,7 @@ import { computed, shallowRef, watch } from 'vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import OwnerBars from '@/components/owner/OwnerBars.vue'
 import ColumnChart from '@/components/owner/ColumnChart.vue'
+import ShipStopForm from '@/components/owner/ShipStopForm.vue'
 import {
   MONTHS,
   countriesOf,
@@ -16,7 +17,8 @@ import {
   topWithOthers,
 } from '@/components/owner/insights'
 import { useToastStore } from '@/stores/toast'
-import { apiOwnerPanel, type CruiseCalendarRow, type ShipStopRow } from '@/services/api'
+import { useConfirmStore } from '@/stores/confirm'
+import { apiDeleteShipStop, apiOwnerPanel, type CruiseCalendarRow, type ShipStopRow } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatMoney } from '@/utils/format'
 import type { OwnerPanel } from '@/types'
@@ -96,6 +98,40 @@ const down = computed(() => {
   return r
 })
 
+// Paras y dique se marcan aquí (antes en la pestaña «Registro», 23-nov-2026).
+const confirm = useConfirmStore()
+const formOpen = shallowRef(false)
+
+async function reloadStops() {
+  const cal = await loadCalendar(true)
+  rows.value = cal.rows
+  stops.value = cal.stops
+}
+
+async function onStopSaved(from: string) {
+  formOpen.value = false
+  year.value = Number(from.slice(0, 4))
+  await reloadStops().catch((err) => toast.error(apiErrorMessage(err)))
+}
+
+async function removeStop(s: ShipStopRow) {
+  const ok = await confirm.ask({
+    title: s.kind === 'para' ? '¿Quitar esta para?' : '¿Quitar este dique?',
+    message: `${stopRange(s)}. Deja de contar en el resumen del año.`,
+    confirmLabel: 'Quitar',
+    danger: true,
+    icon: 'fa-trash',
+  })
+  if (!ok) return
+  try {
+    await apiDeleteShipStop(s.id)
+    await reloadStops()
+    toast.success('Quitado')
+  } catch (err) {
+    toast.error(apiErrorMessage(err))
+  }
+}
+
 const money = (v: number) => formatMoney(v)
 const count = (v: number) => String(v)
 const short = (v: number) => (v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.round(v)}`)
@@ -146,11 +182,6 @@ const short = (v: number) => (v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Mat
           <dd>{{ formatMoney(panel?.collected ?? 0) }}</dd>
           <small>pagos del año</small>
         </div>
-        <div>
-          <dt>Paras / dique</dt>
-          <dd>{{ down.para }} / {{ down.dique }} días</dd>
-          <small>registrados</small>
-        </div>
       </dl>
 
       <div class="ins-grid">
@@ -188,8 +219,15 @@ const short = (v: number) => (v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Mat
         </section>
 
         <section class="ins-card" aria-labelledby="y-stops">
-          <h3 id="y-stops">Paras y dique</h3>
-          <p class="ins-sub">Toca una para ver desde cuándo hasta cuándo y en qué crucero.</p>
+          <div class="stops-head">
+            <h3 id="y-stops">Paras y dique</h3>
+            <button type="button" class="btn btn-secondary" @click="formOpen = true">
+              <i class="fa-solid fa-circle-pause" aria-hidden="true" /> Marcar
+            </button>
+          </div>
+          <p class="ins-sub">
+            {{ down.para }} {{ down.para === 1 ? 'día' : 'días' }} de para · {{ down.dique }} de dique. Toca una para ver el detalle.
+          </p>
           <ul v-if="yearStops.length" class="ins-stops">
             <li v-for="s in yearStops" :key="s.id">
               <details :class="s.kind">
@@ -200,17 +238,38 @@ const short = (v: number) => (v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Mat
                 <p class="stop-body">
                   {{ stopCruise(s, rows) }}.<template v-if="s.note"> {{ s.note }}.</template> Marcado por
                   {{ s.createdByName || 'Gerencia' }}.
+                  <button type="button" class="btn-text stop-del" @click="removeStop(s)">
+                    <i class="fa-solid fa-trash" aria-hidden="true" /> Quitar
+                  </button>
                 </p>
               </details>
             </li>
           </ul>
-          <p v-else class="ins-empty">No hay paras ni dique en {{ year }}. Se marcan en «Registro».</p>
+          <p v-else class="ins-empty">No hay paras ni dique en {{ year }}.</p>
         </section>
       </div>
     </template>
+
+    <ShipStopForm v-if="formOpen" @close="formOpen = false" @saved="onStopSaved" />
   </div>
 </template>
 
 <style scoped lang="scss">
 @use '@/components/owner/insights';
+
+.stops-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.stop-del {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 44px;
+  margin-left: 0.5rem;
+  color: var(--danger-ink);
+}
 </style>

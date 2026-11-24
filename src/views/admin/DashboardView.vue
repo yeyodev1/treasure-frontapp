@@ -7,7 +7,9 @@ import { todayKey } from '@/utils/format'
  * Resumen del negocio (solo Gerencia; el servidor también lo restringe).
  * Desde el 21-nov-2026 va por pestañas y con gráficos, sin scroll infinito:
  * Año (evaluar el negocio), Mes, Crucero (la unidad de información) y, aparte,
- * las pantallas de control que ya existían (cuentas, comisiones, registro).
+ * las pantallas de control que ya existían (cuentas, comisiones). El 23-nov-2026
+ * se quitó «Registro y paras» (repetía Año y Mes; las paras se marcan en Año)
+ * y lo repetido entre pestañas.
  */
 const route = useRoute()
 const router = useRouter()
@@ -37,11 +39,6 @@ const TABS = {
     label: 'Comisiones y agencias',
     icon: 'fa-percent',
     component: null,
-  },
-  registro: {
-    label: 'Registro y paras',
-    icon: 'fa-calendar-days',
-    component: defineAsyncComponent(() => import('@/components/owner/CruiseCalendar.vue')),
   },
 } as const
 type Tab = keyof typeof TABS

@@ -149,11 +149,6 @@ const short = (v: number) => `$${Math.round(v)}`
           <dd>{{ formatMoney(panel.pendingCollection) }}</dd>
           <small>{{ panel.details.pending.length }} cuenta(s) abierta(s)</small>
         </div>
-        <div>
-          <dt>Cortesías</dt>
-          <dd>{{ formatMoney(panel.courtesy) }}</dd>
-          <small>{{ panel.heldConsumptions }} retenido(s)</small>
-        </div>
       </dl>
 
       <div class="ins-grid">
@@ -226,33 +221,19 @@ const short = (v: number) => `$${Math.round(v)}`
           <p v-if="panel.details.truncated" class="ins-note">Crucero muy largo: el detalle muestra los últimos consumos.</p>
         </section>
 
-        <section class="ins-card" aria-labelledby="c-top">
-          <h3 id="c-top">Distribución por unidades</h3>
-          <p class="ins-sub">{{ day ? 'Ese día' : 'Todo el crucero' }}.</p>
-          <OwnerBars
-            :rows="
-              topWithOthers(
-                served.map((p) => ({ label: p.name, value: p.qty })),
-                7,
-              )
-            "
-            :format="count"
-            tone="main"
-          />
-        </section>
-
         <section class="ins-card" aria-labelledby="c-control">
           <h3 id="c-control">Control del viaje</h3>
           <p class="ins-sub">Lo que hay que revisar de este crucero.</p>
           <OwnerBars
             :rows="[
-              { label: 'Cobrado', value: panel.collected },
-              { label: 'Por cobrar', value: panel.pendingCollection },
               { label: 'Cortesías', value: panel.courtesy },
               { label: 'Compras recibidas', value: panel.purchases },
             ]"
             :format="money"
           />
+          <p v-if="panel.heldConsumptions" class="ins-note">
+            {{ panel.heldConsumptions }} consumo(s) retenido(s), pendientes de revisión en Cuentas.
+          </p>
           <p v-if="panel.missingCostCount" class="ins-note">
             {{ panel.missingCostCount }} producto(s) sin costo: el margen no se calcula hasta cargarlos.
           </p>

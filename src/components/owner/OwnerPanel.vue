@@ -5,11 +5,10 @@ import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseDatePicker from '@/components/ui/BaseDatePicker.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import OwnerDetail, { type DetailKind } from '@/components/owner/OwnerDetail.vue'
-import OwnerBars from '@/components/owner/OwnerBars.vue'
 import { useToastStore } from '@/stores/toast'
 import { apiCruises, apiOwnerPanel } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
-import { formatDate, formatDateTime, formatDayKey, formatMoney, formatTime, todayKey } from '@/utils/format'
+import { formatDate, formatDateTime, formatMoney, formatTime, todayKey } from '@/utils/format'
 import type { Cruise, OwnerAlert, OwnerPanel } from '@/types'
 
 /**
@@ -165,29 +164,6 @@ onMounted(async () => {
     applyPreset('7')
   }
 })
-
-const dayRows = computed(
-  () => data.value?.byDay.map((d) => ({ label: formatDayKey(d.date), value: d.total, detail: `${d.orders} consumos` })) ?? [],
-)
-const bartenderRows = computed(
-  () => data.value?.byBartender.map((u) => ({ label: u.name, value: u.total, detail: `${u.orders} consumos` })) ?? [],
-)
-const productRows = computed(
-  () =>
-    data.value?.topProducts.map((p) => ({
-      label: p.name,
-      value: p.qty,
-      detail: `${formatMoney(p.total)}${p.courtesyQty ? ` · ${p.courtesyQty} cortesía` : ''}`,
-    })) ?? [],
-)
-const cruiseRows = computed(
-  () =>
-    data.value?.byCruise.map((c) => ({
-      label: c.startDate ? `${c.name} (${formatDate(c.startDate)})` : c.name,
-      value: c.collected,
-      detail: `${c.payments} pago(s)`,
-    })) ?? [],
-)
 
 /** Parte de lo consumido que ya se cobró: solo si las tres cifras cuadran. */
 const salesSplit = computed(() => {
@@ -452,27 +428,6 @@ function openHeld() {
           </button>
         </section>
 
-        <!-- Consumos (mismo filtro) -->
-        <div class="lists">
-          <section class="panel list-day">
-            <h2 class="panel-title">Consumos por día</h2>
-            <OwnerBars :rows="dayRows" :format="formatMoney" tone="main" />
-          </section>
-          <div class="list-side">
-            <section class="panel">
-              <h2 class="panel-title">Consumos por bartender</h2>
-              <OwnerBars :rows="bartenderRows" :format="formatMoney" />
-            </section>
-            <section class="panel">
-              <h2 class="panel-title">Cobrado por crucero</h2>
-              <OwnerBars :rows="cruiseRows" :format="formatMoney" />
-            </section>
-          </div>
-          <section class="panel list-products">
-            <h2 class="panel-title">Productos más consumidos</h2>
-            <OwnerBars :rows="productRows" :format="(v) => `${v} u.`" class="two-col" />
-          </section>
-        </div>
       </div>
     </Transition>
 
@@ -961,42 +916,6 @@ function openHeld() {
 
 .figure--small .figure-value {
   font-size: 1.25rem;
-}
-
-// Por día junto a bartender y cruceros (apilados); productos a todo el ancho
-// en dos columnas, para que la fila no quede dispareja.
-.lists {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
-
-  @include tablet {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.list-side {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-
-  > .panel:last-child {
-    flex: 1;
-  }
-}
-
-.list-products {
-  @include tablet {
-    grid-column: 1 / -1;
-  }
-}
-
-.two-col {
-  @include tablet {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 2.5rem;
-  }
 }
 
 .fade-enter-active,

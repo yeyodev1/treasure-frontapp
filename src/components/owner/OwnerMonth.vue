@@ -79,16 +79,6 @@ const days = computed(() => {
   })
 })
 
-const byCruise = computed(() =>
-  [...cruises.value]
-    .sort((a, b) => b.consumed - a.consumed)
-    .map((c) => ({
-      id: c.id,
-      label: c.code,
-      value: c.consumed,
-      detail: cruiseRange(c),
-    })),
-)
 const top = computed(() =>
   topWithOthers(
     (panel.value?.topProducts ?? []).map((p) => ({
@@ -105,7 +95,6 @@ const byLeg = computed(() => {
 })
 const countries = computed(() => countriesOf(cruises.value).filter((k) => k.country !== 'Sin país'))
 
-const money = (v: number) => formatMoney(v)
 const count = (v: number) => String(v)
 const short = (v: number) => `$${Math.round(v)}`
 </script>
@@ -144,12 +133,7 @@ const short = (v: number) => `$${Math.round(v)}`
         <div>
           <dt>Consumo del bar</dt>
           <dd>{{ formatMoney(consumed) }}</dd>
-          <small>consumido en el mes</small>
-        </div>
-        <div>
-          <dt>Por pasajero</dt>
-          <dd>{{ passengers ? formatMoney(consumed / passengers) : '—' }}</dd>
-          <small>consumo / pasajeros</small>
+          <small>{{ passengers ? `${formatMoney(consumed / passengers)} por pasajero` : 'Sin pasajeros' }}</small>
         </div>
         <div>
           <dt>Cobrado</dt>
@@ -163,12 +147,6 @@ const short = (v: number) => `$${Math.round(v)}`
           <h3 id="m-days">Consumo día por día</h3>
           <p class="ins-sub">Pasa o toca una barra para ver el monto del día. Gris = día sin consumos.</p>
           <ColumnChart :columns="days" :format="short" label="Consumo del bar por día" />
-        </section>
-
-        <section class="ins-card" aria-labelledby="m-cruises">
-          <h3 id="m-cruises">¿Qué crucero consumió más?</h3>
-          <p class="ins-sub">Consumo total de cada crucero. Toca uno para abrirlo.</p>
-          <OwnerBars :rows="byCruise" :format="money" tone="main" empty="Sin cruceros este mes." @pick="emit('cruise', $event)" />
         </section>
 
         <section class="ins-card ins-card--wide" aria-labelledby="m-table">
