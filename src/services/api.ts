@@ -28,6 +28,7 @@ import type {
   LivePulse,
   Order,
   Passenger,
+  BillingLine,
   Payment,
   PaymentMethod,
   Product,
@@ -449,6 +450,7 @@ export async function apiPayments(
     limit?: number
     /** 'pendiente': facturas pendientes o con error de cobros vigentes. */
     invoice?: 'pendiente'
+    line?: BillingLine
   } = {},
 ) {
   const { data } = await http.get<{ payments: Payment[]; hasMore: boolean }>('/payments', {
@@ -466,6 +468,12 @@ export async function apiRetryInvoice(id: string) {
 export async function apiContifico() {
   const { data } = await http.get<ContificoInfo>('/contifico')
   return data
+}
+
+/** Elimina la factura pendiente: el pago queda registrado sin factura. */
+export async function apiDropInvoice(id: string, reason: string) {
+  const { data } = await http.post<{ payment: Payment }>(`/payments/${id}/drop-invoice`, { reason })
+  return data.payment
 }
 
 export async function apiReversePayment(id: string, reason: string) {

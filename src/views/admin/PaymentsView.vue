@@ -3,17 +3,18 @@ import { computed, onMounted, ref, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToastStore } from '@/stores/toast'
 import { useUserStore } from '@/stores/user'
-import { apiCruises, apiPayments, apiRetryInvoice, apiReversePayment } from '@/services/api'
+import { apiCruises, apiDropInvoice, apiPayments, apiRetryInvoice, apiReversePayment } from '@/services/api'
 import { useConfirmStore } from '@/stores/confirm'
 import { apiErrorMessage } from '@/services/httpBase'
 import { formatMoney, formatDateTime } from '@/utils/format'
 import { fmt } from '@/components/owner/insights'
 import BaseDatePicker from '@/components/ui/BaseDatePicker.vue'
+import CruiseMonthCalendar from '@/components/payments/CruiseMonthCalendar.vue'
 import BaseSpinner from '@/components/ui/BaseSpinner.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import { useInfiniteScroll } from '@/composables/useInfiniteScroll'
 import { useSound } from '@/composables/useSound'
-import type { Cruise, InvoiceStatus, Payment } from '@/types'
+import type { BillingLine, Cruise, InvoiceStatus, Payment } from '@/types'
 
 /**
  * Cobros y facturas: el pago registrado y la factura son estados separados
@@ -33,11 +34,23 @@ const loading = shallowRef(true)
 const loadingMore = shallowRef(false)
 const hasMore = shallowRef(false)
 const sentinel = shallowRef<HTMLElement | null>(null)
-/** Desde las alertas del resumen: solo facturas pendientes. */
-const onlyPending = shallowRef(route.query.factura === 'pendiente')
-/** Cobros por crucero (pedido del cliente, 21-nov): abre en el más reciente; '' = todos. */
+/**
+ * Por crucero (calendario, pedido de Gerencia 23-nov-2026) con los cobros
+ * divididos en bar y wetsuits; todos los cobros por fechas; o solo las
+ * facturas pendientes (desde las alertas del resumen).
+ */
+type View = 'crucero' | 'todos' | 'pendiente'
+const view = shallowRef<View>(route.query.factura === 'pendiente' ? 'pendiente' : 'crucero')
+const onlyPending = computed(() => view.value === 'pendiente')
 const cruises = shallowRef<Cruise[]>([])
 const cruiseId = shallowRef('')
+/** Filtro de línea fuera del calendario: '' = bar y wetsuits. */
+const line = shallowRef<'' | BillingLine>('')
+const LINES: Array<{ value: '' | BillingLine; label: string }> = [
+  { value: '', label: 'Bar y wetsuits' },
+  { value: 'bar', label: 'Bar' },
+  { value: 'wetsuit', label: 'Wetsuits' },
+]
 
 /** Paso de la factura en el SRI, en palabras claras (12-nov-2026). */
 const SRI_LABELS: Record<string, string> = {
@@ -73,22 +86,36 @@ const METHOD_LABELS: Record<string, string> = {
 }
 
 function rangeParams() {
+  // Un crucero entero de una vez, para dividirlo en bar y wetsuits.
+  if (view.value === 'crucero') return { cruiseId: cruiseId.value, limit: 300 }
   return {
     // Días completos en hora de Galápagos (el servidor interpreta 'YYYY-MM-DD').
     from: from.value || undefined,
     to: to.value || undefined,
-    cruiseId: cruiseId.value || undefined,
+    line: line.value || undefined,
     invoice: onlyPending.value ? ('pendiente' as const) : undefined,
   }
 }
 
-function togglePending() {
-  onlyPending.value = !onlyPending.value
-  router.replace({ query: onlyPending.value ? { factura: 'pendiente' } : {} })
+function setView(next: View) {
+  if (view.value === next) return
+  view.value = next
+  router.replace({ query: next === 'pendiente' ? { factura: 'pendiente' } : {} })
+  refresh()
+}
+
+function setLine(next: '' | BillingLine) {
+  line.value = next
   refresh()
 }
 
 async function refresh() {
+  if (view.value === 'crucero' && !cruiseId.value) {
+    payments.value = []
+    hasMore.value = false
+    loading.value = false
+    return
+  }
   loading.value = true
   try {
     const data = await apiPayments(rangeParams())
@@ -123,17 +150,35 @@ useInfiniteScroll({ sentinel, onReach: loadMore })
 onMounted(async () => {
   try {
     cruises.value = (await apiCruises()).sort((a, b) => b.startDate.localeCompare(a.startDate))
-    // Facturas pendientes se ven de todos los cruceros.
-    if (!onlyPending.value) cruiseId.value = cruises.value.find((c) => c.status === 'abordo')?._id ?? cruises.value[0]?._id ?? ''
+    // Abre en el crucero en curso o, si no hay, en el último que salió.
+    const today = new Date().toISOString()
+    cruiseId.value =
+      cruises.value.find((c) => c.status === 'abordo')?._id ??
+      cruises.value.find((c) => c.startDate <= today)?._id ??
+      cruises.value[0]?._id ??
+      ''
   } catch {
     // Sin la lista de cruceros se ven todos los cobros.
+    if (view.value === 'crucero') view.value = 'todos'
   }
   await refresh()
 })
 
 const day = (d: string) => fmt(d, { day: 'numeric', month: 'short' })
-const cruiseLabel = (c: Cruise) => `${c.code} · ${day(c.startDate)}${c.endDate ? ` – ${day(c.endDate)}` : ''}`
-const cruiseCode = computed(() => cruises.value.find((c) => c._id === cruiseId.value)?.code ?? '')
+const selectedCruise = computed(() => cruises.value.find((c) => c._id === cruiseId.value))
+const cruiseCode = computed(() => (view.value === 'crucero' ? (selectedCruise.value?.code ?? '') : ''))
+
+/** Lo recibido (los reversados no cuentan). */
+const received = (list: Payment[]) => list.filter((p) => p.status !== 'reversado').reduce((sum, p) => sum + p.total, 0)
+
+/** En el calendario, el crucero se lee dividido en bar y wetsuits. */
+const sections = computed(() => {
+  if (view.value !== 'crucero') return [{ key: 'all', label: '', icon: '', items: payments.value }]
+  return [
+    { key: 'bar', label: 'Bar', icon: 'fa-martini-glass-citrus', items: payments.value.filter((p) => p.line !== 'wetsuit') },
+    { key: 'wetsuit', label: 'Wetsuits', icon: 'fa-person-swimming', items: payments.value.filter((p) => p.line === 'wetsuit') },
+  ]
+})
 
 const retrying = shallowRef('')
 
@@ -164,6 +209,28 @@ async function retry(payment: Payment) {
 
 const confirmStore = useConfirmStore()
 
+/** La factura que no se va a emitir se elimina; el pago queda registrado. */
+async function dropInvoice(payment: Payment) {
+  const reason = await confirmStore.askReason({
+    title: `¿Eliminar la factura pendiente de cabina ${payment.cabinNumber}?`,
+    message: `${formatMoney(payment.total)} · el pago sigue registrado, sin factura. Ya no sale en «Facturas pendientes».`,
+    confirmLabel: 'Eliminar factura',
+    danger: true,
+    icon: 'fa-file-circle-xmark',
+    reason: { label: 'Motivo (obligatorio)', suggestions: ['Se facturó por fuera', 'El cliente no quiere factura'] },
+  })
+  if (!reason) return
+  try {
+    await apiDropInvoice(payment._id, reason)
+    play('success')
+    toast.success('Factura eliminada: el pago sigue registrado')
+    await refresh()
+  } catch (err) {
+    play('error')
+    toast.error(apiErrorMessage(err))
+  }
+}
+
 /** Un cobro con pago o factura no se cancela: se reversa con motivo. */
 async function reverse(payment: Payment) {
   const reason = await confirmStore.askReason({
@@ -191,10 +258,8 @@ async function reverse(payment: Payment) {
   }
 }
 
-/** Suma de lo recibido en la lista (los reversados no cuentan). */
-const listTotal = computed(() =>
-  payments.value.filter((p) => p.status !== 'reversado').reduce((sum, p) => sum + p.total, 0),
-)
+/** Suma de lo recibido en la lista. */
+const listTotal = computed(() => received(payments.value))
 const reversedCount = computed(() => payments.value.filter((p) => p.status === 'reversado').length)
 
 function cruiseName(payment: Payment): string {
@@ -219,9 +284,19 @@ function collectorName(payment: Payment): string {
           type="button"
           role="tab"
           class="view-btn"
-          :class="{ 'view-btn--on': !onlyPending }"
-          :aria-selected="!onlyPending"
-          @click="onlyPending && togglePending()"
+          :class="{ 'view-btn--on': view === 'crucero' }"
+          :aria-selected="view === 'crucero'"
+          @click="setView('crucero')"
+        >
+          <i class="fa-solid fa-calendar-days" aria-hidden="true" /> Por crucero
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="view-btn"
+          :class="{ 'view-btn--on': view === 'todos' }"
+          :aria-selected="view === 'todos'"
+          @click="setView('todos')"
         >
           Todos los cobros
         </button>
@@ -229,20 +304,29 @@ function collectorName(payment: Payment): string {
           type="button"
           role="tab"
           class="view-btn"
-          :class="{ 'view-btn--on': onlyPending }"
-          :aria-selected="onlyPending"
-          @click="!onlyPending && togglePending()"
+          :class="{ 'view-btn--on': view === 'pendiente' }"
+          :aria-selected="view === 'pendiente'"
+          @click="setView('pendiente')"
         >
           <i class="fa-solid fa-file-circle-exclamation" aria-hidden="true" /> Facturas pendientes
         </button>
       </div>
-      <div class="dates">
+      <div v-if="view !== 'crucero'" class="dates">
         <div class="field">
-          <label for="f-cruise">Crucero</label>
-          <select id="f-cruise" v-model="cruiseId" class="cruise-select" @change="refresh">
-            <option value="">Todos los cruceros</option>
-            <option v-for="c in cruises" :key="c._id" :value="c._id">{{ cruiseLabel(c) }}</option>
-          </select>
+          <span class="field-label" id="f-line-label">Línea</span>
+          <div class="view view--line" role="group" aria-labelledby="f-line-label">
+            <button
+              v-for="l in LINES"
+              :key="l.value"
+              type="button"
+              class="view-btn"
+              :class="{ 'view-btn--on': line === l.value }"
+              :aria-pressed="line === l.value"
+              @click="setLine(l.value)"
+            >
+              {{ l.label }}
+            </button>
+          </div>
         </div>
         <div class="field">
           <label id="f-from-label">Desde</label>
@@ -255,11 +339,17 @@ function collectorName(payment: Payment): string {
       </div>
     </div>
 
+    <CruiseMonthCalendar v-if="view === 'crucero' && cruises.length" v-model="cruiseId" :cruises="cruises" @update:model-value="refresh" />
+
     <section v-if="loading" class="list-card">
       <SkeletonList variant="row" :rows="6" />
     </section>
 
     <section v-else class="list-card" aria-label="Cobros">
+      <h2 v-if="selectedCruise && view === 'crucero'" class="cruise-title">
+        Crucero {{ selectedCruise.code }}
+        <small>{{ day(selectedCruise.startDate) }}<template v-if="selectedCruise.endDate"> – {{ day(selectedCruise.endDate) }}</template></small>
+      </h2>
       <p v-if="payments.length" class="count">
         {{ payments.length }}{{ hasMore ? '+' : '' }} {{ payments.length === 1 ? 'cobro' : 'cobros' }}
         <template v-if="!hasMore">
@@ -269,7 +359,16 @@ function collectorName(payment: Payment): string {
         </template>
       </p>
 
-      <div v-if="payments.length" class="grid-head" aria-hidden="true">
+      <section v-for="section in sections" :key="section.key" class="line-section" :aria-label="section.label || undefined">
+      <h3 v-if="section.label" class="line-title">
+        <span><i class="fa-solid" :class="section.icon" aria-hidden="true" /> {{ section.label }}</span>
+        <span class="line-sum">
+          {{ section.items.length }} {{ section.items.length === 1 ? 'cobro' : 'cobros' }} ·
+          <strong>{{ formatMoney(received(section.items)) }}</strong>
+        </span>
+      </h3>
+      <p v-if="section.label && !section.items.length" class="empty empty--line">Sin cobros de {{ section.label.toLowerCase() }} en este crucero.</p>
+      <div v-if="section.items.length" class="grid-head" aria-hidden="true">
         <span>Fecha</span>
         <span>Cabina</span>
         <span>Método</span>
@@ -279,7 +378,7 @@ function collectorName(payment: Payment): string {
 
       <TransitionGroup tag="ul" name="list" class="rows">
         <li
-          v-for="payment in payments"
+          v-for="payment in section.items"
           :key="payment._id"
           class="row"
           :class="{ 'row--reversed': payment.status === 'reversado' }"
@@ -332,7 +431,7 @@ function collectorName(payment: Payment): string {
             <small
               v-if="payment.status !== 'reversado' && payment.invoiceStatus !== 'emitida' && payment.invoiceError"
               class="invoice-error"
-              :class="{ 'invoice-error--soft': payment.invoiceStatus === 'pendiente' }"
+              :class="{ 'invoice-error--soft': payment.invoiceStatus !== 'error' }"
             >
               {{ payment.invoiceError }}
             </small>
@@ -359,15 +458,24 @@ function collectorName(payment: Payment): string {
               <i class="fa-solid fa-rotate" :class="{ 'fa-spin': retrying === payment._id }" aria-hidden="true" />
               {{ retrying === payment._id ? 'Emitiendo…' : 'Reintentar emisión de factura' }}
             </button>
+            <button
+              v-if="userStore.isAdmin && (payment.invoiceStatus === 'pendiente' || payment.invoiceStatus === 'error')"
+              type="button"
+              class="act act--danger"
+              @click="dropInvoice(payment)"
+            >
+              <i class="fa-solid fa-file-circle-xmark" aria-hidden="true" /> Eliminar factura
+            </button>
             <button v-if="userStore.isAdmin" type="button" class="act act--danger" @click="reverse(payment)">
               <i class="fa-solid fa-rotate-left" aria-hidden="true" /> Reversar
             </button>
           </span>
         </li>
       </TransitionGroup>
+      </section>
 
-      <p v-if="!payments.length" class="empty">
-        {{ onlyPending ? 'Sin facturas pendientes' : 'Sin cobros' }}{{ cruiseCode ? ` en el crucero ${cruiseCode}` : ' en este rango' }}.
+      <p v-if="!payments.length && view !== 'crucero'" class="empty">
+        {{ onlyPending ? 'Sin facturas pendientes' : 'Sin cobros' }}{{ line === 'wetsuit' ? ' de wetsuits' : line === 'bar' ? ' del bar' : '' }} en este rango.
       </p>
       <div v-if="hasMore" ref="sentinel" class="sentinel">
         <BaseSpinner v-if="loadingMore" label="Cargando más cobros…" />
@@ -413,6 +521,8 @@ function collectorName(payment: Payment): string {
 .view {
   display: inline-flex;
   flex: none;
+  max-width: 100%;
+  overflow-x: auto;
   padding: 4px;
   border-radius: 999px;
   background: var(--powder-100);
@@ -427,6 +537,7 @@ function collectorName(payment: Payment): string {
   border-radius: 999px;
   font-size: 1rem;
   font-weight: 500;
+  white-space: nowrap;
   color: var(--ink-600);
   transition:
     background 0.18s ease,
@@ -450,15 +561,77 @@ function collectorName(payment: Payment): string {
   }
 }
 
-.cruise-select {
-  width: 100%;
-  min-height: 48px;
-  padding: 0 0.75rem;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  background: var(--surface);
+.field-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
   color: var(--ink-900);
-  font-size: 1rem;
+}
+
+.view--line {
+  display: flex;
+
+  .view-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 0 0.8rem;
+  }
+}
+
+.cruise-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.6rem;
+  margin: 0.75rem 0 0;
+  font-size: 1.25rem;
+  color: var(--navy-900);
+
+  small {
+    font-size: 0.95rem;
+    font-weight: 400;
+    color: var(--muted);
+  }
+}
+
+.line-section + .line-section {
+  margin-top: 0.75rem;
+}
+
+.line-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  margin: 0;
+  padding: 0.75rem 0.85rem;
+  border-radius: var(--radius-sm);
+  background: var(--powder-100);
+  font-size: 1.1rem;
+  color: var(--navy-900);
+
+  i {
+    margin-right: 0.3rem;
+    color: var(--navy-700);
+  }
+}
+
+.line-sum {
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: var(--ink-600);
+  font-variant-numeric: tabular-nums;
+
+  strong {
+    font-size: 1.05rem;
+    color: var(--navy-900);
+  }
+}
+
+.empty--line {
+  margin-top: 0.5rem;
 }
 
 .list-card {
