@@ -95,7 +95,12 @@ export interface Billing {
   idNumber: string
   email: string
   country: string
+  /** «Cliente no da correo»: la factura va al correo de la casa (24-nov-2026). */
+  noEmail?: boolean
 }
+
+/** Correo de la casa para «Cliente no da correo» (el servidor lo pone igual). */
+export const NO_CLIENT_EMAIL = 'facturaspaulateran@gmail.com'
 
 export function emptyBilling(): Billing {
   return { passengerId: '', name: '', idNumber: '', email: '', country: '' }

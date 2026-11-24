@@ -352,7 +352,7 @@ export async function apiCollectCabin(payload: {
   expectedDue?: number
   /** false: no se le envía el resumen por correo al cliente. */
   notify?: boolean
-  billing: { name?: string; idNumber?: string; email?: string; country?: string; passengerId?: string }
+  billing: { name?: string; idNumber?: string; email?: string; country?: string; passengerId?: string; noEmail?: boolean }
 }) {
   const { data } = await http.post<{
     payment: Payment

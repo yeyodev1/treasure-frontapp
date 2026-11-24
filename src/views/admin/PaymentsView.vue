@@ -407,6 +407,9 @@ function collectorName(payment: Payment): string {
                 <i class="fa-regular fa-file-lines" aria-hidden="true" />
                 {{ INVOICE_LABELS[payment.invoiceStatus] }}
               </span>
+              <span v-if="payment.billing?.noEmail" class="pill pill--no-email">
+                <i class="fa-solid fa-envelope-circle-check" aria-hidden="true" /> Sin correo del cliente
+              </span>
               <a
                 v-if="payment.invoiceStatus === 'emitida' && payment.invoiceNumber"
                 class="invoice-link"
@@ -851,6 +854,11 @@ function collectorName(payment: Payment): string {
   &--error {
     background: #f8e4e1;
     color: #8a2f25;
+  }
+
+  &--no-email {
+    background: #e8e6f3;
+    color: #3d3670;
   }
 }
 

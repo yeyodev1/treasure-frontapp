@@ -736,7 +736,7 @@ export interface Payment {
   method: PaymentMethod
   reference?: string
   cashConfirmed: boolean
-  billing: { name: string; idNumber: string; email: string; country: string }
+  billing: { name: string; idNumber: string; email: string; country: string; noEmail?: boolean }
   line?: BillingLine
   invoiceStatus: InvoiceStatus
   invoiceId: string

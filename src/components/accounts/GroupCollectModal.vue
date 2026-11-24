@@ -101,6 +101,7 @@ async function collect() {
         idNumber: b.idNumber.trim(),
         email: b.email.trim() || undefined,
         country: b.country || undefined,
+        noEmail: b.noEmail || undefined,
       },
     })
     play('cash')

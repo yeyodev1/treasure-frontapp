@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import type { Passenger } from '@/types'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { COUNTRY_OPTIONS } from '@/utils/countries'
-import { emptyBilling, EMAIL_RE, type Billing } from './payLines'
+import { emptyBilling, EMAIL_RE, NO_CLIENT_EMAIL, type Billing } from './payLines'
 
 /**
  * Quién paga (pedido del cliente, 31-oct-2026): los mismos datos que se
@@ -29,6 +29,17 @@ function pick(p: (typeof props.passengers)[number] | null) {
 }
 
 const isOther = computed(() => !billing.value.passengerId)
+
+/** Lo que había escrito antes de tocar «Cliente no da correo», por si se arrepiente. */
+let emailBefore = ''
+function toggleNoEmail() {
+  if (billing.value.noEmail) {
+    billing.value = { ...billing.value, noEmail: false, email: emailBefore }
+  } else {
+    emailBefore = billing.value.email
+    billing.value = { ...billing.value, noEmail: true, email: NO_CLIENT_EMAIL }
+  }
+}
 const emailBad = computed(() => Boolean(billing.value.email.trim()) && !EMAIL_RE.test(billing.value.email.trim()))
 </script>
 
@@ -78,15 +89,25 @@ const emailBad = computed(() => Boolean(billing.value.email.trim()) && !EMAIL_RE
       </div>
       <div class="field span-2">
         <label :for="`${idPrefix}-email`">Correo para la factura</label>
-        <input
-          :id="`${idPrefix}-email`"
-          v-model="billing.email"
-          type="email"
-          inputmode="email"
-          autocomplete="off"
-          placeholder="nombre@dominio.com"
-          :aria-invalid="emailBad"
-        />
+        <div class="email-row">
+          <input
+            :id="`${idPrefix}-email`"
+            v-model="billing.email"
+            type="email"
+            inputmode="email"
+            autocomplete="off"
+            placeholder="nombre@dominio.com"
+            :readonly="billing.noEmail"
+            :aria-invalid="emailBad"
+          />
+          <button type="button" class="no-email" :aria-pressed="Boolean(billing.noEmail)" @click="toggleNoEmail">
+            <i class="fa-solid" :class="billing.noEmail ? 'fa-rotate-left' : 'fa-envelope-circle-check'" aria-hidden="true" />
+            {{ billing.noEmail ? 'Sí da correo' : 'Cliente no da correo' }}
+          </button>
+        </div>
+        <small v-if="billing.noEmail" class="field-hint">
+          La factura se emite igual y llega a este correo de la casa. En Cobros sale como «Sin correo del cliente».
+        </small>
         <Transition name="fade">
           <small v-if="emailBad" class="field-error">Revisa el correo. Ejemplo: nombre@dominio.com.</small>
         </Transition>
@@ -194,5 +215,40 @@ const emailBad = computed(() => Boolean(billing.value.email.trim()) && !EMAIL_RE
 .field-hint {
   font-size: 0.9rem;
   color: var(--ink-600);
+}
+
+.email-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+
+  input {
+    flex: 1 1 220px;
+    min-width: 0;
+
+    &:read-only {
+      background: var(--cream-100);
+      color: var(--ink-600);
+    }
+  }
+}
+
+.no-email {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 44px;
+  padding: 0 0.9rem;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--navy-800);
+
+  &[aria-pressed='true'] {
+    border-color: var(--navy-800);
+  }
 }
 </style>
