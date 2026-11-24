@@ -58,7 +58,7 @@ const STATE_LABEL = { navegando: 'Navegando', para: 'Para (sin crucero)', dique:
       <div>
         <dt>Días operados</dt>
         <dd>{{ f.operatedDays }}</dd>
-        <small>{{ f.paraDays }} para · {{ f.diqueDays }} dique<template v-if="f.upcomingDays"> · {{ f.upcomingDays }} por venir</template></small>
+        <small>{{ f.paraDays }} para · {{ f.diqueDays }} dique<template v-if="kind === 'ano' && f.since"> · desde {{ monthShort(f.since).toLowerCase() }}</template><template v-else-if="f.upcomingDays"> · {{ f.upcomingDays }} por venir</template></small>
       </div>
     </dl>
     <dl v-else-if="data.cruise" class="ins-kpis">
