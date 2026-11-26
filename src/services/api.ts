@@ -985,7 +985,20 @@ export interface BarSummary {
   actions: SummaryAction[]
   byMonth: Array<{ month: string; bar: number; wetsuits: number }>
   byDay: Array<{ day: string; total: number }>
-  collectedRows: Array<{ id: string; code: string; status: string; consumed: number; collected: number; diff: number; noInvoice: number; tone: Tone }>
+  collectedRows: Array<{
+    id: string
+    code: string
+    start: string
+    end: string
+    status: string
+    consumed: number
+    collected: number
+    diff: number
+    noInvoice: number
+    tone: Tone
+    /** Cobrado del crucero por forma de pago (el efectivo de un crucero no se mezcla con otro). */
+    methods: { tarjeta: number; efectivo: number; transferencia: number }
+  }>
   cabins: Array<{ cabin: number; consumed: number; paid: number; due: number; status: string }>
   wetsuits: {
     income: number

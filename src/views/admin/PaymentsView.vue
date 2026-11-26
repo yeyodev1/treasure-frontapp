@@ -39,10 +39,11 @@ const sentinel = shallowRef<HTMLElement | null>(null)
  * divididos en bar y wetsuits; todos los cobros por fechas; o solo las
  * facturas pendientes (desde las alertas del resumen).
  */
-type View = 'crucero' | 'todos' | 'pendiente'
-const view = shallowRef<View>(route.query.factura === 'pendiente' ? 'pendiente' : route.query.metodo === 'efectivo' ? 'todos' : 'crucero')
+type View = 'crucero' | 'todos' | 'pendiente' | 'efectivo'
+const view = shallowRef<View>(route.query.factura === 'pendiente' ? 'pendiente' : route.query.metodo === 'efectivo' ? 'efectivo' : 'crucero')
 /** Efectivo que sigue en caja (desde «Dónde está la plata» del Resumen). */
-const cashOnly = shallowRef(route.query.metodo === 'efectivo')
+// Pestaña propia (pedido de Gerencia, 26-nov-2026): mezclada con el filtro de línea no se entendía.
+const cashOnly = computed(() => view.value === 'efectivo')
 const onlyPending = computed(() => view.value === 'pendiente')
 const cruises = shallowRef<Cruise[]>([])
 const cruiseId = shallowRef('')
@@ -94,17 +95,11 @@ function rangeParams() {
     // Días completos en hora de Galápagos (el servidor interpreta 'YYYY-MM-DD').
     from: from.value || undefined,
     to: to.value || undefined,
-    line: line.value || undefined,
+    // El efectivo en caja es de bar y wetsuits juntos: ahí no aplica el filtro de línea.
+    line: cashOnly.value ? undefined : line.value || undefined,
     invoice: onlyPending.value ? ('pendiente' as const) : undefined,
-    deposit: cashOnly.value && view.value === 'todos' ? ('pendiente' as const) : undefined,
+    deposit: cashOnly.value ? ('pendiente' as const) : undefined,
   }
-}
-
-function toggleCash() {
-  cashOnly.value = !cashOnly.value
-  depositPick.value = new Set()
-  router.replace({ query: cashOnly.value ? { metodo: 'efectivo' } : {} })
-  refresh()
 }
 
 /** Depósito del efectivo en el banco (especificación del Resumen, bloque 8). */
@@ -139,9 +134,8 @@ async function registerDeposit() {
 function setView(next: View) {
   if (view.value === next) return
   view.value = next
-  cashOnly.value = false
   depositPick.value = new Set()
-  router.replace({ query: next === 'pendiente' ? { factura: 'pendiente' } : {} })
+  router.replace({ query: next === 'pendiente' ? { factura: 'pendiente' } : next === 'efectivo' ? { metodo: 'efectivo' } : {} })
   refresh()
 }
 
@@ -303,6 +297,12 @@ async function reverse(payment: Payment) {
 
 /** Suma de lo recibido en la lista. */
 const listTotal = computed(() => received(payments.value))
+/** Cobrado del crucero por forma de pago (pedido de Gerencia, 24-nov-2026). */
+const byMethod = computed(() =>
+  (['tarjeta', 'efectivo', 'transferencia', 'online'] as const)
+    .map((m) => ({ method: m, total: received(payments.value.filter((p) => p.method === m)) }))
+    .filter((m) => m.total > 0),
+)
 const reversedCount = computed(() => payments.value.filter((p) => p.status === 'reversado').length)
 
 function cruiseName(payment: Payment): string {
@@ -353,21 +353,21 @@ function collectorName(payment: Payment): string {
         >
           <i class="fa-solid fa-file-circle-exclamation" aria-hidden="true" /> Facturas pendientes
         </button>
+        <button
+          v-if="userStore.isAdmin"
+          type="button"
+          role="tab"
+          class="view-btn"
+          :class="{ 'view-btn--on': view === 'efectivo' }"
+          :aria-selected="view === 'efectivo'"
+          @click="setView('efectivo')"
+        >
+          <i class="fa-solid fa-money-bill-wave" aria-hidden="true" /> Efectivo sin depositar
+        </button>
       </div>
-      <div v-if="view !== 'crucero'" class="dates">
-        <div class="field">
-          <span class="field-label" id="f-line-label">Línea</span>
-          <div class="view view--line" role="group" aria-labelledby="f-line-label">
-            <button
-              v-if="view === 'todos' && userStore.isAdmin"
-              type="button"
-              class="view-btn"
-              :class="{ 'view-btn--on': cashOnly }"
-              :aria-pressed="cashOnly"
-              @click="toggleCash"
-            >
-              <i class="fa-solid fa-money-bill-wave" aria-hidden="true" /> Efectivo sin depositar
-            </button>
+      <div v-if="view !== 'crucero' && view !== 'efectivo'" class="line-filter">
+        <span class="field-label" id="f-line-label">Línea</span>
+        <div class="view view--line" role="group" aria-labelledby="f-line-label">
             <button
               v-for="l in LINES"
               :key="l.value"
@@ -379,8 +379,9 @@ function collectorName(payment: Payment): string {
             >
               {{ l.label }}
             </button>
-          </div>
         </div>
+      </div>
+      <div v-if="view !== 'crucero'" class="dates">
         <div class="field">
           <label id="f-from-label">Desde</label>
           <BaseDatePicker v-model="from" clearable aria-labelledby="f-from-label" @update:model-value="refresh" />
@@ -403,6 +404,11 @@ function collectorName(payment: Payment): string {
         Crucero {{ selectedCruise.code }}
         <small>{{ day(selectedCruise.startDate) }}<template v-if="selectedCruise.endDate"> – {{ day(selectedCruise.endDate) }}</template></small>
       </h2>
+      <ul v-if="view === 'crucero' && byMethod.length" class="methods" aria-label="Cobrado por forma de pago">
+        <li v-for="m in byMethod" :key="m.method">
+          <span>{{ METHOD_LABELS[m.method] }}</span><strong>{{ formatMoney(m.total) }}</strong>
+        </li>
+      </ul>
       <p v-if="payments.length" class="count">
         {{ payments.length }}{{ hasMore ? '+' : '' }} {{ payments.length === 1 ? 'cobro' : 'cobros' }}
         <template v-if="!hasMore">
@@ -438,7 +444,7 @@ function collectorName(payment: Payment): string {
         >
           <span class="c-date">
             <input
-              v-if="cashOnly && view === 'todos' && payment.method === 'efectivo' && !payment.deposit && payment.status !== 'reversado'"
+              v-if="cashOnly && payment.method === 'efectivo' && !payment.deposit && payment.status !== 'reversado'"
               type="checkbox"
               class="deposit-check"
               :checked="depositPick.has(payment._id)"
@@ -543,7 +549,7 @@ function collectorName(payment: Payment): string {
       </TransitionGroup>
       </section>
 
-      <div v-if="cashOnly && view === 'todos' && payments.length" class="deposit-bar">
+      <div v-if="cashOnly && payments.length" class="deposit-bar">
         <input v-model="depositRef" type="text" maxlength="80" aria-label="Referencia del depósito" placeholder="Nº de papeleta o referencia" />
         <button type="button" class="act" :disabled="!depositPick.size || depositing" @click="registerDeposit">
           <i class="fa-solid" :class="depositing ? 'fa-spinner fa-spin' : 'fa-building-columns'" aria-hidden="true" />
@@ -552,7 +558,8 @@ function collectorName(payment: Payment): string {
       </div>
 
       <p v-if="!payments.length && view !== 'crucero'" class="empty">
-        {{ onlyPending ? 'Sin facturas pendientes' : cashOnly ? 'Todo el efectivo está depositado' : 'Sin cobros' }}{{ line === 'wetsuit' ? ' de wetsuits' : line === 'bar' ? ' del bar' : '' }} en este rango.
+        <template v-if="cashOnly">Todo el efectivo está depositado. No hay efectivo en caja{{ from || to ? ' en estas fechas' : '' }}.</template>
+        <template v-else>{{ onlyPending ? 'Sin facturas pendientes' : 'Sin cobros' }}{{ line === 'wetsuit' ? ' de wetsuits' : line === 'bar' ? ' del bar' : '' }} en este rango.</template>
       </p>
       <div v-if="hasMore" ref="sentinel" class="sentinel">
         <BaseSpinner v-if="loadingMore" label="Cargando más cobros…" />
@@ -644,6 +651,46 @@ function collectorName(payment: Payment): string {
   font-size: 0.9375rem;
   font-weight: 500;
   color: var(--ink-900);
+}
+
+.methods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 140px;
+    padding: 0.55rem 0.8rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--cream-100);
+
+    span {
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    strong {
+      font-size: 1.1rem;
+      font-variant-numeric: tabular-nums;
+    }
+  }
+}
+
+.line-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+
+  .field-label {
+    margin: 0;
+  }
 }
 
 .view--line {

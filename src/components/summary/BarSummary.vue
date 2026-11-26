@@ -431,9 +431,9 @@ const METHOD_LABEL: Record<string, string> = { tarjeta: 'Tarjeta', efectivo: 'Ef
       </section>
 
       <section v-if="kind === 'crucero'" class="ins-card" aria-labelledby="b-days">
-        <h3 id="b-days">Consumo por día</h3>
-        <p class="ins-sub">Bar y wetsuits, sin cortesías.</p>
-        <ColumnChart :columns="dayColumns" :format="short" label="Consumo por día del crucero" />
+        <h3 id="b-days">Bar por día</h3>
+        <p class="ins-sub">Solo bar: sin wetsuits ni cortesías.</p>
+        <ColumnChart :columns="dayColumns" :format="short" label="Bar por día del crucero" />
       </section>
 
       <!-- 5. Wetsuits -->
@@ -731,9 +731,9 @@ const METHOD_LABEL: Record<string, string> = { tarjeta: 'Tarjeta', efectivo: 'Ef
         </template>
       </section>
 
-      <!-- 8. Dónde está la plata -->
-      <section v-if="kind !== 'crucero'" class="ins-card" aria-labelledby="b-money">
-        <h3 id="b-money">Dónde está la plata</h3>
+      <!-- 8. Dónde está la plata (en Crucero: los cobros de ese crucero) -->
+      <section class="ins-card" aria-labelledby="b-money">
+        <h3 id="b-money">{{ kind === 'crucero' ? 'Cobros de este crucero' : 'Dónde está la plata' }}</h3>
         <dl class="lines">
           <div v-for="m in data.money.methods" :key="m.method">
             <dt>{{ METHOD_LABEL[m.method] ?? m.method }} · {{ m.count }} cobro{{ m.count === 1 ? '' : 's' }}</dt>
@@ -741,7 +741,10 @@ const METHOD_LABEL: Record<string, string> = { tarjeta: 'Tarjeta', efectivo: 'Ef
           </div>
         </dl>
         <p v-if="!data.money.methods.length" class="ins-empty">Sin cobros en este período.</p>
-        <p class="ins-sub">
+        <dl v-if="kind === 'crucero' && data.money.methods.length" class="lines lines--total">
+          <div><dt>Total {{ data.cruise?.code }}</dt><dd>{{ money(f.collected) }}</dd></div>
+        </dl>
+        <p v-if="kind !== 'crucero'" class="ins-sub">
           <template v-if="data.money.cashUndeposited.count">
             <span class="tone tone--block" :class="`tone--${data.money.tone === 'rojo' ? 'rojo' : 'amarillo'}`">
               Efectivo sin depositar: {{ money(data.money.cashUndeposited.total) }} ({{ data.money.cashUndeposited.count }}), el más antiguo de hace {{ data.money.cashUndeposited.oldestDays }} días
@@ -750,6 +753,38 @@ const METHOD_LABEL: Record<string, string> = { tarjeta: 'Tarjeta', efectivo: 'Ef
           </template>
           <template v-else>Depósito del efectivo: {{ data.money.depositsRegistered ? 'al día' : 'no registrado' }}.</template>
         </p>
+      </section>
+
+      <!-- Cobros por crucero: tarjeta, efectivo y transferencia (pedido de Gerencia, 24-nov-2026) -->
+      <section v-if="kind !== 'crucero' && data.collectedRows.length" class="ins-card ins-card--wide" aria-labelledby="b-bycruise">
+        <h3 id="b-bycruise">Cobros por crucero</h3>
+        <p class="ins-sub">El efectivo se cuenta por crucero: el de uno no se mezcla con el de otro.</p>
+        <div class="ins-table">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Crucero</th>
+                <th scope="col">Fechas</th>
+                <th scope="col" class="num">Tarjeta</th>
+                <th scope="col" class="num">Efectivo</th>
+                <th scope="col" class="num">Transferencia</th>
+                <th scope="col" class="num">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in data.collectedRows" :key="r.id">
+                <th scope="row">
+                  <button type="button" class="ins-link" @click="emit('period', 'crucero', r.id)">{{ r.code }}</button><template v-if="r.status === 'abordo'"> (en curso)</template>
+                </th>
+                <td>{{ day(r.start) }}–{{ day(r.end) }}</td>
+                <td class="num">{{ money(r.methods.tarjeta) }}</td>
+                <td class="num">{{ money(r.methods.efectivo) }}</td>
+                <td class="num">{{ money(r.methods.transferencia) }}</td>
+                <td class="num"><strong>{{ money(r.collected) }}</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <!-- 9. Consumo por pasajero por día -->
@@ -1117,6 +1152,12 @@ const METHOD_LABEL: Record<string, string> = { tarjeta: 'Tarjeta', efectivo: 'Ef
     font-weight: 700;
     font-variant-numeric: tabular-nums;
   }
+}
+
+.lines--total {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--line);
 }
 
 .card-head {
