@@ -760,17 +760,7 @@ function onEmptyCabin(number: number) {
         <RouterLink to="/bar-stock" class="menu-tile" @click="showMenu = false">
           <i class="fa-solid fa-calendar-week" aria-hidden="true" />
           <strong>BAR - STOCK</strong>
-          <small>Cuenta lo que tienes, pide lo que falta y recibe lo que llega.</small>
-        </RouterLink>
-        <RouterLink to="/inventario/compras/solicitudes?nuevo=1" class="menu-tile" @click="showMenu = false">
-          <i class="fa-solid fa-dolly" aria-hidden="true" />
-          <strong>Solicitar producto</strong>
-          <small>Producto, cantidad y unidad. Dirección de crucero la aprueba.</small>
-        </RouterLink>
-        <RouterLink to="/inventario/compras/solicitudes" class="menu-tile" @click="showMenu = false">
-          <i class="fa-solid fa-list-check" aria-hidden="true" />
-          <strong>Mis solicitudes</strong>
-          <small>Solicitada, aprobada, recibida.</small>
+          <small>Pedido del miércoles, recepción del viernes y conteo de cierre.</small>
         </RouterLink>
         <button type="button" class="menu-tile" @click="(showMenu = false), (showMovements = true)">
           <i class="fa-solid fa-clipboard-list" aria-hidden="true" />

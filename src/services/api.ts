@@ -1366,3 +1366,77 @@ export async function apiSaveBarStockSettings(userId: string | null, until: stri
   const { data } = await http.put<Pick<BarStockSettings, 'purchaseResponsible'>>('/bar-stock/settings', { userId, until })
   return data
 }
+
+// ── Control del bar (Gerencia, especificación del 26-nov-2026) ─────────────
+export interface BarDecision {
+  type: 'merma' | 'inicio' | 'pedido' | 'recepcion' | 'control'
+  label: string
+  detail: string
+  amount: number | null
+  days: number
+  ref: string
+  key?: string
+  actions: string[]
+}
+export interface BarCycleRow {
+  label: string
+  state: string
+  tone: 'verde' | 'amarillo' | 'rojo' | 'gris'
+}
+export interface BarControlCurrent {
+  navigating: boolean
+  cruise: { id: string; code: string; start: string; end: string; dayX: number; totalDays: number; passengers: number; bartender: string; directora: string; status: string } | null
+  next: { code: string; start: string } | null
+  figures?: {
+    sold: number
+    avgSold: number | null
+    soldPct: number | null
+    perPaxDay: number | null
+    avgPerPaxDay: number | null
+    exits: number
+    exitsPct: number | null
+    belowZero: number
+    belowZeroNames: string[]
+  }
+  decisions: BarDecision[]
+  short?: Array<{ product: string; now: number; need: number; incoming: string; state: string; tone: string }>
+  payments?: { tarjeta: number; efectivo: number; transferencia: number; total: number; badEmails: number }
+  top?: Array<{ name: string; units: number; amount: number }>
+  cycle: BarCycleRow[]
+}
+export interface BarControlClosed {
+  id: string
+  code: string
+  start: string
+  end: string
+  bartender: string
+  count: { code: string; status: string; wasteTotal: number; bartender: string; directora: string; lines: Array<{ name: string; value: number; motive: string; units: number }> } | null
+}
+export interface BarControlPeriod {
+  period: { kind: 'mes' | 'ano'; from: string; to: string }
+  waste: { total: number; byCruise: Array<{ label: string; value: number }>; byProduct: Array<{ label: string; value: number }>; byPerson: Array<{ label: string; value: number }>; byMotive: Array<{ label: string; value: number }> }
+  exits: { cortesias: number; roturas: number; cocina: number; tripulacion: number; brindis: number; devoluciones: number }
+  purchases: { orders: number; approvedOnTime: number; receptions: number; receptionsOnTime: number; notFound: number }
+  collections: Array<{ code: string; status: string; start: string; end: string; tarjeta: number; efectivo: number; transferencia: number; total: number }>
+  cross: Array<{ product: string; date: string; admin: number; bartender: number | null; system: number; diff: number }>
+}
+
+export async function apiBarControlCurrent() {
+  const { data } = await http.get<BarControlCurrent>('/bar-stock/control', { params: { vista: 'curso' } })
+  return data
+}
+export async function apiBarControlClosed() {
+  const { data } = await http.get<{ closed: BarControlClosed[] }>('/bar-stock/control', { params: { vista: 'cerrados' } })
+  return data.closed
+}
+export async function apiBarControlPeriod(vista: 'mes' | 'ano', valor: string) {
+  const { data } = await http.get<BarControlPeriod>('/bar-stock/control', { params: { vista, valor } })
+  return data
+}
+export async function apiAdminControl() {
+  const { data } = await http.get<{ due: boolean; nextDay: string | null; count: ClosingCount | null; lastSent: { code: string; at: string; products: number } | null }>('/bar-stock/admin-control')
+  return data
+}
+export async function apiControlDecision(id: string, action: 'recuento' | 'merma') {
+  await http.post(`/bar-stock/counts/${id}/control-decision`, { action })
+}

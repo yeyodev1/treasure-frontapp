@@ -18,6 +18,8 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const VIEWS = {
+  controlbar: { label: 'Control del bar', icon: 'fa-gauge-high', component: defineAsyncComponent(() => import('@/components/barstock/ControlBar.vue')) },
+  controladmin: { label: 'Control de Administración', icon: 'fa-clipboard-check', component: defineAsyncComponent(() => import('@/components/barstock/AdminControl.vue')) },
   conteo: { label: 'Conteo', icon: 'fa-clipboard-list', component: defineAsyncComponent(() => import('@/components/barstock/ClosingCount.vue')) },
   bar: { label: 'Pedido', icon: 'fa-list-check', component: defineAsyncComponent(() => import('@/components/barstock/StockBar.vue')) },
   pedidos: { label: 'Pedidos', icon: 'fa-stamp', component: defineAsyncComponent(() => import('@/components/barstock/StockDirector.vue')) },
@@ -56,9 +58,10 @@ const tabs = computed<ViewKey[]>(() => {
     // Administración: solo Compras (cuando es la responsable) y su control cada 2 semanas (Bar-stock, 24-nov-2026).
     case 'admin':
     case 'bodega':
-      return ['compras']
+      return ['compras', 'controladmin']
+    // Gerencia siempre cae en Control del bar › Crucero en curso (especificación del 26-nov-2026).
     case 'duena':
-      return countOpen.value === 'gerencia' ? ['conteo', 'consulta', 'pedidos', 'compras'] : ['consulta', 'conteo', 'pedidos', 'compras']
+      return ['controlbar', 'conteo', 'consulta', 'pedidos', 'compras']
     default:
       return []
   }
@@ -78,7 +81,7 @@ const LEAD: Partial<Record<string, string>> = {
   direccion: 'Revisa lo que pidió el bar y apruébalo. Pasa directo a Tierra.',
   admin: 'Compras semanales: registra lo comprado y envíalo al barco.',
   bodega: 'Compras semanales: registra lo comprado y envíalo al barco.',
-  duena: 'Cuánto hay a bordo, lo que se agota y cómo van los pedidos.',
+  duena: 'Cómo va el crucero actual y solo lo que necesita tu autorización.',
 }
 </script>
 

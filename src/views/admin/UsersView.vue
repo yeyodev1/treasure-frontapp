@@ -44,8 +44,9 @@ function togglePin(id: string) {
   shownPins.value = next
 }
 const barUsers = computed(() => users.value.filter((u) => !ISM_ROLES.includes(u.role)))
+// Se elimina el rol Bodega (Bar-stock, 24-nov-2026): ya no hay bodega, todo se cuenta en el barco.
 const roleOptions = Object.entries(ROLE_LABELS)
-  .filter(([value]) => !ISM_ROLES.includes(value as UserRole))
+  .filter(([value]) => !ISM_ROLES.includes(value as UserRole) && value !== 'bodega')
   .map(([value, label]) => ({ value, label }))
 
 /** Para la tarjeta: el nombre del rol y, aparte, lo que abarca. */

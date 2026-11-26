@@ -42,22 +42,20 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/cuentas', label: 'Cuentas', icon: 'fa-file-invoice-dollar', roles: ['duena', 'direccion'] },
       // BAR - STOCK (pedido del cliente, 19-nov-2026): el inventario de bebidas en una sola sección.
       { to: '/bar-stock', label: 'BAR - STOCK', icon: 'fa-boxes-stacked', roles: ['duena', 'admin', 'direccion', 'bartender', 'bodega'] },
-      // Las funciones detalladas siguen para Gerencia y Administración, fuera de las pestañas.
-      { to: '/inventario', label: 'Inventario detallado', short: 'Inventario', icon: 'fa-warehouse', roles: ['duena', 'admin', 'bodega'], prefix: true },
     ],
   },
   {
     label: 'Controlar',
     items: [
-      { to: '/admin/en-vivo', label: 'En vivo', icon: 'fa-tower-broadcast', roles: ['duena', 'admin'] },
+      { to: '/admin/en-vivo', label: 'En vivo', icon: 'fa-tower-broadcast', roles: ['duena'] },
       { to: '/admin', label: 'Resumen del negocio', short: 'Resumen', icon: 'fa-chart-line', roles: ['duena'] },
-      { to: '/admin/pagos', label: 'Cobros', icon: 'fa-cash-register', roles: ['duena', 'admin', 'direccion'] },
+      { to: '/admin/pagos', label: 'Cobros', icon: 'fa-cash-register', roles: ['duena', 'direccion'] },
     ],
   },
   {
     label: 'Administrar',
     items: [
-      { to: '/admin/productos', label: 'Catálogo', icon: 'fa-wine-bottle', roles: ['duena', 'admin', 'bodega'] },
+      { to: '/admin/productos', label: 'Catálogo', icon: 'fa-wine-bottle', roles: ['duena'] },
       { to: '/admin/equipo', label: 'Equipo', icon: 'fa-users', roles: ['duena'] },
     ],
   },
@@ -84,7 +82,7 @@ const ROLE_TABS: Partial<Record<UserRole, NavItem[]>> = {
     { to: '/wetsuits', label: 'Wetsuits', icon: 'fa-person-swimming', roles: [] },
     { to: '/admin/pagos', label: 'Cobros', icon: 'fa-cash-register', roles: [] },
   ],
-  // Tierra: entregas y auditoría dentro de BAR - STOCK; lo demás queda en «Más».
+  // Administración: solo Compras y su control cada 2 semanas, dentro de BAR - STOCK (Bar-stock, 24-nov-2026).
   admin: [BAR_STOCK],
   duena: [
     { to: '/admin', label: 'Resumen del negocio', short: 'Resumen', icon: 'fa-chart-line', roles: [] },
@@ -246,7 +244,6 @@ const VIEW_AS_OPTIONS = [
   { value: 'admin', label: 'Ver como Administración' },
   { value: 'direccion', label: 'Ver como Dirección de crucero' },
   { value: 'bartender', label: 'Ver como Bartender' },
-  { value: 'bodega', label: 'Ver como Bodega' },
 ]
 
 const viewAsModel = computed({

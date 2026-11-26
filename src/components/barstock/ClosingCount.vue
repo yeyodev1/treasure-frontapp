@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, shallowRef } from 'vue'
 import QtyStepper from '@/components/supply/QtyStepper.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import {
+  apiAdminControl,
   apiCloseClosingCount,
   apiCurrentClosingCount,
   apiDecideClosingCount,
@@ -30,8 +31,11 @@ import { plural } from '@/components/supply/units'
  * al límite, una botella completa faltante o una repetición pasan a Gerencia.
  * Sin señal, lo contado se guarda en el teléfono y se envía al volver.
  */
+/** admin: el control de Administración (cada 2 semanas, a ciegas, solo licores, vinos y cervezas). */
+const props = withDefaults(defineProps<{ mode?: 'barco' | 'admin' }>(), { mode: 'barco' })
 const userStore = useUserStore()
 const toast = useToastStore()
+const notDue = shallowRef(false)
 const confirmStore = useConfirmStore()
 const { play } = useSound()
 
@@ -43,7 +47,9 @@ const busy = shallowRef(false)
 const role = computed(() => userStore.role)
 const isLead = computed(() => role.value === 'direccion' || role.value === 'duena')
 /** Quién cuenta ahora: el bartender (o la directora en el conteo inicial, que hacen juntos). */
-const counting = computed(() => count.value?.status === 'borrador' && (role.value === 'bartender' || isLead.value))
+const counting = computed(
+  () => count.value?.status === 'borrador' && (role.value === 'bartender' || isLead.value || (props.mode === 'admin' && role.value === 'admin')),
+)
 const recounting = computed(() => count.value?.status === 'enviado' && isLead.value)
 const deciding = computed(() => count.value?.status === 'gerencia' && role.value === 'duena')
 
@@ -99,9 +105,16 @@ function hydrate(c: ClosingCount | null) {
 async function load() {
   loading.value = true
   try {
-    const data = await apiCurrentClosingCount()
-    last.value = data.last
-    hydrate(data.count)
+    if (props.mode === 'admin') {
+      const data = await apiAdminControl()
+      notDue.value = !data.due
+      last.value = data.lastSent ? { code: data.lastSent.code, verifiedAt: data.lastSent.at, verifiedByName: '', wasteTotal: 0 } : null
+      hydrate(data.count)
+    } else {
+      const data = await apiCurrentClosingCount()
+      last.value = data.last
+      hydrate(data.count)
+    }
     group.value = groups.value[0]?.key ?? 'licores'
   } catch (err) {
     toast.error(apiErrorMessage(err))
@@ -193,7 +206,12 @@ async function send() {
   }
   const ok = await confirmStore.ask({
     title: '¿Enviar el conteo?',
-    message: c.kind === 'inicial' ? 'Queda como conteo inicial verificado y reemplaza los números actuales.' : 'La app compara con lo esperado. Lo que no cuadre lo recuenta la directora.',
+    message:
+      c.kind === 'inicial'
+        ? 'Queda como conteo inicial verificado y reemplaza los números actuales.'
+        : c.kind === 'admin'
+          ? 'Va directo a Gerencia. No ves el resultado.'
+          : 'La app compara con lo esperado. Lo que no cuadre lo recuenta la directora.',
     confirmLabel: 'Enviar conteo',
     icon: 'fa-paper-plane',
   })
@@ -202,7 +220,18 @@ async function send() {
   try {
     hydrate(await apiSendClosingCount(c.id))
     play('success')
-    toast.success(count.value?.status === 'aprobado' ? 'Conteo verificado' : `Enviado: la directora recuenta ${count.value?.toRecount ?? ''} producto(s)`)
+    toast.success(
+      c.kind === 'admin'
+        ? 'Conteo enviado a Gerencia'
+        : count.value?.status === 'aprobado'
+          ? 'Conteo verificado'
+          : `Enviado: la directora recuenta ${count.value?.toRecount ?? ''} producto(s)`,
+    )
+    if (c.kind === 'admin') {
+      count.value = null
+      notDue.value = false
+      return
+    }
     if (count.value?.status === 'aprobado') await load()
   } catch (err) {
     play('error')
@@ -309,6 +338,18 @@ const limitNote = computed(() =>
   <section class="cc">
     <SkeletonList v-if="loading" variant="row" :rows="6" />
 
+    <!-- Control de Administración: solo el día que toca -->
+    <div v-else-if="mode === 'admin' && !count" class="cc-empty">
+      <i class="fa-solid fa-calendar-check" aria-hidden="true" />
+      <div>
+        <p class="cc-title">{{ notDue ? 'Hoy no te toca contar' : 'Conteo enviado a Gerencia' }}</p>
+        <p class="muted">
+          El control te aparece el día que toca, un día de cambio de crucero cada 2 semanas. No ves el resultado.
+          <template v-if="last"> Último enviado: {{ last.code }} · {{ formatDateTime(last.verifiedAt) }}.</template>
+        </p>
+      </div>
+    </div>
+
     <!-- Sin conteo abierto -->
     <template v-else-if="!count">
       <div class="cc-empty">
@@ -330,7 +371,7 @@ const limitNote = computed(() =>
     <template v-else>
       <header class="cc-head">
         <div>
-          <p class="cc-kicker">{{ count.kind === 'inicial' ? 'Conteo inicial' : `Cierre · ${count.cruise}` }} · {{ count.code }}</p>
+          <p class="cc-kicker">{{ count.kind === 'inicial' ? 'Conteo inicial' : count.kind === 'admin' ? 'Control de Administración' : `Cierre · ${count.cruise}` }} · {{ count.code }}</p>
           <h2 class="cc-title">
             {{
               counting

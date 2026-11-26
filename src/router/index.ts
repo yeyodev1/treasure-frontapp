@@ -44,73 +44,18 @@ const routes: Array<RouteRecordRaw> = [
     component: () => import('@/views/BarStockView.vue'),
     meta: { title: 'BAR - STOCK', roles: ['admin', 'direccion', 'bartender', 'bodega'] },
   },
-  {
-    // Inventario y pedidos (guía 4-nov-2026): un acceso, cuatro pestañas.
-    // El bar y la directora usan BAR - STOCK; esto queda para Gerencia y Administración.
-    path: '/inventario',
-    component: () => import('@/views/inventory/InventoryHub.vue'),
-    meta: { title: 'Inventario y pedidos', roles: ['admin', 'direccion', 'bartender', 'bodega'] },
-    children: [
-      {
-        path: '',
-        // El bar y la directora entran a contar y pedir (inventario simple, 17-nov-2026).
-        redirect: () => (['bartender', 'direccion'].includes(useUserStore().role ?? '') ? '/bar-stock' : '/inventario/existencias'),
-      },
-      {
-        path: 'existencias',
-        name: 'Inventory',
-        component: () => import('@/views/admin/InventoryView.vue'),
-        meta: { title: 'Existencias' },
-      },
-      {
-        path: 'pedido',
-        name: 'WeeklyOrder',
-        component: () => import('@/views/WeeklyOrderView.vue'),
-        meta: { title: 'Pedido semanal' },
-      },
-      {
-        // Compras, recepciones, traslados, entregas al barco y mermas.
-        path: 'compras',
-        name: 'Warehouse',
-        component: () => import('@/views/BodegaView.vue'),
-        meta: { title: 'Compras y entregas', roles: ['admin', 'bodega', 'direccion'] },
-      },
-      {
-        // Solicitudes del bar: el bar pide, la directora aprueba, se entrega al barco.
-        path: 'compras/solicitudes',
-        name: 'Requisitions',
-        component: () => import('@/views/RequisitionsView.vue'),
-        meta: { title: 'Solicitudes del bar' },
-      },
-      {
-        path: 'conteos',
-        name: 'Counts',
-        component: () => import('@/components/inventory/CountFlow.vue'),
-        props: { embedded: true },
-        meta: { title: 'Conteos', roles: ['admin', 'bodega', 'direccion'] },
-      },
-    ],
-  },
-  // Enlaces anteriores: llevan a su nueva pestaña.
-  { path: '/abastecimiento', redirect: (to) => ({ path: '/inventario/compras/solicitudes', query: to.query }) },
-  {
-    path: '/bodega',
-    redirect: (to) =>
-      to.query.flujo === 'conteo' ? '/inventario/conteos' : { path: '/inventario/compras', query: to.query },
-  },
-  {
-    path: '/admin/inventario',
-    redirect: (to) =>
-      to.query.tab === 'conteos'
-        ? '/inventario/conteos'
-        : { path: '/inventario/existencias', query: to.query.tab === 'bitacora' ? { tab: 'bitacora' } : {} },
-  },
+  // Bar-stock (especificación del 24-nov-2026): se elimina el módulo Inventario (pedido semanal,
+  // existencias, compras, conteos) y las bodegas; todo vive en BAR - STOCK. Los enlaces viejos llevan ahí.
+  { path: '/inventario/:rest(.*)*', redirect: '/bar-stock' },
+  { path: '/abastecimiento', redirect: '/bar-stock' },
+  { path: '/bodega', redirect: '/bar-stock' },
+  { path: '/admin/inventario', redirect: '/bar-stock' },
   // Controlar
   {
     path: '/admin/en-vivo',
     name: 'Live',
     component: () => import('@/views/admin/LiveView.vue'),
-    meta: { title: 'En vivo', roles: ['admin', 'direccion'] },
+    meta: { title: 'En vivo', roles: ['direccion'] },
   },
   {
     path: '/admin',
@@ -123,21 +68,21 @@ const routes: Array<RouteRecordRaw> = [
     path: '/admin/pagos',
     name: 'Payments',
     component: () => import('@/views/admin/PaymentsView.vue'),
-    meta: { title: 'Cobros', roles: ['admin', 'direccion'] },
+    meta: { title: 'Cobros', roles: ['direccion'] },
   },
   // Administrar
   {
     path: '/admin/salidas',
     name: 'Cruises',
     component: () => import('@/views/admin/CruisesView.vue'),
-    meta: { title: 'Cruceros', roles: ['admin', 'direccion'] },
+    meta: { title: 'Cruceros', roles: ['direccion'] },
   },
   { path: '/admin/cruceros', redirect: '/admin/salidas' },
   {
     path: '/admin/productos',
     name: 'Products',
     component: () => import('@/views/admin/ProductsView.vue'),
-    meta: { title: 'Catálogo', roles: ['admin', 'bodega'] },
+    meta: { title: 'Catálogo', roles: [] },
   },
   {
     path: '/admin/equipo',
@@ -160,11 +105,11 @@ const router = createRouter({
 /** Primera vista a la que puede entrar cada rol. */
 const ROLE_HOME: Record<UserRole, string> = {
   duena: '/admin/en-vivo',
-  admin: '/bodega',
+  admin: '/bar-stock',
   // Dirección empieza en Cruceros (primera pestaña): de ahí entra al bar.
   direccion: '/admin/salidas',
   bartender: '/',
-  bodega: '/bodega',
+  bodega: '/bar-stock',
   capitan: '/',
   tripulante: '/',
   designada: '/',
