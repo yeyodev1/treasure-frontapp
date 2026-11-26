@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CruiseTag from '@/components/cruises/CruiseTag.vue'
 import { computed, reactive, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 import OwnerBars from '@/components/owner/OwnerBars.vue'
@@ -415,7 +416,7 @@ const METHOD_LABEL: Record<string, string> = { tarjeta: 'Tarjeta', efectivo: 'Ef
         <p v-if="!data.collectedRows.length" class="ins-empty">Sin cruceros en este período.</p>
         <ul v-else class="pairs">
           <li v-for="r in data.collectedRows" :key="r.id">
-            <button type="button" class="ins-link" @click="emit('period', 'crucero', r.id)">{{ r.code }}</button>
+            <button type="button" class="ins-link" @click="emit('period', 'crucero', r.id)"><CruiseTag :code="r.code" :route="false" /></button>
             <span class="pair-bars" :aria-label="`Consumido ${money(r.consumed)}, cobrado ${money(r.collected)}`">
               <span class="pair pair--consumed" :style="{ width: `${(r.consumed / collectMax) * 100}%` }" />
               <span class="pair pair--collected" :style="{ width: `${(r.collected / collectMax) * 100}%` }" />
@@ -480,7 +481,7 @@ const METHOD_LABEL: Record<string, string> = { tarjeta: 'Tarjeta', efectivo: 'Ef
               </thead>
               <tbody>
                 <tr v-for="w in data.wetsuits.rows" :key="w.id">
-                  <th scope="row">{{ w.code }}</th>
+                  <th scope="row"><CruiseTag :code="w.code" /></th>
                   <td class="num">{{ w.rented }}</td>
                   <td class="num">{{ w.passengers }}</td>
                   <td class="num">{{ money(w.income) }}</td>
@@ -562,7 +563,7 @@ const METHOD_LABEL: Record<string, string> = { tarjeta: 'Tarjeta', efectivo: 'Ef
                       @change="togglePick(r.id)"
                     />
                   </td>
-                  <th scope="row">{{ r.code }}</th>
+                  <th scope="row"><CruiseTag :code="r.code" /></th>
                   <td><span :class="{ 'tone tone--rojo': r.generic }">{{ r.generic ? `«${r.bartenderName || 'Sin bartender'}» genérico` : r.bartenderName }}</span></td>
                   <td class="num">{{ r.state === 'en_curso' ? `${money(r.sales)} de ${money(r.salesAll)}` : money(r.sales) }}</td>
                   <td class="num">{{ r.state === 'en_curso' ? `${money(r.projected)} proyectada` : money(r.commission) }}</td>
@@ -659,7 +660,7 @@ const METHOD_LABEL: Record<string, string> = { tarjeta: 'Tarjeta', efectivo: 'Ef
               <tbody>
                 <tr v-for="r in invoiceable" :key="r.id">
                   <td><input type="checkbox" class="check" :checked="agencyPicked.has(r.id)" :aria-label="`Facturar ${r.code}`" @change="toggleAgency(r.id)" /></td>
-                  <th scope="row">{{ r.code }}</th>
+                  <th scope="row"><CruiseTag :code="r.code" :route="false" /></th>
                   <td>{{ day(r.start) }}<template v-if="r.end">–{{ day(r.end) }}</template></td>
                   <td>{{ r.agency || 'Sin agencia' }}</td>
                   <td class="num">{{ money(r.bar) }}</td>
@@ -774,7 +775,7 @@ const METHOD_LABEL: Record<string, string> = { tarjeta: 'Tarjeta', efectivo: 'Ef
             <tbody>
               <tr v-for="r in data.collectedRows" :key="r.id">
                 <th scope="row">
-                  <button type="button" class="ins-link" @click="emit('period', 'crucero', r.id)">{{ r.code }}</button><template v-if="r.status === 'abordo'"> (en curso)</template>
+                  <button type="button" class="ins-link" @click="emit('period', 'crucero', r.id)"><CruiseTag :code="r.code" /></button><template v-if="r.status === 'abordo'"> (en curso)</template>
                 </th>
                 <td>{{ day(r.start) }}–{{ day(r.end) }}</td>
                 <td class="num">{{ money(r.methods.tarjeta) }}</td>

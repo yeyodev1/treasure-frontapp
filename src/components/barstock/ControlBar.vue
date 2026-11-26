@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CruiseTag from '@/components/cruises/CruiseTag.vue'
 import { computed, onMounted, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
@@ -179,7 +180,7 @@ const barMax = (rows: Array<{ value: number }>) => Math.max(1, ...rows.map((r) =
       <template v-else>
         <section class="card cruise">
           <div class="cruise-top">
-            <h2>{{ current.cruise.code }} · {{ current.navigating ? `Día ${current.cruise.dayX} de ${current.cruise.totalDays}` : 'último cerrado' }}</h2>
+            <h2><CruiseTag :code="current.cruise.code" /> · {{ current.navigating ? `Día ${current.cruise.dayX} de ${current.cruise.totalDays}` : 'último cerrado' }}</h2>
             <span class="tone" :class="current.navigating ? 'tone--verde' : 'tone--gris'">{{ current.navigating ? 'En curso' : 'Cerrado' }}</span>
             <span v-if="current.decisions.length" class="tone tone--rojo">{{ current.decisions.length }} por decidir</span>
             <span class="muted cruise-meta">
@@ -310,7 +311,7 @@ const barMax = (rows: Array<{ value: number }>) => Math.max(1, ...rows.map((r) =
       <p v-if="!closed.length" class="card muted">Todavía no hay cruceros cerrados.</p>
       <article v-for="c in closed" :key="c.id" class="card">
         <button type="button" class="closed-head" :aria-expanded="openCruise === c.id" @click="openCruise = openCruise === c.id ? '' : c.id">
-          <strong>{{ c.code }}</strong>
+          <strong><CruiseTag :code="c.code" /></strong>
           <span class="muted">{{ day(c.start) }} → {{ day(c.end) }} · {{ c.bartender || '—' }}</span>
           <span v-if="!c.count" class="tone tone--rojo">sin conteo de cierre</span>
           <span v-else class="tone" :class="c.count.status === 'aprobado' ? 'tone--verde' : 'tone--amarillo'">
@@ -395,7 +396,7 @@ const barMax = (rows: Array<{ value: number }>) => Math.max(1, ...rows.map((r) =
             </thead>
             <tbody>
               <tr v-for="c in period.collections" :key="c.code">
-                <td>{{ c.code }}<template v-if="c.status === 'abordo'"> (en curso)</template></td>
+                <td><CruiseTag :code="c.code" /><template v-if="c.status === 'abordo'"> (en curso)</template></td>
                 <td>{{ fmt(c.start, { day: 'numeric', month: 'short' }) }}–{{ fmt(c.end, { day: 'numeric', month: 'short' }) }}</td>
                 <td class="num">{{ money(c.tarjeta) }}</td>
                 <td class="num">{{ money(c.efectivo) }}</td>

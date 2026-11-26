@@ -73,7 +73,10 @@ function shift(delta: number) {
 const cruiseOptions = computed(() =>
   cruises.value
     .filter((c) => c.status !== 'planificado')
-    .map((c) => ({ value: c._id, label: `${c.code} · ${fmt(c.startDate, { day: 'numeric', month: 'short', year: 'numeric' })}` })),
+    .map((c) => ({
+      value: c._id,
+      label: [c.code, c.routeFrom ? `${c.routeFrom} → ${c.routeTo}` : '', fmt(c.startDate, { day: 'numeric', month: 'short', year: 'numeric' })].filter(Boolean).join(' · '),
+    })),
 )
 
 const bar = shallowRef<BarData | null>(null)
@@ -117,9 +120,11 @@ const periodLabel = computed(() => {
 const goalsOpen = shallowRef(false)
 
 function exportPdf() {
-  // El navegador guarda la vista Operación como PDF (sin el menú de la app).
-  document.title = `Operación ${periodLabel.value} · Treasure of Galápagos`
+  // El navegador guarda la vista como PDF (sin el menú de la app); el nombre del archivo sale del título.
+  const before = document.title
+  document.title = `Resumen ${view.value === 'bar' ? 'Bar' : 'Operación'} ${periodLabel.value} · Treasure of Galápagos`
   window.print()
+  document.title = before
 }
 </script>
 
@@ -136,7 +141,7 @@ function exportPdf() {
         <button v-if="view === 'bar'" type="button" class="btn btn-secondary" @click="goalsOpen = true">
           <i class="fa-solid fa-bullseye" aria-hidden="true" /> Metas
         </button>
-        <button v-else type="button" class="btn btn-primary" :disabled="loading" @click="exportPdf">
+        <button type="button" class="btn btn-primary" :disabled="loading" @click="exportPdf">
           <i class="fa-solid fa-file-pdf" aria-hidden="true" /> Exportar PDF
         </button>
       </div>
@@ -180,7 +185,7 @@ function exportPdf() {
       </div>
     </div>
 
-    <h2 class="print-only">Resumen · Operación · {{ periodLabel }}</h2>
+    <h2 class="print-only">Resumen · {{ view === 'bar' ? 'Bar' : 'Operación' }} · {{ periodLabel }}</h2>
 
     <SkeletonBlock v-if="loading && !(view === 'bar' ? bar : op)" height="520px" />
     <div v-else :class="{ busy: loading }">
@@ -278,7 +283,7 @@ function exportPdf() {
 </style>
 
 <style lang="scss">
-/* PDF de la vista Operación: solo el contenido, sin el menú de la app. */
+/* PDF del Resumen (Bar y Operación): solo el contenido, sin el menú de la app. */
 @media print {
   .topbar,
   .topnav-wrap,
@@ -301,6 +306,12 @@ function exportPdf() {
   .ins-card,
   .ins-kpis > div {
     break-inside: avoid;
+  }
+
+  /* En papel no se toca nada: fuera los botones de acción. */
+  .summary-page button,
+  .summary-page .btn {
+    display: none !important;
   }
 
   * {

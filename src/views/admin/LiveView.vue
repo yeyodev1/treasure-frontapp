@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CruiseTag from '@/components/cruises/CruiseTag.vue'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiLive } from '@/services/api'
@@ -144,7 +145,7 @@ onBeforeUnmount(() => {
           </span>
           <span v-if="pulse?.cruise" class="lead-cruise">
             <i class="fa-solid fa-ship" aria-hidden="true" />
-            {{ pulse.cruise.code ? `Crucero ${pulse.cruise.code}` : pulse.cruise.name }}
+            <template v-if="pulse.cruise.code">Crucero <CruiseTag :code="pulse.cruise.code" /></template><template v-else>{{ pulse.cruise.name }}</template>
             <span class="estado" :class="pulse.cruise.status === 'abordo' ? 'estado--ok' : 'estado--info'">
               {{ pulse.cruise.status === 'abordo' ? 'En curso' : 'Programado' }}
             </span>

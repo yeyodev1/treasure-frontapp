@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CruiseTag from '@/components/cruises/CruiseTag.vue'
 import { computed, onMounted, ref, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToastStore } from '@/stores/toast'
@@ -401,7 +402,7 @@ function collectorName(payment: Payment): string {
 
     <section v-else class="list-card" aria-label="Cobros">
       <h2 v-if="selectedCruise && view === 'crucero'" class="cruise-title">
-        Crucero {{ selectedCruise.code }}
+        Crucero <CruiseTag :code="selectedCruise.code" />
         <small>{{ day(selectedCruise.startDate) }}<template v-if="selectedCruise.endDate"> – {{ day(selectedCruise.endDate) }}</template></small>
       </h2>
       <ul v-if="view === 'crucero' && byMethod.length" class="methods" aria-label="Cobrado por forma de pago">

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { legStyle } from '@/utils/cruiseLook'
 import { computed, shallowRef, watch } from 'vue'
 import { addDays, daysBetween, dayKey, fmt, monthTitle } from '@/components/owner/insights'
 import { todayKey } from '@/utils/format'
@@ -103,7 +104,7 @@ const range = (c: Cruise) =>
         type="button"
         class="cal-bar"
         :class="[`cal-bar--${s.cruise.status}`, { 'cal-bar--on': s.cruise._id === selected, 'cal-bar--cont': s.continues }]"
-        :style="{ gridColumn: `${s.col} / span ${s.span}`, gridRow: s.lane + 2 }"
+        :style="{ gridColumn: `${s.col} / span ${s.span}`, gridRow: s.lane + 2, ...legStyle(s.cruise.code) }"
         :aria-pressed="s.cruise._id === selected"
         :aria-label="`Crucero ${s.cruise.code}, ${range(s.cruise)}`"
         @click="selected = s.cruise._id"

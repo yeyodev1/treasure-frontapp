@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import CruiseTag from '@/components/cruises/CruiseTag.vue'
+import { legStyle } from '@/utils/cruiseLook'
 import { computed } from 'vue'
 import type { OperationSummary, SummaryPeriodKind } from '@/services/api'
 import { MONTHS, fmt } from '@/components/owner/insights'
@@ -125,7 +127,7 @@ const STATE_LABEL = { navegando: 'Navegando', para: 'Para (sin crucero)', dique:
         <p v-if="!data.occupancy.length" class="ins-empty">Sin cruceros en este período.</p>
         <ul v-else class="hbars">
           <li v-for="c in data.occupancy" :key="c.id">
-            <button type="button" class="ins-link" @click="emit('period', 'crucero', c.id)">{{ c.code }}</button>
+            <button type="button" class="ins-link" @click="emit('period', 'crucero', c.id)"><CruiseTag :code="c.code" /></button>
             <span class="hbar"><span class="hbar-fill hbar-fill--green" :style="{ width: `${(c.pax / c.capacity) * 100}%` }" /></span>
             <strong>{{ c.pax }}/{{ c.capacity }}</strong>
           </li>
@@ -192,7 +194,7 @@ const STATE_LABEL = { navegando: 'Navegando', para: 'Para (sin crucero)', dique:
           :class="[`md--${d.state}`, { 'md--today': d.today }]"
           :aria-label="`${day(d.day)}: ${STATE_LABEL[d.state]}${d.code ? ` · ${d.code}` : ''}`"
         >
-          <span v-if="d.departs || d.today" class="md-tag">{{ d.today ? 'Hoy' : d.code }}</span>
+          <span v-if="d.departs || d.today" class="md-tag" :style="d.today ? undefined : legStyle(d.code)">{{ d.today ? 'Hoy' : d.code }}</span>
           <span class="md-num">{{ Number(d.day.slice(8)) }}</span>
         </span>
       </div>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CruiseTag from '@/components/cruises/CruiseTag.vue'
 import { computed, nextTick, onMounted, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
@@ -611,7 +612,7 @@ async function onPassengersSaved() {
       >
         <header class="cruise-head">
           <div class="cruise-title">
-            <h3>{{ label(cruise) }}</h3>
+            <h3><CruiseTag v-if="cruise.code" :code="cruise.code" :route="false" /><template v-else>{{ label(cruise) }}</template></h3>
             <p v-if="cruise.routeFrom" class="cruise-route">
               <i class="fa-solid fa-route" aria-hidden="true" /> {{ cruise.routeFrom }} → {{ cruise.routeTo }}
             </p>
