@@ -13,9 +13,19 @@ export async function loadOpenOrders(): Promise<{ current: WeeklyOrderCurrent; o
   return { current, orders: [...(current.order ? [current.order] : []), ...full] }
 }
 
-/** Entregas o envíos que esperan que el bar confirme lo recibido. */
+/** Entregas o envíos que esperan que el bar confirme lo recibido (sin las que ya recibió y esperan a la directora). */
 export function awaitingBar(order: WeeklyOrder): WeeklyOrderDelivery[] {
-  return order.deliveries.filter((d) => !d.arrivedAt && (d.kind === 'envio' || d.awaitsBar))
+  return order.deliveries.filter((d) => !d.arrivedAt && !d.needsDirector && (d.kind === 'envio' || d.awaitsBar))
+}
+
+/** Recepciones que el mismo bartender compró y recibió: confirma además la directora (Bar-stock, 24-nov-2026). */
+export function awaitingDirector(order: WeeklyOrder): WeeklyOrderDelivery[] {
+  return order.deliveries.filter((d) => !d.arrivedAt && d.needsDirector)
+}
+
+/** Horas desde el envío sin que el bar confirme (a las 24 h le llega a Gerencia). */
+export function hoursWaiting(d: WeeklyOrderDelivery, now = Date.now()): number {
+  return Math.floor((now - new Date(d.at).getTime()) / 3_600_000)
 }
 
 /** Reemplaza un pedido en la lista por su versión nueva. */

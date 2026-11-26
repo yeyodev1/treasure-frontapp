@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, shallowRef } from 'vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
+import BaseSelect from '@/components/ui/BaseSelect.vue'
 import QtyStepper from '@/components/supply/QtyStepper.vue'
 import StockReceive from '@/components/barstock/StockReceive.vue'
-import CountList from '@/components/barstock/CountList.vue'
 import { awaitingBar, dayText, loadOpenOrders, replaceOrder } from '@/components/barstock/orders'
 import { useCatalogStore } from '@/stores/catalog'
 import { useConfirmStore } from '@/stores/confirm'
@@ -13,14 +13,15 @@ import { SYNC_TEXT, useOrderSync } from '@/composables/useOrderSync'
 import { apiSendWeeklyOrder } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { plural } from '@/components/supply/units'
-import type { Product, WeeklyOrder, WeeklyOrderCurrent, WeeklyOrderLine } from '@/types'
+import { formatTime } from '@/utils/format'
+import type { WeeklyOrder, WeeklyOrderCurrent, WeeklyOrderLine } from '@/types'
 
 /**
- * BAR - STOCK, pantalla del bar (pedido del cliente, 19-nov-2026): todas las
- * bebidas por categoría con buscador y solo dos campos, TENGO y PEDIR. Pedir
- * se sugiere con lo que tengo y el stock objetivo; el bar lo puede cambiar.
- * Los licores se cuentan en botellas cerradas más la abierta. Un solo botón:
- * ENVIAR PEDIDO, que también guarda el conteo. Arriba, lo que hay que recibir.
+ * Pedido del miércoles, pantalla del bartender (Bar-stock, 24-nov-2026). A
+ * las 12h00 la app propone con el consumo por pasajero de los últimos 4
+ * cruceros; el bartender ajusta hasta las 15h00 (si cambia más de 20 %, con
+ * motivo) y lo envía a la directora. Aquí ya no se cuenta: el conteo es solo
+ * al cierre del crucero. Arriba, lo que hay que recibir.
  */
 const catalog = useCatalogStore()
 const confirmStore = useConfirmStore()
@@ -28,78 +29,57 @@ const toast = useToastStore()
 const { play } = useSound()
 
 interface Entry {
-  /** Lo que el bar contó (envases; los licores admiten ¼, ½, ¾); null = no contó. */
-  counted: number | null
   qty: number
-  /** El bar cambió Pedir a mano: ya no se recalcula al contar. */
-  qtyTouched: boolean
+  observation: string
 }
 
 const current = shallowRef<WeeklyOrderCurrent | null>(null)
 const orders = shallowRef<WeeklyOrder[]>([])
 const order = shallowRef<WeeklyOrder | null>(null)
 const entries = ref<Record<string, Entry>>({})
+const added = ref<string[]>([])
 const loading = shallowRef(true)
 const busy = shallowRef(false)
 
 const { sync, message, touch, flush, save, draft } = useOrderSync(order, payload)
 
-const counting = computed(() => order.value?.status === 'bar')
+const adjusting = computed(() => order.value?.status === 'bar')
 const toReceive = computed(() => orders.value.flatMap((o) => awaitingBar(o).map((d) => ({ order: o, delivery: d }))))
+const OUTLIER_PCT = 20
 
 function lineOf(id: string): WeeklyOrderLine | undefined {
   return order.value?.lines.find((l) => l.product === id)
 }
+const entry = (id: string): Entry => entries.value[id] ?? { qty: lineOf(id)?.qty ?? 0, observation: lineOf(id)?.observation ?? '' }
 
-/** Cuánto pedir con lo que tengo: hasta el objetivo, o lo consumido la semana; null = sin referencia. */
-function suggest(p: Product, counted: number): number | null {
-  const size = p.containerSize || 1
-  const l = lineOf(p._id)
-  const up = (n: number) => Math.max(0, Math.ceil(Math.round(n * 100) / 100 - 1e-9))
-  if (l?.basis === 'objetivo') return up(l.target - counted - l.incoming / size)
-  if (l?.basis === 'consumo') return up((l.consumption - l.incoming) / size - counted)
-  if ((p.stockTarget ?? 0) > 0) return up(p.stockTarget! - counted - (l?.incoming ?? 0) / size)
-  return null
+/** Cambió más del 20 % lo propuesto (o pidió algo que no se propuso): necesita motivo. */
+function needsReason(id: string) {
+  const base = lineOf(id)?.suggested ?? 0
+  const qty = entry(id).qty
+  return base > 0 ? Math.abs(qty - base) > (base * OUTLIER_PCT) / 100 : qty > 0
 }
 
-function entry(p: Product): Entry {
-  return entries.value[p._id] ?? { counted: null, qty: lineOf(p._id)?.qty ?? 0, qtyTouched: false }
+function setQty(id: string, qty: number) {
+  entries.value[id] = { ...entry(id), qty }
+  touch()
 }
-
-function setCount(p: Product, counted: number) {
-  const e = entry(p)
-  const s = e.qtyTouched ? null : suggest(p, counted)
-  entries.value[p._id] = { ...e, counted, qty: s ?? e.qty }
+function setReason(id: string, observation: string) {
+  entries.value[id] = { ...entry(id), observation }
   touch()
 }
 
-function setQty(p: Product, qty: number) {
-  entries.value[p._id] = { ...entry(p), qty, qtyTouched: true }
-  touch()
-}
-
-const counts = computed(() => Object.fromEntries(Object.entries(entries.value).map(([id, e]) => [id, e.counted])))
-const toBuy = (p: Product) => entry(p).qty > 0
-
-/** Lo que va al servidor: las líneas del pedido y todo lo que el bar contó o pidió. */
+/** Lo que va al servidor: las líneas propuestas y lo agregado a mano. */
 function payload() {
-  const ids = new Set([...(order.value?.lines.map((l) => l.product) ?? []), ...Object.keys(entries.value)])
+  const ids = new Set([...(order.value?.lines.map((l) => l.product) ?? []), ...added.value, ...Object.keys(entries.value)])
   return [...ids]
-    .map((id) => {
-      const e = entries.value[id]
-      const l = lineOf(id)
-      return { productId: id, qty: e?.qty ?? l?.qty ?? 0, observation: l?.observation ?? '', counted: e?.counted ?? l?.counted ?? null }
-    })
-    .filter((x) => lineOf(x.productId) || x.counted !== null || x.qty > 0)
+    .map((id) => ({ productId: id, qty: entry(id).qty, observation: entry(id).observation, counted: null }))
+    .filter((x) => lineOf(x.productId) || x.qty > 0)
 }
 
 function fromOrder(o: WeeklyOrder) {
-  entries.value = Object.fromEntries(
-    o.lines.map((l) => [l.product, { counted: l.counted ?? null, qty: l.qty, qtyTouched: l.counted !== null && l.qty !== l.suggested }]),
-  )
-  for (const d of draft() ?? []) {
-    entries.value[d.productId] = { counted: d.counted, qty: d.qty, qtyTouched: true }
-  }
+  entries.value = Object.fromEntries(o.lines.map((l) => [l.product, { qty: l.qty, observation: l.observation }]))
+  added.value = []
+  for (const d of draft() ?? []) entries.value[d.productId] = { qty: d.qty, observation: d.observation }
   if (draft()) touch()
 }
 
@@ -119,25 +99,51 @@ async function load() {
 }
 onMounted(load)
 
-const countedTotal = computed(() => catalog.physical.filter((p) => entries.value[p._id]?.counted != null).length)
-const toOrder = computed(() => payload().filter((x) => x.qty > 0).length)
+/** Productos del pedido: los propuestos y los agregados, por nombre. */
+const rows = computed(() => {
+  const ids = [...new Set([...(order.value?.lines.map((l) => l.product) ?? []), ...added.value])]
+  return ids
+    .map((id) => {
+      const l = lineOf(id)
+      const p = catalog.physical.find((x) => x._id === id)
+      return { id, name: l?.name ?? p?.name ?? '', label: l?.containerLabel ?? p?.containerLabel ?? 'unidad', line: l }
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+})
+const addOptions = computed(() =>
+  catalog.physical
+    .filter((p) => !rows.value.some((r) => r.id === p._id))
+    .map((p) => ({ value: p._id, label: p.name }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'es')),
+)
+const toAdd = shallowRef('')
+function addProduct(id: string) {
+  if (!id) return
+  added.value = [...added.value, id]
+  entries.value[id] = { qty: 1, observation: '' }
+  toAdd.value = ''
+  touch()
+}
 
-const unitOf = (p: Product, n: number) => plural(p.containerLabel || 'unidad', n)
+const toOrder = computed(() => payload().filter((x) => x.qty > 0).length)
+const changed = computed(() => rows.value.filter((r) => entry(r.id).qty !== (r.line?.suggested ?? 0)).length)
+const missingReason = computed(() => rows.value.find((r) => needsReason(r.id) && !entry(r.id).observation.trim()))
 
 async function send() {
   const o = order.value
   if (!o || busy.value) return
+  if (missingReason.value) {
+    toast.error(`${missingReason.value.name}: cambió más de ${OUTLIER_PCT} % lo propuesto, escribe el motivo`)
+    return
+  }
   if (!(await flush())) {
     toast.error(message.value || 'No se pudo guardar: revisa la señal y vuelve a intentar')
     return
   }
-  const missing = catalog.physical.length - countedTotal.value
   const ok = await confirmStore.ask({
-    title: '¿Enviar el pedido?',
-    message: `${toOrder.value} producto(s) para pedir y ${countedTotal.value} contado(s).${
-      missing > 0 ? ` ${missing} producto(s) sin contar se quedan con lo que dice el sistema.` : ''
-    } La directora lo revisa y lo aprueba.`,
-    confirmLabel: 'Enviar pedido',
+    title: '¿Enviar el pedido a la directora?',
+    message: `${toOrder.value} producto(s) para pedir · ${changed.value} ajuste(s) tuyos. La directora lo aprueba hasta las 18h00.`,
+    confirmLabel: 'Enviar a la directora',
     icon: 'fa-paper-plane',
   })
   if (!ok) return
@@ -146,7 +152,7 @@ async function send() {
     order.value = await apiSendWeeklyOrder(o._id, order.value!.version)
     orders.value = replaceOrder(orders.value, order.value)
     play('success')
-    toast.success('Pedido enviado: ahora lo revisa la directora')
+    toast.success('Pedido enviado: ahora lo aprueba la directora')
   } catch (err) {
     play('error')
     toast.error(apiErrorMessage(err))
@@ -160,6 +166,9 @@ function received(o: WeeklyOrder) {
   if (order.value?._id === o._id) order.value = o
   void catalog.load(true)
 }
+
+const unitOf = (label: string, n: number) => plural(label || 'unidad', n)
+const fmt = (n: number | null | undefined) => (n === null || n === undefined ? '—' : String(Math.round(n * 100) / 100).replace('.', ','))
 </script>
 
 <template>
@@ -174,54 +183,75 @@ function received(o: WeeklyOrder) {
         @updated="received"
       />
 
-      <section v-if="!order || !counting" class="card status" role="status">
+      <section v-if="!order || !adjusting" class="card status" role="status">
         <i class="fa-solid" :class="order?.status === 'directora' ? 'fa-hourglass-half' : 'fa-circle-check'" aria-hidden="true" />
         <div>
           <h2 v-if="!order">Todavía no hay pedido esta semana</h2>
           <h2 v-else-if="order.status === 'directora'">Pedido enviado</h2>
-          <h2 v-else-if="order.status === 'aprobado'">Pedido aprobado</h2>
+          <h2 v-else-if="order.status === 'aprobado'">Pedido aprobado{{ order.autoApproved ? ' solo a las 18h00' : '' }}</h2>
           <h2 v-else>Pedido cerrado</h2>
-          <p v-if="order?.status === 'directora'">La directora lo está revisando.</p>
-          <p v-else-if="order?.status === 'aprobado' && !order.noNeeds">Tierra lo compra y lo envía. Cuando llegue, te aparece aquí para recibirlo.</p>
-          <p v-if="current">El próximo conteo y pedido se abre el {{ dayText(current.nextCut) }}.</p>
+          <p v-if="order?.status === 'directora'">La directora lo aprueba hasta las 18h00.</p>
+          <p v-else-if="order?.status === 'aprobado' && !order.noNeeds">El jueves se compra en tierra; el viernes te aparece aquí para recibirlo.</p>
+          <p v-if="current">El próximo pedido se propone el {{ dayText(current.nextCut) }} a las 12h00.</p>
         </div>
       </section>
 
       <template v-else>
         <header class="intro">
-          <h2>Inventario y pedido · {{ order.code }}</h2>
+          <h2>Ajustar pedido · {{ order.code }}</h2>
           <p>
-            En <b>TENGO</b> pon lo que hay en el bar. En <b>PEDIR</b> el sistema sugiere cuánto pedir; cámbialo si hace falta.
-            Al terminar toca <b>ENVIAR PEDIDO</b>.
+            La app propuso con el consumo por pasajero de los últimos 4 cruceros. Ajusta <b>PEDIR</b> hasta las
+            {{ order.barDeadline ? formatTime(order.barDeadline) : '15h00' }}: si cambias más de {{ OUTLIER_PCT }} %, escribe el motivo.
           </p>
         </header>
 
-        <CountList :products="catalog.physical" :counts="counts" :highlight="toBuy" @set="setCount">
-          <template #extra="{ product: p }">
-            <div class="field">
-              <span class="field-label">PEDIR</span>
-              <QtyStepper
-                :model-value="entry(p).qty"
-                :min="0"
-                allow-zero
-                :unit="unitOf(p, entry(p).qty)"
-                :label="`Cuántos pedir de ${p.name}`"
-                @update:model-value="setQty(p, $event)"
+        <p v-if="!rows.length" class="card muted">Sin cruceros la semana siguiente (para o dique): la propuesta es 0. Agrega lo que haga falta.</p>
+
+        <ul class="lines">
+          <li v-for="r in rows" :key="r.id" class="line" :class="{ 'line--ask': entry(r.id).qty > 0 }">
+            <div class="line-head">
+              <strong>{{ r.name }}</strong>
+              <small v-if="r.line?.fridayStock !== null && r.line?.fridayStock !== undefined">stock vie {{ fmt(r.line.fridayStock) }}</small>
+              <small v-else-if="r.line">fresco</small>
+              <small v-else>agregado</small>
+            </div>
+            <QtyStepper
+              :model-value="entry(r.id).qty"
+              :min="0"
+              allow-zero
+              :unit="unitOf(r.label, entry(r.id).qty)"
+              :label="`Pedir de ${r.name}`"
+              @update:model-value="setQty(r.id, $event)"
+            />
+            <small class="muted">Propuesto {{ r.line?.suggested ?? 0 }}</small>
+            <div v-if="needsReason(r.id)" class="reason">
+              <label :for="`reason-${r.id}`">Motivo (cambia más de {{ OUTLIER_PCT }} %)</label>
+              <input
+                :id="`reason-${r.id}`"
+                :value="entry(r.id).observation"
+                type="text"
+                maxlength="200"
+                placeholder="Viene grupo que pidió mojitos"
+                @input="setReason(r.id, ($event.target as HTMLInputElement).value)"
               />
             </div>
-          </template>
-        </CountList>
+          </li>
+        </ul>
+
+        <div class="add">
+          <BaseSelect :model-value="toAdd" :options="addOptions" searchable placeholder="Agregar un producto…" @update:model-value="addProduct" />
+        </div>
 
         <footer class="send-bar">
           <p class="send-info">
-            <span><b>{{ countedTotal }}</b> de {{ catalog.physical.length }} contados · <b>{{ toOrder }}</b> para pedir</span>
+            <span><b>{{ toOrder }}</b> para pedir · {{ changed }} ajuste(s)</span>
             <span v-if="sync !== 'idle'" class="sync" :class="`sync--${sync}`" role="status">
               {{ sync === 'error' ? message : SYNC_TEXT[sync] }}
               <button v-if="sync === 'error'" type="button" class="btn btn-text" @click="save">Reintentar</button>
             </span>
           </p>
           <button type="button" class="btn btn-primary btn-lg send" :disabled="busy" @click="send">
-            <i class="fa-solid fa-paper-plane" aria-hidden="true" /> ENVIAR PEDIDO
+            <i class="fa-solid fa-paper-plane" aria-hidden="true" /> Enviar a la directora
           </button>
         </footer>
       </template>
@@ -273,18 +303,66 @@ function received(o: WeeklyOrder) {
   }
 }
 
-.field {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
+.muted {
+  color: var(--ink-600);
 }
 
-.field-label {
-  font-size: 0.85rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--navy-700);
+.lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.line {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+
+  &--ask {
+    border-color: var(--navy-600);
+  }
+}
+
+.line-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem 0.6rem;
+
+  small {
+    color: var(--ink-600);
+  }
+}
+
+.reason {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+
+  label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--warning-ink);
+  }
+
+  input {
+    min-height: 44px;
+    padding: 0 0.75rem;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    font-size: 1rem;
+  }
+}
+
+.add {
+  max-width: 420px;
 }
 
 .send-bar {

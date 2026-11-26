@@ -1014,6 +1014,11 @@ export interface WeeklyOrderDelivery {
   arrivedByName: string
   /** Espera que el bar confirme lo recibido (las entregas anteriores ya sumaron al barco). */
   awaitsBar: boolean
+  /** Bar-stock: «Llegó diferente», confirmación de la directora y decisión de Gerencia. */
+  different?: boolean
+  needsDirector?: boolean
+  directorConfirmedByName?: string
+  differenceDecision?: { action: 'aceptada' | 'explicacion'; byName: string; at: string; note: string } | null
 }
 
 export interface WeeklyOrderLine {
@@ -1034,6 +1039,8 @@ export interface WeeklyOrderLine {
   observation: string
   /** Envases que contó el bar a bordo; null = no contó. */
   counted: number | null
+  /** Stock estimado al viernes (envases); null en frescos. */
+  fridayStock?: number | null
   editedByName: string
   editedAt: string | null
   /** Avance en envases: ya en el barco, enviado sin llegar y lo que falta atender. */
@@ -1063,6 +1070,15 @@ export interface WeeklyOrder {
   deliveries: WeeklyOrderDelivery[]
   history: Array<{ at: string; byName: string; action: string; detail: string }>
   createdAt: string
+  /** Bar-stock (24-nov-2026): plazos, aprobación automática, fuera de lo normal y compra. */
+  barDeadline?: string
+  approveDeadline?: string
+  autoApproved?: boolean
+  outliers?: string[]
+  outlierDecision?: { accepted: boolean; byName: string; at: string } | null
+  shortages?: Array<{ product: string; name: string; status: 'no_conseguido' | 'reemplazado'; replacement: string }>
+  sentAt?: string | null
+  sentByName?: string
 }
 
 export interface WeeklyOrderCurrent {

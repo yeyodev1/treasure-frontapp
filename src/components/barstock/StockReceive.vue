@@ -7,6 +7,7 @@ import { apiArriveWeeklyOrder } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { plural } from '@/components/supply/units'
 import { formatDateTime } from '@/utils/format'
+import { hoursWaiting } from '@/components/barstock/orders'
 import type { WeeklyOrder, WeeklyOrderDelivery } from '@/types'
 
 /**
@@ -38,9 +39,18 @@ async function confirm() {
       props.order._id,
       props.delivery.key,
       props.delivery.items.map((i) => ({ productId: i.product, source: i.source, received: got.value[rowKey(i)] ?? i.qty })),
+      '',
+      differences.value,
     )
     play('success')
-    toast.success(short.value.length ? 'Recibido con diferencias: lo que faltó queda pendiente' : 'Recibido: ya suma al inventario del barco')
+    const late = order.deliveries.find((d) => d.key === props.delivery.key)
+    toast.success(
+      late?.needsDirector && !late.arrivedAt
+        ? 'Recibido: como también compraste tú, confirma además la directora'
+        : differences.value
+          ? 'Llegó diferente: queda en tu nombre y se avisó a Gerencia'
+          : 'Recibido completo: ya suma al stock del barco',
+    )
     emit('updated', order)
   } catch (err) {
     play('error')
@@ -59,7 +69,9 @@ async function confirm() {
         <h2>Pedido por recibir</h2>
         <p class="muted">
           {{ order.code }} · lo envió {{ delivery.byName }} el {{ formatDateTime(delivery.at) }}
+          <span v-if="hoursWaiting(delivery) >= 24" class="late"> · {{ hoursWaiting(delivery) }} h sin confirmar</span>
         </p>
+        <p class="muted">Guarda cada cosa en su categoría antes de confirmar: la recepción queda a tu nombre.</p>
       </div>
     </header>
 
@@ -84,7 +96,7 @@ async function confirm() {
 
     <div class="receive-actions">
       <button v-if="!differences" type="button" class="btn btn-primary btn-lg" :disabled="busy" @click="confirm">
-        <i class="fa-solid fa-circle-check" aria-hidden="true" /> RECIBIDO
+        <i class="fa-solid fa-circle-check" aria-hidden="true" /> Recibido completo
       </button>
       <button v-if="!differences" type="button" class="btn btn-secondary" :disabled="busy" @click="differences = true">
         Llegó diferente
@@ -103,6 +115,11 @@ async function confirm() {
 </template>
 
 <style scoped lang="scss">
+.late {
+  font-weight: 700;
+  color: var(--danger-ink);
+}
+
 .receive {
   display: flex;
   flex-direction: column;

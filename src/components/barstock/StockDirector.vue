@@ -4,16 +4,16 @@ import ProductIcon from '@/components/ui/ProductIcon.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import QtyStepper from '@/components/supply/QtyStepper.vue'
 import ProductPicker from '@/components/supply/ProductPicker.vue'
-import { loadOpenOrders, replaceOrder } from '@/components/barstock/orders'
+import { awaitingDirector, loadOpenOrders, replaceOrder } from '@/components/barstock/orders'
 import { useCatalogStore } from '@/stores/catalog'
 import { useConfirmStore } from '@/stores/confirm'
 import { useToastStore } from '@/stores/toast'
 import { useSound } from '@/composables/useSound'
 import { SYNC_TEXT, useOrderSync } from '@/composables/useOrderSync'
-import { apiApproveWeeklyOrder } from '@/services/api'
+import { apiApproveWeeklyOrder, apiDirectorConfirmArrival } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { containerText, plural } from '@/components/supply/units'
-import { formatDateTime } from '@/utils/format'
+import { formatDateTime, formatTime } from '@/utils/format'
 import type { Product, WeeklyOrder, WeeklyOrderLine } from '@/types'
 
 /**
@@ -103,10 +103,21 @@ function add(p: Product) {
 }
 
 const iconOf = (id: string) => catalog.physical.find((p) => p._id === id)?.icon ?? 'bottle'
+/** Bar-stock (24-nov-2026): lo propuesto y, si el bartender cambió más de 20 %, su motivo. */
 const has = (l: WeeklyOrderLine) =>
-  l.counted != null
-    ? `Contó ${containerText(l.counted, l)}`
-    : `Sistema: ${containerText(Math.max(0, Math.round((l.atCut.abordo / (l.containerSize || 1)) * 4) / 4), l)}`
+  `Propuesto ${l.suggested ?? 0}${l.fridayStock != null ? ` · stock vie ${containerText(l.fridayStock, l)}` : ''}${l.observation ? ` · «${l.observation}»` : ''}`
+
+/** Recepciones que el mismo bartender compró y recibió: confirma también la directora. */
+const toConfirm = computed(() => orders.value.flatMap((o) => awaitingDirector(o).map((d) => ({ order: o, delivery: d }))))
+async function confirmArrival(o: WeeklyOrder, key: string) {
+  try {
+    const next = await apiDirectorConfirmArrival(o._id, key)
+    orders.value = replaceOrder(orders.value, next)
+    toast.success('Recepción confirmada: ya suma al stock')
+  } catch (err) {
+    toast.error(apiErrorMessage(err))
+  }
+}
 
 async function approve() {
   const o = order.value
@@ -171,6 +182,18 @@ function progress(o: WeeklyOrder) {
         </button>
       </nav>
 
+      <section v-for="r in toConfirm" :key="r.delivery.key" class="card confirm-card">
+        <p>
+          <strong>Recepción por confirmar · {{ r.order.code }}</strong><br />
+          {{ r.delivery.arrivedByName }} compró y recibió: confirma tú también para que suba el stock.
+          <template v-if="r.delivery.different"> Llegó diferente.</template>
+        </p>
+        <ul>
+          <li v-for="i in r.delivery.items" :key="i.product">{{ i.name }}: {{ i.received ?? i.qty }} de {{ i.qty }}</li>
+        </ul>
+        <button type="button" class="btn btn-primary" @click="confirmArrival(r.order, r.delivery.key)">Confirmar recepción</button>
+      </section>
+
       <section v-if="!order" class="card vacio-card">
         <i class="fa-solid fa-circle-check" aria-hidden="true" />
         <p>No hay pedidos por aprobar.</p>
@@ -182,7 +205,10 @@ function progress(o: WeeklyOrder) {
             Pedido {{ order.code }}
             <span class="estado estado--warn">{{ order.status === 'bar' ? 'El bar aún no lo envía' : 'Por aprobar' }}</span>
           </h2>
-          <p>Sube, baja o borra lo que quieras y toca <b>APROBAR PEDIDO</b>. Pasa directo a Tierra.</p>
+          <p>
+            Sube, baja o borra lo que quieras y toca <b>APROBAR PEDIDO</b> hasta las {{ order.approveDeadline ? formatTime(order.approveDeadline) : '18h00' }}:
+            si no, se aprueba solo con la propuesta. Pasa directo a compras.
+          </p>
         </header>
 
         <section class="lines" aria-label="Productos del pedido">
@@ -268,6 +294,18 @@ function progress(o: WeeklyOrder) {
 </template>
 
 <style scoped lang="scss">
+.confirm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-color: var(--pill-warn-bg);
+
+  p,
+  ul {
+    margin: 0;
+  }
+}
+
 .director {
   display: flex;
   flex-direction: column;

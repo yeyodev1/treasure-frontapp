@@ -578,10 +578,11 @@ export async function apiArriveWeeklyOrder(
   key: string,
   items: Array<{ productId: string; source: DeliverySource; received: number }>,
   note = '',
+  different = false,
 ) {
   const { data } = await http.post<{ order: WeeklyOrder }>(
     `/weekly-orders/${id}/deliveries/${encodeURIComponent(key)}/arrive`,
-    { items, note },
+    { items, note, different },
   )
   return data.order
 }
@@ -1324,4 +1325,44 @@ export async function apiSignBarReceipt() {
 export async function apiAuthorizers() {
   const { data } = await http.get<{ users: Array<{ _id: string; name: string; role: string }> }>('/users/authorizers')
   return data.users
+}
+
+/** Compra del jueves: por producto lo comprado, «no conseguido» o «reemplazado por…», sin costos. */
+export async function apiPurchaseWeeklyOrder(
+  id: string,
+  key: string,
+  items: Array<{ productId: string; qty: number; status: 'comprado' | 'no_conseguido' | 'reemplazado'; replacement?: string }>,
+) {
+  const { data } = await http.post<{ order: WeeklyOrder }>(`/weekly-orders/${id}/purchase`, { key, items })
+  return data.order
+}
+
+export async function apiDirectorConfirmArrival(id: string, key: string) {
+  const { data } = await http.post<{ order: WeeklyOrder }>(`/weekly-orders/${id}/deliveries/${key}/director-confirm`)
+  return data.order
+}
+
+export async function apiDecideOutlier(id: string) {
+  const { data } = await http.post<{ order: WeeklyOrder }>(`/weekly-orders/${id}/outlier-decision`, { accepted: true })
+  return data.order
+}
+
+export async function apiDecideDifference(id: string, key: string, action: 'aceptada' | 'explicacion', note = '') {
+  const { data } = await http.post<{ order: WeeklyOrder }>(`/weekly-orders/${id}/deliveries/${key}/difference-decision`, { action, note })
+  return data.order
+}
+
+export interface BarStockSettings {
+  purchaseResponsible: { id: string; name: string; role: string; until: string | null; isDefault: boolean } | null
+  candidates: Array<{ id: string; name: string; role: string }>
+}
+
+export async function apiBarStockSettings() {
+  const { data } = await http.get<BarStockSettings>('/bar-stock/settings')
+  return data
+}
+
+export async function apiSaveBarStockSettings(userId: string | null, until: string | null) {
+  const { data } = await http.put<Pick<BarStockSettings, 'purchaseResponsible'>>('/bar-stock/settings', { userId, until })
+  return data
 }

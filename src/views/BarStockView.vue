@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onMounted, shallowRef } from 'vue'
-import { apiCurrentClosingCount } from '@/services/api'
+import { apiBarStockSettings, apiCurrentClosingCount } from '@/services/api'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 
@@ -21,6 +21,7 @@ const VIEWS = {
   conteo: { label: 'Conteo', icon: 'fa-clipboard-list', component: defineAsyncComponent(() => import('@/components/barstock/ClosingCount.vue')) },
   bar: { label: 'Pedido', icon: 'fa-list-check', component: defineAsyncComponent(() => import('@/components/barstock/StockBar.vue')) },
   pedidos: { label: 'Pedidos', icon: 'fa-stamp', component: defineAsyncComponent(() => import('@/components/barstock/StockDirector.vue')) },
+  compras: { label: 'Compras', icon: 'fa-cart-shopping', component: defineAsyncComponent(() => import('@/components/barstock/StockPurchase.vue')) },
   entregas: { label: 'Entregas', icon: 'fa-truck-fast', component: defineAsyncComponent(() => import('@/components/barstock/StockLand.vue')) },
   control: { label: 'Control', icon: 'fa-scale-unbalanced', component: defineAsyncComponent(() => import('@/components/barstock/StockControl.vue')) },
   auditoria: { label: 'Auditoría', icon: 'fa-clipboard-check', component: defineAsyncComponent(() => import('@/components/barstock/StockAudit.vue')) },
@@ -33,25 +34,31 @@ type ViewKey = keyof typeof VIEWS
  * entran directo a contar, y el bartender no ve el stock mientras cuenta a ciegas.
  */
 const countOpen = shallowRef<string>('')
+/** Esta semana compra esta persona (Bar-stock: por defecto Administración; lo asigna Gerencia). */
+const buyer = shallowRef('')
 onMounted(async () => {
-  try {
-    countOpen.value = (await apiCurrentClosingCount()).count?.status ?? ''
-  } catch {
-    countOpen.value = ''
-  }
+  const [count, settings] = await Promise.allSettled([apiCurrentClosingCount(), apiBarStockSettings()])
+  countOpen.value = count.status === 'fulfilled' ? (count.value.count?.status ?? '') : ''
+  buyer.value = settings.status === 'fulfilled' ? (settings.value.purchaseResponsible?.id ?? '') : ''
 })
+const buys = computed(() => Boolean(buyer.value) && buyer.value === userStore.user?.id)
 
 const tabs = computed<ViewKey[]>(() => {
   switch (userStore.role) {
-    case 'bartender':
-      return countOpen.value === 'borrador' ? ['conteo', 'bar'] : countOpen.value ? ['conteo', 'bar', 'consulta'] : ['bar', 'conteo', 'consulta']
-    case 'direccion':
-      return countOpen.value === 'enviado' ? ['conteo', 'pedidos', 'control', 'consulta'] : ['pedidos', 'conteo', 'control', 'consulta']
+    case 'bartender': {
+      const base: ViewKey[] = countOpen.value === 'borrador' ? ['conteo', 'bar'] : countOpen.value ? ['conteo', 'bar', 'consulta'] : ['bar', 'conteo', 'consulta']
+      return buys.value ? [...base, 'compras'] : base
+    }
+    case 'direccion': {
+      const base: ViewKey[] = countOpen.value === 'enviado' ? ['conteo', 'pedidos', 'control', 'consulta'] : ['pedidos', 'conteo', 'control', 'consulta']
+      return buys.value ? [...base, 'compras'] : base
+    }
+    // Administración: solo Compras (cuando es la responsable) y su control cada 2 semanas (Bar-stock, 24-nov-2026).
     case 'admin':
     case 'bodega':
-      return ['entregas', 'auditoria']
+      return ['compras']
     case 'duena':
-      return countOpen.value === 'gerencia' ? ['conteo', 'consulta', 'pedidos', 'entregas'] : ['consulta', 'conteo', 'pedidos', 'entregas']
+      return countOpen.value === 'gerencia' ? ['conteo', 'consulta', 'pedidos', 'compras'] : ['consulta', 'conteo', 'pedidos', 'compras']
     default:
       return []
   }
@@ -69,8 +76,8 @@ function go(key: ViewKey) {
 const LEAD: Partial<Record<string, string>> = {
   bartender: 'Cuenta lo que tienes, pide lo que falta y recibe lo que llega.',
   direccion: 'Revisa lo que pidió el bar y apruébalo. Pasa directo a Tierra.',
-  admin: 'Envía lo que aprobó la directora. El barco lo suma cuando el bar lo recibe.',
-  bodega: 'Envía lo que aprobó la directora. El barco lo suma cuando el bar lo recibe.',
+  admin: 'Compras semanales: registra lo comprado y envíalo al barco.',
+  bodega: 'Compras semanales: registra lo comprado y envíalo al barco.',
   duena: 'Cuánto hay a bordo, lo que se agota y cómo van los pedidos.',
 }
 </script>
