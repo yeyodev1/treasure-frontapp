@@ -36,3 +36,34 @@ export function replaceOrder(list: WeeklyOrder[], next: WeeklyOrder): WeeklyOrde
 export function dayText(iso: string): string {
   return new Date(iso).toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'long', timeZone: TIMEZONE })
 }
+
+/**
+ * Categorías del pedido y la compra, en el orden del bar (Bar-stock, 24-nov-2026):
+ * licores, vinos, cervezas, gaseosas, insumos y frescos.
+ */
+export const ORDER_GROUPS = [
+  { key: 'licor', label: 'Licores' },
+  { key: 'vino', label: 'Vinos' },
+  { key: 'cerveza', label: 'Cervezas' },
+  { key: 'gaseosa', label: 'Gaseosas y agua' },
+  { key: 'insumo', label: 'Insumos' },
+  { key: 'fresco', label: 'Frescos' },
+] as const
+export type OrderGroup = (typeof ORDER_GROUPS)[number]['key']
+
+const FRESH_UNITS = new Set(['ramita', 'rodaja', 'cucharadita', 'cucharada', 'gota', 'golpe', 'porción'])
+export function orderGroupOf(category: string | undefined, stockUnit: string, name: string): OrderGroup {
+  if (FRESH_UNITS.has(stockUnit) || /clara de huevo|\(fruta\)/i.test(name)) return 'fresco'
+  const cat = category ?? 'insumo'
+  if (cat === 'licor' || (/\(botella\)/i.test(name) && cat === 'insumo')) return 'licor'
+  if (cat === 'agua' || /^soda\b/i.test(name)) return 'gaseosa'
+  return cat === 'vino' || cat === 'cerveza' || cat === 'gaseosa' ? cat : 'insumo'
+}
+
+/** Agrupa por categoría; dentro, el orden de la repisa (countOrder) y luego el nombre. */
+export function groupByCategory<T extends { name: string; group: OrderGroup; shelf?: number }>(items: T[]) {
+  return ORDER_GROUPS.map((g) => ({
+    ...g,
+    items: items.filter((i) => i.group === g.key).sort((a, b) => (a.shelf ?? 9999) - (b.shelf ?? 9999) || a.name.localeCompare(b.name, 'es')),
+  })).filter((g) => g.items.length)
+}

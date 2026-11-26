@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, shallowRef } from 'vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import QtyStepper from '@/components/supply/QtyStepper.vue'
-import { loadOpenOrders } from '@/components/barstock/orders'
+import { groupByCategory, loadOpenOrders, orderGroupOf } from '@/components/barstock/orders'
 import { apiBarStockSettings, apiPurchaseWeeklyOrder, type BarStockSettings } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { useCatalogStore } from '@/stores/catalog'
@@ -44,24 +44,13 @@ const order = computed(() => orders.value.find((o) => o.status === 'aprobado' &&
 const lines = computed(() => (order.value?.lines ?? []).filter((l) => l.pending > 0))
 const isResponsible = computed(() => userStore.isOwner || settings.value?.purchaseResponsible?.id === userStore.user?.id)
 
-const FRESH_UNITS = new Set(['ramita', 'rodaja', 'cucharadita', 'cucharada', 'gota', 'golpe', 'porción'])
-const GROUPS = [
-  { key: 'licor', label: 'Licores' },
-  { key: 'vino', label: 'Vinos' },
-  { key: 'cerveza', label: 'Cervezas' },
-  { key: 'gaseosa', label: 'Gaseosas y agua' },
-  { key: 'insumo', label: 'Insumos' },
-  { key: 'fresco', label: 'Frescos' },
-] as const
-function groupOf(productId: string, stockUnit: string, name: string) {
-  if (FRESH_UNITS.has(stockUnit) || /clara de huevo|\(fruta\)/i.test(name)) return 'fresco'
-  const cat = catalog.physical.find((p) => p._id === productId)?.category ?? 'insumo'
-  if (cat === 'licor' || /\(botella\)/i.test(name) && cat === 'insumo') return 'licor'
-  if (cat === 'agua') return 'gaseosa'
-  return (['vino', 'cerveza', 'gaseosa'] as const).includes(cat as 'vino') ? cat : 'insumo'
-}
 const grouped = computed(() =>
-  GROUPS.map((g) => ({ ...g, items: lines.value.filter((l) => groupOf(l.product, l.stockUnit, l.name) === g.key) })).filter((g) => g.items.length),
+  groupByCategory(
+    lines.value.map((l) => {
+      const p = catalog.physical.find((x) => x._id === l.product)
+      return { ...l, group: orderGroupOf(p?.category, l.stockUnit, l.name), shelf: p?.countOrder }
+    }),
+  ),
 )
 
 async function load() {

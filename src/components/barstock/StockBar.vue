@@ -4,7 +4,7 @@ import SkeletonList from '@/components/ui/SkeletonList.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import QtyStepper from '@/components/supply/QtyStepper.vue'
 import StockReceive from '@/components/barstock/StockReceive.vue'
-import { awaitingBar, dayText, loadOpenOrders, replaceOrder } from '@/components/barstock/orders'
+import { awaitingBar, dayText, groupByCategory, loadOpenOrders, orderGroupOf, replaceOrder } from '@/components/barstock/orders'
 import { useCatalogStore } from '@/stores/catalog'
 import { useConfirmStore } from '@/stores/confirm'
 import { useToastStore } from '@/stores/toast'
@@ -99,17 +99,19 @@ async function load() {
 }
 onMounted(load)
 
-/** Productos del pedido: los propuestos y los agregados, por nombre. */
+/** Productos del pedido: los propuestos y los agregados. */
 const rows = computed(() => {
   const ids = [...new Set([...(order.value?.lines.map((l) => l.product) ?? []), ...added.value])]
-  return ids
-    .map((id) => {
-      const l = lineOf(id)
-      const p = catalog.physical.find((x) => x._id === id)
-      return { id, name: l?.name ?? p?.name ?? '', label: l?.containerLabel ?? p?.containerLabel ?? 'unidad', line: l }
-    })
-    .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+  return ids.map((id) => {
+    const l = lineOf(id)
+    const p = catalog.physical.find((x) => x._id === id)
+    const name = l?.name ?? p?.name ?? ''
+    return { id, name, label: l?.containerLabel ?? p?.containerLabel ?? 'unidad', line: l, group: orderGroupOf(p?.category, l?.stockUnit ?? p?.stockUnit ?? '', name), shelf: p?.countOrder }
+  })
 })
+/** Por categoría, en el orden del bar (licores, vinos, cervezas, gaseosas, insumos, frescos). */
+const grouped = computed(() => groupByCategory(rows.value))
+const weekText = computed(() => (order.value ? new Date(`${order.value.week}T12:00:00-06:00`).toLocaleDateString('es-EC', { day: 'numeric', month: 'short', timeZone: 'Pacific/Galapagos' }).replace('.', '') : ''))
 const addOptions = computed(() =>
   catalog.physical
     .filter((p) => !rows.value.some((r) => r.id === p._id))
@@ -198,6 +200,7 @@ const fmt = (n: number | null | undefined) => (n === null || n === undefined ? '
 
       <template v-else>
         <header class="intro">
+          <small class="eyebrow">Pedido · semana {{ weekText }}</small>
           <h2>Ajustar pedido · {{ order.code }}</h2>
           <p>
             La app propuso con el consumo por pasajero de los últimos 4 cruceros. Ajusta <b>PEDIR</b> hasta las
@@ -207,22 +210,27 @@ const fmt = (n: number | null | undefined) => (n === null || n === undefined ? '
 
         <p v-if="!rows.length" class="card muted">Sin cruceros la semana siguiente (para o dique): la propuesta es 0. Agrega lo que haga falta.</p>
 
+        <section v-for="g in grouped" :key="g.key" class="group" :aria-label="g.label">
+          <h3>{{ g.label }} <small>{{ g.items.length }}</small></h3>
         <ul class="lines">
-          <li v-for="r in rows" :key="r.id" class="line" :class="{ 'line--ask': entry(r.id).qty > 0 }">
-            <div class="line-head">
+          <li v-for="r in g.items" :key="r.id" class="line" :class="{ 'line--ask': entry(r.id).qty > 0 }">
+            <p class="line-head">
               <strong>{{ r.name }}</strong>
-              <small v-if="r.line?.fridayStock !== null && r.line?.fridayStock !== undefined">stock vie {{ fmt(r.line.fridayStock) }}</small>
-              <small v-else-if="r.line">fresco</small>
-              <small v-else>agregado</small>
+              <small v-if="r.line?.fridayStock !== null && r.line?.fridayStock !== undefined"> · stock vie {{ fmt(r.line.fridayStock) }}</small>
+              <small v-else-if="r.group === 'fresco'"> (fresco)</small>
+              <small v-else-if="!r.line"> · agregado</small>
+            </p>
+            <div class="line-ask">
+              <span>Pedir</span>
+              <QtyStepper
+                :model-value="entry(r.id).qty"
+                :min="0"
+                allow-zero
+                :unit="unitOf(r.label, entry(r.id).qty)"
+                :label="`Pedir de ${r.name}`"
+                @update:model-value="setQty(r.id, $event)"
+              />
             </div>
-            <QtyStepper
-              :model-value="entry(r.id).qty"
-              :min="0"
-              allow-zero
-              :unit="unitOf(r.label, entry(r.id).qty)"
-              :label="`Pedir de ${r.name}`"
-              @update:model-value="setQty(r.id, $event)"
-            />
             <small class="muted">Propuesto {{ r.line?.suggested ?? 0 }}</small>
             <div v-if="needsReason(r.id)" class="reason">
               <label :for="`reason-${r.id}`">Motivo (cambia más de {{ OUTLIER_PCT }} %)</label>
@@ -237,6 +245,7 @@ const fmt = (n: number | null | undefined) => (n === null || n === undefined ? '
             </div>
           </li>
         </ul>
+        </section>
 
         <div class="add">
           <BaseSelect :model-value="toAdd" :options="addOptions" searchable placeholder="Agregar un producto…" @update:model-value="addProduct" />
@@ -330,15 +339,38 @@ const fmt = (n: number | null | undefined) => (n === null || n === undefined ? '
   }
 }
 
+.eyebrow {
+  display: block;
+  margin-bottom: 0.15rem;
+  color: var(--ink-600);
+}
+
+.group h3 {
+  margin: 0.4rem 0 0.5rem;
+  font-size: 1.05rem;
+  color: var(--navy-900);
+
+  small {
+    font-weight: 500;
+    color: var(--ink-600);
+  }
+}
+
 .line-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.3rem 0.6rem;
+  margin: 0;
 
   small {
     color: var(--ink-600);
   }
+}
+
+.line-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  max-width: 420px;
 }
 
 .reason {

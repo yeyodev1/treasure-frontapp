@@ -153,6 +153,8 @@ const buyerOptions = computed(() => [
   ...(settings.value?.candidates ?? []).map((c) => ({ value: c.id, label: `${c.name} · ${c.role === 'admin' ? 'Administración' : c.role === 'bartender' ? 'bartender' : 'directora'}` })),
 ])
 
+const TAB_LABEL: Record<Tab, string> = { curso: 'Crucero en curso', cerrados: 'Cruceros cerrados', mes: 'Mes', ano: 'Año' }
+const endDay = computed(() => (current.value?.cruise ? fmt(current.value.cruise.end, { weekday: 'long' }) : 'cierre'))
 const progress = computed(() => (current.value?.cruise ? (current.value.cruise.dayX / current.value.cruise.totalDays) * 100 : 0))
 const MOTIVE: Record<string, string> = { rotura: 'Rotura no reg.', cortesia: 'Cortesía no reg.', consumo: 'Consumo no reg.', faltante: 'Faltante' }
 const barMax = (rows: Array<{ value: number }>) => Math.max(1, ...rows.map((r) => r.value))
@@ -160,16 +162,14 @@ const barMax = (rows: Array<{ value: number }>) => Math.max(1, ...rows.map((r) =
 
 <template>
   <section class="control">
+    <h2 class="control-title">Control del bar · {{ TAB_LABEL[tab] }}</h2>
     <header class="control-head">
       <nav class="segs" aria-label="Control del bar">
         <button v-for="t in (['curso', 'cerrados', 'mes', 'ano'] as const)" :key="t" type="button" class="segs-item" :class="{ 'segs-item--on': tab === t }" :aria-current="tab === t ? 'page' : undefined" @click="tab = t">
-          {{ t === 'curso' ? 'Crucero en curso' : t === 'cerrados' ? 'Cruceros cerrados' : t === 'mes' ? 'Mes' : 'Año' }}
+          {{ TAB_LABEL[t] }}
         </button>
       </nav>
-      <div class="head-actions">
-        <button type="button" class="btn btn-secondary" @click="openSettings"><i class="fa-solid fa-user-tag" aria-hidden="true" /> Responsable de compras</button>
-        <button type="button" class="btn btn-secondary" @click="goalsOpen = true"><i class="fa-solid fa-gear" aria-hidden="true" /> Configuración</button>
-      </div>
+      <button type="button" class="btn btn-secondary" @click="openSettings"><i class="fa-solid fa-gear" aria-hidden="true" /> Configuración</button>
     </header>
 
     <SkeletonBlock v-if="loading" height="420px" />
@@ -204,7 +204,7 @@ const barMax = (rows: Array<{ value: number }>) => Math.max(1, ...rows.map((r) =
           <div>
             <dt>Por pasajero y día</dt>
             <dd>{{ current.figures.perPaxDay === null ? '—' : money(current.figures.perPaxDay) }}</dd>
-            <small v-if="current.figures.avgPerPaxDay !== null" class="tone tone--gris">promedio {{ money(current.figures.avgPerPaxDay) }}</small>
+            <small v-if="current.figures.avgPerPaxDay !== null" class="tone" :class="(current.figures.perPaxDay ?? 0) >= current.figures.avgPerPaxDay ? 'tone--verde' : 'tone--amarillo'">promedio {{ money(current.figures.avgPerPaxDay) }}</small>
           </div>
           <div>
             <dt>Cortesías, roturas, salidas</dt>
@@ -251,7 +251,7 @@ const barMax = (rows: Array<{ value: number }>) => Math.max(1, ...rows.map((r) =
           <div v-else class="table">
             <table>
               <thead>
-                <tr><th scope="col">Producto</th><th scope="col" class="num">Hay ahora</th><th scope="col" class="num">Se consume hasta el cierre</th><th scope="col">Próxima recepción</th><th scope="col"><span class="sr-only">Estado</span></th></tr>
+                <tr><th scope="col">Producto</th><th scope="col" class="num">Hay ahora</th><th scope="col" class="num">Se consume hasta el {{ endDay }}</th><th scope="col">Próxima recepción</th><th scope="col"><span class="sr-only">Estado</span></th></tr>
               </thead>
               <tbody>
                 <tr v-for="r in current.short" :key="r.product">
@@ -275,8 +275,15 @@ const barMax = (rows: Array<{ value: number }>) => Math.max(1, ...rows.map((r) =
               <div><dt>Efectivo</dt><dd>{{ money(current.payments.efectivo) }}</dd></div>
               <div><dt>Transferencia</dt><dd>{{ money(current.payments.transferencia) }}</dd></div>
               <div class="total"><dt>Total {{ current.cruise.code }}</dt><dd>{{ money(current.payments.total) }}</dd></div>
+              <div>
+                <dt>Facturas</dt>
+                <dd>
+                  <span class="tone" :class="current.payments.badEmails ? 'tone--amarillo' : 'tone--verde'">
+                    {{ current.payments.badEmails ? `${current.payments.badEmails} sin enviar por correo · ya facturadas` : 'todas enviadas' }}
+                  </span>
+                </dd>
+              </div>
             </dl>
-            <p v-if="current.payments.badEmails" class="tone tone--amarillo">{{ current.payments.badEmails }} sin enviar por correo · ya facturadas</p>
             <p class="muted small">El efectivo se cuenta por crucero: el de este no se mezcla con el del anterior.</p>
           </section>
           <section v-if="current.top" class="card">
@@ -432,8 +439,10 @@ const barMax = (rows: Array<{ value: number }>) => Math.max(1, ...rows.map((r) =
     </template>
 
     <GoalsModal v-if="goalsOpen" @close="goalsOpen = false" @saved="goalsOpen = false" />
-    <BaseModal v-if="settingsOpen" title="Responsable de compras" subtitle="A esta persona le llega el pedido aprobado para comprar el jueves." @close="settingsOpen = false">
+    <BaseModal v-if="settingsOpen" title="Configuración" subtitle="Responsable de compras, metas y límites del bar." @close="settingsOpen = false">
       <div class="settings">
+        <h3 class="settings-sub">Responsable de compras</h3>
+        <p class="muted">A esta persona le llega el pedido aprobado para comprar el jueves.</p>
         <p class="muted">Hoy: <strong>{{ settings?.purchaseResponsible?.name ?? '—' }}</strong><template v-if="settings?.purchaseResponsible?.until"> hasta el {{ settings.purchaseResponsible.until.slice(0, 10) }}</template>.</p>
         <div class="field">
           <label>Quién compra</label>
@@ -443,6 +452,8 @@ const barMax = (rows: Array<{ value: number }>) => Math.max(1, ...rows.map((r) =
           <label for="buyer-until">Hasta (vacío = fijo)</label>
           <input id="buyer-until" v-model="buyerUntil" type="date" />
         </div>
+        <h3 class="settings-sub">Metas y límites</h3>
+        <button type="button" class="btn btn-secondary" @click="settingsOpen = false; goalsOpen = true"><i class="fa-solid fa-sliders" aria-hidden="true" /> Abrir metas y límites (con «Rige desde»)</button>
       </div>
       <template #footer>
         <button type="button" class="btn btn-secondary" @click="settingsOpen = false">Cancelar</button>
@@ -467,10 +478,16 @@ const barMax = (rows: Array<{ value: number }>) => Math.max(1, ...rows.map((r) =
   gap: 0.75rem;
 }
 
-.head-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+.control-title {
+  margin: 0;
+  font-size: 1.3rem;
+  color: var(--navy-900);
+}
+
+.settings-sub {
+  margin: 0.4rem 0 0;
+  font-size: 1rem;
+  color: var(--navy-900);
 }
 
 .card h3 {

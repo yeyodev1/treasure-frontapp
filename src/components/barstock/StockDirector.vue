@@ -4,7 +4,7 @@ import ProductIcon from '@/components/ui/ProductIcon.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import QtyStepper from '@/components/supply/QtyStepper.vue'
 import ProductPicker from '@/components/supply/ProductPicker.vue'
-import { awaitingDirector, loadOpenOrders, replaceOrder } from '@/components/barstock/orders'
+import { awaitingDirector, groupByCategory, loadOpenOrders, orderGroupOf, replaceOrder } from '@/components/barstock/orders'
 import { useCatalogStore } from '@/stores/catalog'
 import { useConfirmStore } from '@/stores/confirm'
 import { useToastStore } from '@/stores/toast'
@@ -70,11 +70,15 @@ async function load() {
 }
 onMounted(load)
 
-/** Primero lo que se pide; lo que quedó en cero va al final. */
-const lines = computed(() =>
-  (order.value?.lines ?? [])
-    .filter((l) => l.product in qty.value)
-    .sort((a, b) => Number((qty.value[b.product] ?? 0) > 0) - Number((qty.value[a.product] ?? 0) > 0) || a.name.localeCompare(b.name, 'es')),
+const lines = computed(() => (order.value?.lines ?? []).filter((l) => l.product in qty.value))
+/** Por categoría, en el orden del bar (licores, vinos, cervezas, gaseosas, insumos, frescos). */
+const grouped = computed(() =>
+  groupByCategory(
+    lines.value.map((l) => {
+      const p = catalog.physical.find((x) => x._id === l.product)
+      return { ...l, group: orderGroupOf(p?.category, l.stockUnit, l.name), shelf: p?.countOrder }
+    }),
+  ),
 )
 const addedProducts = computed(() =>
   Object.keys(qty.value)
@@ -212,7 +216,9 @@ function progress(o: WeeklyOrder) {
         </header>
 
         <section class="lines" aria-label="Productos del pedido">
-          <article v-for="l in lines" :key="l.product" class="row" :class="{ 'row--zero': (qty[l.product] ?? 0) === 0 }">
+          <template v-for="g in grouped" :key="g.key">
+          <h3 class="group-title">{{ g.label }}</h3>
+          <article v-for="l in g.items" :key="l.product" class="row" :class="{ 'row--zero': (qty[l.product] ?? 0) === 0 }">
             <div class="row-name">
               <ProductIcon :icon="iconOf(l.product)" :size="22" />
               <span>
@@ -232,6 +238,8 @@ function progress(o: WeeklyOrder) {
               <i class="fa-solid fa-trash" aria-hidden="true" />
             </button>
           </article>
+          </template>
+          <h3 v-if="addedProducts.length" class="group-title">Agregados por ti</h3>
           <article v-for="p in addedProducts" :key="p._id" class="row">
             <div class="row-name">
               <ProductIcon :icon="p.icon || 'bottle'" :size="22" />
@@ -294,6 +302,12 @@ function progress(o: WeeklyOrder) {
 </template>
 
 <style scoped lang="scss">
+.group-title {
+  margin: 0.6rem 0 0.1rem;
+  font-size: 1rem;
+  color: var(--navy-900);
+}
+
 .confirm-card {
   display: flex;
   flex-direction: column;
