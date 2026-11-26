@@ -72,7 +72,7 @@ const STATE = (p: Product) =>
         : { label: 'Bien', cls: 'estado--ok' }
 /** Frescos (menta, limón, azúcar…): se piden pero no llevan stock. */
 const FRESH_UNITS = new Set(['ramita', 'rodaja', 'cucharadita', 'cucharada', 'gota', 'golpe', 'porción'])
-const stocked = computed(() => catalog.physical.filter((p) => !p.fresh && !FRESH_UNITS.has(p.stockUnit)))
+const stocked = computed(() => catalog.physical.filter((p) => !p.fresh && !FRESH_UNITS.has(p.stockUnit) && !/clara de huevo|\(fruta\)/i.test(p.name)))
 
 const products = computed(() => {
   const q = normalize(search.value.trim())

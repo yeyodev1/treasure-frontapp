@@ -23,7 +23,7 @@ const { play } = useSound()
 const FRESH_UNITS = new Set(['ramita', 'rodaja', 'cucharadita', 'cucharada', 'gota', 'golpe', 'porción'])
 const options = computed(() =>
   props.products
-    .filter((p) => !p.fresh && !FRESH_UNITS.has(p.stockUnit))
+    .filter((p) => !p.fresh && !FRESH_UNITS.has(p.stockUnit) && !/clara de huevo|\(fruta\)/i.test(p.name))
     .map((p) => ({ value: p._id, label: p.name }))
     .sort((a, b) => a.label.localeCompare(b.label, 'es')),
 )
