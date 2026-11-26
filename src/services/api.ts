@@ -1187,3 +1187,141 @@ export async function apiCommissionReceipt(id: string) {
   const { data } = await http.get<Blob>(`/commissions/payments/${id}/receipt`, { responseType: 'blob' })
   return data
 }
+
+// ── Bar-stock (especificación del 24-nov-2026) ─────────────────────────────
+export async function apiUploadPhoto(file: File, folder = 'roturas') {
+  const body = new FormData()
+  body.append('file', file)
+  body.append('folder', folder)
+  const { data } = await http.post<{ url: string }>('/uploads', body, { timeout: 90000 })
+  return data.url
+}
+
+export interface BarMovement {
+  id: string
+  at: string
+  kind: 'rotura' | 'salida' | 'devolucion_tierra' | 'cortesia'
+  exitKind: string
+  product: string
+  qty: number
+  unit: string
+  by: string
+  authorizedBy: string
+  note: string
+  photo: string
+  value: number
+}
+
+export async function apiCreateBarMovement(payload: {
+  type: 'rotura' | 'salida' | 'devolucion_tierra'
+  productId: string
+  qty: number
+  photo?: string
+  note?: string
+  exitKind?: 'cocina' | 'tripulacion' | 'brindis'
+  authorizedById?: string
+  key: string
+}) {
+  await http.post('/bar-stock/movements', payload)
+}
+
+export async function apiBarMovements(cruiseId?: string) {
+  const { data } = await http.get<{ cruise: { id: string; code: string } | null; items: BarMovement[]; total: number }>(
+    '/bar-stock/movements',
+    { params: { cruiseId } },
+  )
+  return data
+}
+
+export type CountGroup = 'licores' | 'vinos' | 'cervezas' | 'gaseosas' | 'insumos'
+
+export interface ClosingLine {
+  product: string
+  name: string
+  group: CountGroup
+  containerLabel: string
+  containerSize: number
+  caseSize: number
+  countsOpen: boolean
+  /** Lo que contó el bartender (envases); undefined = no lo ve quien mira (a ciegas). */
+  physical?: number | null
+  recount: number | null
+  expected?: number
+  result: '' | 'ok' | 'tolerancia' | 'corregido' | 'merma'
+  motive: '' | 'rotura' | 'cortesia' | 'consumo' | 'faltante'
+  value: number
+  fullBottle: boolean
+}
+
+export interface ClosingCount {
+  id: string
+  code: string
+  kind: 'cierre' | 'inicial' | 'admin'
+  status: 'borrador' | 'enviado' | 'gerencia' | 'aprobado' | 'rechazado'
+  cruise: string
+  cutAt: string
+  groups: Record<CountGroup, string>
+  lines: ClosingLine[]
+  pending: number
+  toRecount: number
+  wasteTotal: number
+  toManagement: string[]
+  submittedByName: string
+  submittedAt: string | null
+  verifiedByName: string
+  verifiedAt: string | null
+  decision: { approved: boolean; comment: string; byName: string; at: string } | null
+}
+
+export async function apiCurrentClosingCount() {
+  const { data } = await http.get<{ count: ClosingCount | null; last: { id: string; code: string; verifiedAt: string; verifiedByName: string; wasteTotal: number } | null }>(
+    '/bar-stock/counts/current',
+  )
+  return data
+}
+
+export async function apiStartInitialCount() {
+  const { data } = await http.post<{ count: ClosingCount }>('/bar-stock/counts/initial')
+  return data.count
+}
+
+export async function apiSaveClosingLines(id: string, lines: Array<{ productId: string; physical: number | null }>) {
+  const { data } = await http.put<{ count: ClosingCount }>(`/bar-stock/counts/${id}/lines`, { lines })
+  return data.count
+}
+
+export async function apiSendClosingCount(id: string) {
+  const { data } = await http.post<{ count: ClosingCount }>(`/bar-stock/counts/${id}/send`)
+  return data.count
+}
+
+export async function apiRecountLines(id: string, lines: Array<{ productId: string; recount?: number | null; motive?: string }>) {
+  const { data } = await http.put<{ count: ClosingCount }>(`/bar-stock/counts/${id}/recount`, { lines })
+  return data.count
+}
+
+export async function apiCloseClosingCount(id: string) {
+  const { data } = await http.post<{ count: ClosingCount }>(`/bar-stock/counts/${id}/close`)
+  return data.count
+}
+
+export async function apiDecideClosingCount(id: string, approved: boolean, comment: string) {
+  const { data } = await http.post<{ count: ClosingCount }>(`/bar-stock/counts/${id}/decide`, { approved, comment })
+  return data.count
+}
+
+export async function apiStartAuthorization(cruiseId: string, action: 'pedir' | 'autorizar' | 'negar', reason = '') {
+  const { data } = await http.post<{ cruise: Cruise }>(`/cruises/${cruiseId}/start-authorization`, { action, reason })
+  return data.cruise
+}
+
+export async function apiSignBarReceipt() {
+  const { data } = await http.post<{ cruise: Cruise }>('/bar-stock/receipt')
+  return data.cruise
+}
+
+/** Directoras y Gerencia: quién autoriza una salida del bar. */
+export async function apiAuthorizers() {
+  const { data } = await http.get<{ users: Array<{ _id: string; name: string; role: string }> }>('/users/authorizers')
+  return data.users
+}

@@ -7,7 +7,6 @@ import { apiErrorMessage } from '@/services/httpBase'
 import { useToastStore } from '@/stores/toast'
 import { useSound } from '@/composables/useSound'
 import { formatDateTime, formatMoney } from '@/utils/format'
-import { useUserStore } from '@/stores/user'
 import type { Cruise, FinishCheck } from '@/types'
 
 /**
@@ -28,11 +27,8 @@ const refreshing = shallowRef(false)
 const reason = shallowRef('')
 
 const label = computed(() => (props.cruise.code ? `Crucero ${props.cruise.code}` : props.cruise.name))
-const userStore = useUserStore()
-/** Conteo del bar obligatorio (especificación del Resumen): sin él solo Gerencia finaliza, con motivo. */
-const noCount = computed(() => Boolean(check.value && !check.value.barCount))
-const blockedByCount = computed(() => noCount.value && !userStore.isOwner)
-const exceptional = computed(() => Boolean(check.value?.issues.length) || noCount.value)
+/** Bar-stock (24-nov-2026): al finalizar se abre el conteo de cierre; sin él verificado no inicia el siguiente. */
+const exceptional = computed(() => Boolean(check.value?.issues.length))
 const FINANCE_LABELS = { por_revisar: 'Por revisar', por_cobrar: 'Por cobrar', liquidada: 'Liquidada' } as const
 const ACCOUNT_LABELS: Record<string, string> = {
   abierta: 'Abierta',
@@ -126,16 +122,12 @@ async function finish() {
         </p>
       </div>
 
-      <p v-if="noCount" class="count-alert" role="alert">
+      <p class="count-alert">
         <i class="fa-solid fa-clipboard-list" aria-hidden="true" />
         <span>
-          Falta el conteo del bar de este crucero. Cuéntalo en
-          <RouterLink to="/inventario/conteos">Inventario → Conteos</RouterLink> antes de finalizar: sin conteo no se calcula la merma.
-          <template v-if="userStore.isOwner"> Gerencia puede finalizar igual, con motivo.</template>
+          Al finalizar se abre el <strong>conteo de cierre</strong> del bartender, a ciegas, en
+          <RouterLink to="/bar-stock">BAR - STOCK → Conteo</RouterLink>. El siguiente crucero no inicia hasta que ese conteo quede verificado.
         </span>
-      </p>
-      <p v-else-if="check.barCount" class="muted">
-        <i class="fa-solid fa-clipboard-check" aria-hidden="true" /> Conteo del bar {{ check.barCount.code }} · {{ formatDateTime(check.barCount.cutAt) }}
       </p>
 
       <p v-if="check.held" class="muted">
@@ -175,7 +167,7 @@ async function finish() {
 
     <template #footer>
       <button type="button" class="btn btn-secondary" @click="emit('close')">Cancelar</button>
-      <button type="button" class="btn btn-primary btn-lg" :disabled="!check || finishing || blockedByCount" @click="finish">
+      <button type="button" class="btn btn-primary btn-lg" :disabled="!check || finishing" @click="finish">
         <i class="fa-solid" :class="finishing ? 'fa-spinner fa-spin' : 'fa-anchor'" aria-hidden="true" />
         {{ finishing ? 'Finalizando…' : exceptional ? 'Finalizar operación con cierre excepcional' : 'Finalizar operación del crucero' }}
       </button>

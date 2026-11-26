@@ -120,6 +120,12 @@ export interface Product {
   priceHistory: PriceChange[]
   /** Costo por unidad base (promedio de recepciones). */
   costPerUnit?: number
+  /** Fresco: se pide pero no lleva stock ni se cuenta. */
+  fresh?: boolean
+  /** Unidades por caja para contar «cajas + sueltas»; 0 = suelto. */
+  caseSize?: number
+  /** Lugar en la repisa dentro de su categoría. */
+  countOrder?: number
   /** Producto equivalente en Contífico para facturar. */
   contificoId?: string
   contificoCode?: string
@@ -182,11 +188,17 @@ export interface Cruise {
   bartenderName?: string
   /** Agencia del crucero: a quién se le facturan sus cortesías y wetsuits. */
   agency?: { name: string; ruc: string; email: string }
+  /** Inicio sin conteo de cierre del anterior: la directora lo pide, Gerencia autoriza. */
+  startAuthorization?: { status: 'pedida' | 'autorizada' | 'negada'; requestedByName: string; byName: string; at: string; reason: string } | null
+  /** Si cambió el bartender, el que entra firmó que recibe el bar. */
+  barReceipt?: { byName: string; at: string } | null
 }
 
 export interface StartCheck {
   cruise: Cruise
   blockers: string[]
+  /** Conteo de cierre del crucero anterior (Bar-stock): pending = la directora pasó su plazo, sigue en Gerencia. */
+  gate?: { ok: boolean; blocker: string; pending: boolean; previous: { code: string } | null }
   warnings: { unavailable: string[]; low: string[] }
   occupancy: { cabins: number; occupied: number; passengers: number; empty: number[] }
 }

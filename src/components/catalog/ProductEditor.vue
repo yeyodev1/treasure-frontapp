@@ -57,6 +57,9 @@ const form = reactive({
   stockTarget: editing?.stockTarget ?? 0,
   servingSize: editing?.servingSize ?? 60,
   servingPrice: editing?.servingPrice ?? 0,
+  fresh: editing?.fresh ?? false,
+  caseSize: editing?.caseSize ?? 0,
+  countOrder: editing?.countOrder ?? 0,
   contificoId: editing?.contificoId ?? '',
   wineStyle: (editing?.wineStyle ?? '') as string,
   servingIcon: (editing?.servingIcon ?? '') as string,
@@ -156,6 +159,9 @@ async function save() {
       stockTarget: form.stockTarget,
       servingSize: form.servingSize,
       servingPrice: form.servingPrice,
+      fresh: form.fresh,
+      caseSize: form.caseSize,
+      countOrder: form.countOrder,
     })
   }
   if (form.kind === 'receta') {
@@ -252,6 +258,21 @@ async function save() {
               <input id="p-csize" v-model.number="form.containerSize" type="number" min="1" />
               <span>{{ unitShort(form.stockUnit) }}</span>
             </div>
+          </div>
+        </div>
+        <!-- Bar-stock (24-nov-2026): cómo se cuenta a bordo -->
+        <label class="check-row">
+          <input v-model="form.fresh" type="checkbox" />
+          <span><strong>Fresco: no lleva stock</strong> <small>(menta, limón, azúcar…): se pide pero no se cuenta</small></span>
+        </label>
+        <div v-if="!form.fresh" class="row">
+          <div class="field">
+            <label for="p-case">Unidades por caja <small>(0 = se cuenta suelto)</small></label>
+            <input id="p-case" v-model.number="form.caseSize" type="number" min="0" step="1" />
+          </div>
+          <div class="field">
+            <label for="p-order">Orden en la repisa <small>(dentro de su categoría)</small></label>
+            <input id="p-order" v-model.number="form.countOrder" type="number" min="0" step="1" />
           </div>
         </div>
         <div v-if="userStore.isWarehouse" class="field">
@@ -369,6 +390,7 @@ async function save() {
 </template>
 
 <style scoped lang="scss">
+
 @use '@/styles/mixins' as *;
 
 .editor {
@@ -568,5 +590,23 @@ async function save() {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 44px;
+  margin-bottom: 0.5rem;
+
+  input {
+    width: 22px;
+    height: 22px;
+    accent-color: var(--navy-700);
+  }
+
+  small {
+    color: var(--ink-600);
+  }
 }
 </style>

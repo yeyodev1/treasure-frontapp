@@ -20,6 +20,8 @@ import MixerPick from '@/components/pos/MixerPick.vue'
 import CabinAccount from '@/components/pos/CabinAccount.vue'
 import TapConfirmation, { type TapState } from '@/components/pos/TapConfirmation.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
+import BarMovementModal from '@/components/pos/BarMovementModal.vue'
+import BarMovementsList from '@/components/barstock/BarMovementsList.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
 import type { CabinConsumption, CabinSummary, CourtesyKind, Product } from '@/types'
 
@@ -61,6 +63,9 @@ const courtesyText = computed(() =>
 const showBuilder = shallowRef(false)
 const showQueue = shallowRef(false)
 const showMenu = shallowRef(false)
+/** Rotura y salida junto a Cortesía (Bar-stock, 24-nov-2026). */
+const movement = shallowRef<'rotura' | 'salida' | null>(null)
+const showMovements = shallowRef(false)
 const correcting = shallowRef('')
 /**
  * Último registro de la tableta: lo que muestra la barra inferior. Toques
@@ -607,6 +612,14 @@ function onEmptyCabin(number: number) {
         <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true" />
         {{ queue.pending.value }} sin confirmar
       </button>
+      <template v-if="cruise?.status === 'abordo'">
+        <button type="button" class="tab tab--move" @click="movement = 'rotura'">
+          <i class="fa-solid fa-wine-glass-empty" aria-hidden="true" /> Rotura
+        </button>
+        <button type="button" class="tab tab--move" @click="movement = 'salida'">
+          <i class="fa-solid fa-right-from-bracket" aria-hidden="true" /> Salida
+        </button>
+      </template>
       <!-- Bar y Abastecimiento ya están en la navegación de la app; aquí solo los atajos del bar -->
       <button type="button" class="tab tab--menu" :aria-expanded="showMenu" @click="showMenu = true">
         <i class="fa-solid fa-ellipsis" aria-hidden="true" /> Más
@@ -759,6 +772,11 @@ function onEmptyCabin(number: number) {
           <strong>Mis solicitudes</strong>
           <small>Solicitada, aprobada, recibida.</small>
         </RouterLink>
+        <button type="button" class="menu-tile" @click="(showMenu = false), (showMovements = true)">
+          <i class="fa-solid fa-clipboard-list" aria-hidden="true" />
+          <strong>Movimientos del crucero</strong>
+          <small>Cortesías, roturas y salidas, una por una.</small>
+        </button>
         <button type="button" class="menu-tile" @click="(showMenu = false), (showBuilder = true)">
           <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true" />
           <strong>Crear cóctel</strong>
@@ -781,6 +799,11 @@ function onEmptyCabin(number: number) {
           </button>
         </div>
       </div>
+    </BaseModal>
+
+    <BarMovementModal v-if="movement" :type="movement" :products="physical" @close="movement = null" @saved="movement = null" />
+    <BaseModal v-if="showMovements" title="Movimientos del crucero" subtitle="Cortesías, roturas y salidas." @close="showMovements = false">
+      <BarMovementsList :show-value="false" />
     </BaseModal>
 
     <CocktailSwap

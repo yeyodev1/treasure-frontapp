@@ -60,17 +60,28 @@ const isLow = (p: Product) =>
   (p.lowStockThreshold > 0 && p.onboardStock <= p.lowStockThreshold) ||
   ((p.stockTarget ?? 0) > 0 && p.onboardStock / size(p) <= (p.stockTarget ?? 0) / 4)
 const isOut = (p: Product) => p.onboardStock <= 0
+/** Nunca negativo (Bar-stock, 24-nov-2026): bajo cero se muestra 0 con su alerta. */
+const isNegative = (p: Product) => p.onboardStock < -1e-9
 const STATE = (p: Product) =>
-  isOut(p) ? { label: 'Sin stock', cls: 'estado--danger' } : isLow(p) ? { label: 'Se agota', cls: 'estado--warn' } : { label: 'Bien', cls: 'estado--ok' }
+  isNegative(p)
+    ? { label: 'Falta registrar una recepción o un conteo', cls: 'estado--danger' }
+    : isOut(p)
+      ? { label: 'Sin stock', cls: 'estado--danger' }
+      : isLow(p)
+        ? { label: 'Se agota', cls: 'estado--warn' }
+        : { label: 'Bien', cls: 'estado--ok' }
+/** Frescos (menta, limón, azúcar…): se piden pero no llevan stock. */
+const FRESH_UNITS = new Set(['ramita', 'rodaja', 'cucharadita', 'cucharada', 'gota', 'golpe', 'porción'])
+const stocked = computed(() => catalog.physical.filter((p) => !p.fresh && !FRESH_UNITS.has(p.stockUnit)))
 
 const products = computed(() => {
   const q = normalize(search.value.trim())
-  return catalog.physical
+  return stocked.value
     .filter((p) => !q || normalize(p.name).includes(q))
     .filter((p) => !onlyLow.value || isLow(p) || isOut(p))
     .sort((a, b) => Number(isLow(b) || isOut(b)) - Number(isLow(a) || isOut(a)) || a.category.localeCompare(b.category) || a.name.localeCompare(b.name, 'es'))
 })
-const lowCount = computed(() => catalog.physical.filter((p) => isLow(p) || isOut(p)).length)
+const lowCount = computed(() => stocked.value.filter((p) => isLow(p) || isOut(p)).length)
 const lastCount = computed(() => counts.value[0] ?? null)
 
 /** Pedidos de las últimas semanas por estado. */
@@ -154,7 +165,7 @@ const n = (v: number) => formatNumber(v)
                   </template>
                   <span v-else class="muted">Sin contar</span>
                 </td>
-                <td>{{ n(env(p, p.onboardStock)) }} <small>{{ p.containerLabel }}</small></td>
+                <td>{{ n(Math.max(0, env(p, p.onboardStock))) }} <small>{{ p.containerLabel }}</small></td>
                 <td>
                   <span class="estado" :class="STATE(p).cls">{{ STATE(p).label }}</span>
                 </td>

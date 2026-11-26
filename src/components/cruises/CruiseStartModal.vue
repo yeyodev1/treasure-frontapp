@@ -2,7 +2,9 @@
 import { computed, onMounted, shallowRef } from 'vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
-import { apiStartCheck, apiStartCruise } from '@/services/api'
+import { apiStartAuthorization, apiStartCheck, apiStartCruise } from '@/services/api'
+import { useUserStore } from '@/stores/user'
+import { useConfirmStore } from '@/stores/confirm'
 import { apiErrorMessage } from '@/services/httpBase'
 import { useToastStore } from '@/stores/toast'
 import { useSound } from '@/composables/useSound'
@@ -23,6 +25,45 @@ const { play } = useSound()
 const check = shallowRef<StartCheck | null>(null)
 const starting = shallowRef(false)
 const showWarnings = shallowRef(false)
+
+const userStore = useUserStore()
+const confirmStore = useConfirmStore()
+/** Bloqueo por conteo de cierre del crucero anterior (Bar-stock, 24-nov-2026). */
+const countBlocked = computed(() => Boolean(check.value?.gate && !check.value.gate.ok))
+const authorization = computed(() => props.cruise.startAuthorization ?? null)
+
+async function reload() {
+  check.value = await apiStartCheck(props.cruise._id)
+}
+
+async function requestAuthorization() {
+  const reason = await confirmStore.askReason({
+    title: 'Pedir autorización a Gerencia',
+    message: 'Gerencia decide si el crucero inicia sin el conteo de cierre verificado.',
+    confirmLabel: 'Pedir autorización',
+    icon: 'fa-hand',
+    reason: { label: 'Motivo', suggestions: ['Zarpe inmediato, no alcanzó el tiempo', 'El bartender no llegó a contar'] },
+  })
+  if (!reason) return
+  try {
+    const cruise = await apiStartAuthorization(props.cruise._id, 'pedir', reason)
+    props.cruise.startAuthorization = cruise.startAuthorization
+    toast.success('Pedido a Gerencia: aparece en su «Por decidir»')
+  } catch (err) {
+    toast.error(apiErrorMessage(err))
+  }
+}
+
+async function authorize(yes: boolean) {
+  try {
+    const cruise = await apiStartAuthorization(props.cruise._id, yes ? 'autorizar' : 'negar', yes ? 'Autorizado por Gerencia' : '')
+    props.cruise.startAuthorization = cruise.startAuthorization
+    await reload()
+    toast.success(yes ? 'Inicio autorizado sin conteo: queda registrado quién' : 'Inicio no autorizado')
+  } catch (err) {
+    toast.error(apiErrorMessage(err))
+  }
+}
 
 const label = computed(() => (props.cruise.code ? `Crucero ${props.cruise.code}` : props.cruise.name))
 const warningCount = computed(() => (check.value ? check.value.warnings.unavailable.length + check.value.warnings.low.length : 0))
@@ -86,8 +127,31 @@ async function start() {
           <ul>
             <li v-for="b in check.blockers" :key="b">{{ b }}</li>
           </ul>
+          <template v-if="countBlocked">
+            <p class="box-text">
+              El siguiente crucero solo arranca con conteo. Con el conteo del bartender enviado y más de 1 h sin verificar, sí se puede
+              iniciar: lo pendiente pasa a Gerencia.
+            </p>
+            <p v-if="authorization?.status === 'pedida'" class="box-text">
+              <strong>Pedida a Gerencia</strong> por {{ authorization.requestedByName }}<template v-if="authorization.reason"> · «{{ authorization.reason }}»</template>.
+            </p>
+            <p v-else-if="authorization?.status === 'negada'" class="box-text"><strong>Gerencia no autorizó</strong> el inicio sin conteo.</p>
+            <div class="box-actions">
+              <RouterLink to="/bar-stock" class="btn btn-secondary">Ir al conteo</RouterLink>
+              <button v-if="!userStore.isOwner && authorization?.status !== 'pedida'" type="button" class="btn btn-secondary" @click="requestAuthorization">
+                Pedir autorización a Gerencia
+              </button>
+              <template v-if="userStore.isOwner">
+                <button type="button" class="btn btn-secondary" @click="authorize(false)">No autorizar</button>
+                <button type="button" class="btn btn-primary" @click="authorize(true)">Autorizar inicio sin conteo</button>
+              </template>
+            </div>
+          </template>
         </div>
       </Transition>
+      <p v-if="check.gate?.pending" class="box box--warning box-text">
+        El conteo de cierre de {{ check.gate.previous?.code }} sigue sin verificar: se puede iniciar y lo pendiente queda en Gerencia.
+      </p>
 
       <div v-if="warningCount" class="box box--warning">
         <button type="button" class="box-toggle" :aria-expanded="showWarnings" @click="showWarnings = !showWarnings">
@@ -123,6 +187,17 @@ async function start() {
 </template>
 
 <style scoped lang="scss">
+.box-text {
+  margin: 0.5rem 0 0;
+}
+
+.box-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
 .start {
   display: flex;
   flex-direction: column;

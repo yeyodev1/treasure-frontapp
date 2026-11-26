@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent } from 'vue'
+import { computed, defineAsyncComponent, onMounted, shallowRef } from 'vue'
+import { apiCurrentClosingCount } from '@/services/api'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 
@@ -17,26 +18,40 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const VIEWS = {
-  bar: { label: 'Contar y pedir', icon: 'fa-list-check', component: defineAsyncComponent(() => import('@/components/barstock/StockBar.vue')) },
+  conteo: { label: 'Conteo', icon: 'fa-clipboard-list', component: defineAsyncComponent(() => import('@/components/barstock/ClosingCount.vue')) },
+  bar: { label: 'Pedido', icon: 'fa-list-check', component: defineAsyncComponent(() => import('@/components/barstock/StockBar.vue')) },
   pedidos: { label: 'Pedidos', icon: 'fa-stamp', component: defineAsyncComponent(() => import('@/components/barstock/StockDirector.vue')) },
   entregas: { label: 'Entregas', icon: 'fa-truck-fast', component: defineAsyncComponent(() => import('@/components/barstock/StockLand.vue')) },
   control: { label: 'Control', icon: 'fa-scale-unbalanced', component: defineAsyncComponent(() => import('@/components/barstock/StockControl.vue')) },
   auditoria: { label: 'Auditoría', icon: 'fa-clipboard-check', component: defineAsyncComponent(() => import('@/components/barstock/StockAudit.vue')) },
-  consulta: { label: 'Consulta general', icon: 'fa-chart-column', component: defineAsyncComponent(() => import('@/components/barstock/StockOverview.vue')) },
+  consulta: { label: 'Stock', icon: 'fa-chart-column', component: defineAsyncComponent(() => import('@/components/barstock/StockOverview.vue')) },
 } as const
 type ViewKey = keyof typeof VIEWS
+
+/**
+ * Conteo de cierre abierto (Bar-stock, 24-nov-2026): el bar y la directora
+ * entran directo a contar, y el bartender no ve el stock mientras cuenta a ciegas.
+ */
+const countOpen = shallowRef<string>('')
+onMounted(async () => {
+  try {
+    countOpen.value = (await apiCurrentClosingCount()).count?.status ?? ''
+  } catch {
+    countOpen.value = ''
+  }
+})
 
 const tabs = computed<ViewKey[]>(() => {
   switch (userStore.role) {
     case 'bartender':
-      return ['bar']
+      return countOpen.value === 'borrador' ? ['conteo', 'bar'] : countOpen.value ? ['conteo', 'bar', 'consulta'] : ['bar', 'conteo', 'consulta']
     case 'direccion':
-      return ['pedidos', 'control']
+      return countOpen.value === 'enviado' ? ['conteo', 'pedidos', 'control', 'consulta'] : ['pedidos', 'conteo', 'control', 'consulta']
     case 'admin':
     case 'bodega':
       return ['entregas', 'auditoria']
     case 'duena':
-      return ['consulta', 'pedidos', 'entregas']
+      return countOpen.value === 'gerencia' ? ['conteo', 'consulta', 'pedidos', 'entregas'] : ['consulta', 'conteo', 'pedidos', 'entregas']
     default:
       return []
   }
