@@ -251,13 +251,13 @@ const barMax = (rows: Array<{ value: number }>) => Math.max(1, ...rows.map((r) =
           <div v-else class="table">
             <table>
               <thead>
-                <tr><th scope="col">Producto</th><th scope="col" class="num">Hay ahora</th><th scope="col" class="num">Se consume hasta el {{ endDay }}</th><th scope="col">Próxima recepción</th><th scope="col"><span class="sr-only">Estado</span></th></tr>
+                <tr><th scope="col">Producto</th><th scope="col">Hay ahora</th><th scope="col">Se consume hasta el {{ endDay }}</th><th scope="col">Próxima recepción</th><th scope="col"><span class="sr-only">Estado</span></th></tr>
               </thead>
               <tbody>
                 <tr v-for="r in current.short" :key="r.product">
                   <td>{{ r.product }}</td>
-                  <td class="num">{{ r.now }}</td>
-                  <td class="num">≈ {{ Math.ceil(r.need) }}</td>
+                  <td>{{ r.now }}</td>
+                  <td>≈ {{ Math.ceil(r.need) }}</td>
                   <td>{{ r.incoming }}</td>
                   <td><span class="tone" :class="`tone--${r.tone}`">{{ r.state }}</span></td>
                 </tr>
@@ -534,7 +534,7 @@ const barMax = (rows: Array<{ value: number }>) => Math.max(1, ...rows.map((r) =
     display: block;
     height: 100%;
     border-radius: 999px;
-    background: var(--navy-600);
+    background: #2f6fd8;
   }
 }
 
@@ -703,7 +703,7 @@ const barMax = (rows: Array<{ value: number }>) => Math.max(1, ...rows.map((r) =
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--navy-600);
+  background: #2f6fd8; /* azul del diseño (pág. 3) */
 
   &--red {
     background: var(--danger);

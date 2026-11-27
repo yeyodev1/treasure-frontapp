@@ -13,7 +13,7 @@ import { SYNC_TEXT, useOrderSync } from '@/composables/useOrderSync'
 import { apiSendWeeklyOrder } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
 import { plural } from '@/components/supply/units'
-import { formatTime } from '@/utils/format'
+import { formatHour } from '@/utils/format'
 import type { WeeklyOrder, WeeklyOrderCurrent, WeeklyOrderLine } from '@/types'
 
 /**
@@ -44,6 +44,8 @@ const busy = shallowRef(false)
 const { sync, message, touch, flush, save, draft } = useOrderSync(order, payload)
 
 const adjusting = computed(() => order.value?.status === 'bar')
+/** Motivo con el que la directora lo devolvió (el último, si sigue en el bar). */
+const returnedBy = computed(() => (adjusting.value ? [...(order.value?.history ?? [])].reverse().find((h) => h.action === 'Devuelto al bartender') : undefined))
 const toReceive = computed(() => orders.value.flatMap((o) => awaitingBar(o).map((d) => ({ order: o, delivery: d }))))
 const OUTLIER_PCT = 20
 
@@ -202,9 +204,12 @@ const fmt = (n: number | null | undefined) => (n === null || n === undefined ? '
         <header class="intro">
           <small class="eyebrow">Pedido · semana {{ weekText }}</small>
           <h2>Ajustar pedido · {{ order.code }}</h2>
+          <p v-if="returnedBy" class="returned" role="status">
+            <b>{{ returnedBy.byName }} te lo devolvió:</b> "{{ returnedBy.detail }}". Corrige y vuelve a enviarlo.
+          </p>
           <p>
             La app propuso con el consumo por pasajero de los últimos 4 cruceros. Ajusta <b>PEDIR</b> hasta las
-            {{ order.barDeadline ? formatTime(order.barDeadline) : '15h00' }}: si cambias más de {{ OUTLIER_PCT }} %, escribe el motivo.
+            {{ order.barDeadline ? formatHour(order.barDeadline).replace(':', 'h') : '15h00' }}: si cambias más de {{ OUTLIER_PCT }} %, escribe el motivo.
           </p>
         </header>
 
@@ -337,6 +342,14 @@ const fmt = (n: number | null | undefined) => (n === null || n === undefined ? '
   &--ask {
     border-color: var(--navy-600);
   }
+}
+
+.returned {
+  margin: 0.3rem 0 0.4rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius);
+  background: var(--pill-warn-bg);
+  color: var(--pill-warn-ink);
 }
 
 .eyebrow {

@@ -1,67 +1,42 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, shallowRef } from 'vue'
-import ProductIcon from '@/components/ui/ProductIcon.vue'
+import { computed, onMounted, shallowRef } from 'vue'
 import SkeletonList from '@/components/ui/SkeletonList.vue'
-import QtyStepper from '@/components/supply/QtyStepper.vue'
-import ProductPicker from '@/components/supply/ProductPicker.vue'
-import { awaitingDirector, groupByCategory, loadOpenOrders, orderGroupOf, replaceOrder } from '@/components/barstock/orders'
-import { useCatalogStore } from '@/stores/catalog'
+import { awaitingDirector, loadOpenOrders, replaceOrder } from '@/components/barstock/orders'
 import { useConfirmStore } from '@/stores/confirm'
 import { useToastStore } from '@/stores/toast'
 import { useSound } from '@/composables/useSound'
-import { SYNC_TEXT, useOrderSync } from '@/composables/useOrderSync'
-import { apiApproveWeeklyOrder, apiDirectorConfirmArrival } from '@/services/api'
+import { apiApproveWeeklyOrder, apiDirectorConfirmArrival, apiReturnWeeklyOrder } from '@/services/api'
 import { apiErrorMessage } from '@/services/httpBase'
-import { containerText, plural } from '@/components/supply/units'
-import { formatDateTime, formatTime } from '@/utils/format'
-import type { Product, WeeklyOrder, WeeklyOrderLine } from '@/types'
+import { formatDateTime, formatHour } from '@/utils/format'
+import type { WeeklyOrder, WeeklyOrderLine } from '@/types'
 
 /**
- * BAR - STOCK, pantalla de la directora (pedido del cliente, 19-nov-2026):
- * los pedidos pendientes con lo que pidió el bar y lo que contó; sube, baja o
- * borra cualquier producto y aprueba con un solo botón. No se devuelve al bar.
- * Al aprobar pasa solo a Tierra. Debajo, cómo van los pedidos aprobados.
+ * BAR - STOCK, pantalla de la directora tal cual la especificación (24-nov-2026, pág. 9):
+ * cuántos productos y solo los ajustes del bartender con su motivo; Aprobar o
+ * Devolver al bartender. Aprobado → le llega a Compras en tierra.
  */
-const catalog = useCatalogStore()
 const confirmStore = useConfirmStore()
 const toast = useToastStore()
 const { play } = useSound()
 
 const orders = shallowRef<WeeklyOrder[]>([])
 const order = shallowRef<WeeklyOrder | null>(null)
-/** Cantidad por producto (envases enteros); lo que no está, se quitó. */
-const qty = ref<Record<string, number>>({})
 const loading = shallowRef(true)
 const busy = shallowRef(false)
-const picking = shallowRef(false)
-
-const { sync, message, touch, flush, save } = useOrderSync(order, payload)
 
 const pending = computed(() => orders.value.filter((o) => o.status === 'bar' || o.status === 'directora'))
 const approved = computed(() => orders.value.filter((o) => o.status === 'aprobado' && !o.noNeeds))
 
-function payload() {
-  return (order.value?.lines ?? [])
-    .filter((l) => l.product in qty.value)
-    .map((l) => ({ productId: l.product, qty: qty.value[l.product] ?? 0, observation: l.observation, counted: l.counted ?? null }))
-    .concat(
-      Object.keys(qty.value)
-        .filter((id) => !order.value?.lines.some((l) => l.product === id))
-        .map((id) => ({ productId: id, qty: qty.value[id] ?? 0, observation: '', counted: null })),
-    )
-}
-
 function open(o: WeeklyOrder | null) {
   order.value = o
-  qty.value = Object.fromEntries((o?.lines ?? []).map((l) => [l.product, l.qty]))
 }
 
 async function load() {
   loading.value = true
   try {
-    const [{ orders: list }] = await Promise.all([loadOpenOrders(), catalog.load(true)])
+    const { orders: list } = await loadOpenOrders()
     orders.value = list
-    open(list.find((o) => o.status === 'bar' || o.status === 'directora') ?? null)
+    open(list.find((o) => o.status === 'directora') ?? list.find((o) => o.status === 'bar') ?? null)
   } catch (err) {
     toast.error(apiErrorMessage(err))
   } finally {
@@ -70,46 +45,21 @@ async function load() {
 }
 onMounted(load)
 
-const lines = computed(() => (order.value?.lines ?? []).filter((l) => l.product in qty.value))
-/** Por categoría, en el orden del bar (licores, vinos, cervezas, gaseosas, insumos, frescos). */
-const grouped = computed(() =>
-  groupByCategory(
-    lines.value.map((l) => {
-      const p = catalog.physical.find((x) => x._id === l.product)
-      return { ...l, group: orderGroupOf(p?.category, l.stockUnit, l.name), shelf: p?.countOrder }
-    }),
-  ),
+const weekText = computed(() =>
+  order.value
+    ? new Date(`${order.value.week}T12:00:00-06:00`).toLocaleDateString('es-EC', { day: 'numeric', month: 'short', timeZone: 'Pacific/Galapagos' }).replace('.', '')
+    : '',
 )
-const addedProducts = computed(() =>
-  Object.keys(qty.value)
-    .filter((id) => !order.value?.lines.some((l) => l.product === id))
-    .map((id) => catalog.physical.find((p) => p._id === id))
-    .filter((p): p is Product => Boolean(p)),
+const products = computed(() => (order.value?.lines ?? []).filter((l) => l.qty > 0).length)
+/** Lo que el bartender cambió de la propuesta (incluye lo que agregó). */
+const adjustments = computed(() =>
+  (order.value?.lines ?? []).filter((l): l is WeeklyOrderLine & { barQty: number } => l.barQty != null && l.barQty !== (l.suggested ?? 0)),
 )
-const withQty = computed(() => Object.values(qty.value).filter((n) => n > 0).length)
 
-function setQty(id: string, n: number) {
-  qty.value[id] = n
-  touch()
+function settle(next: WeeklyOrder) {
+  orders.value = replaceOrder(orders.value, next)
+  open(orders.value.find((x) => x.status === 'directora') ?? null)
 }
-
-function remove(id: string) {
-  const next = { ...qty.value }
-  delete next[id]
-  qty.value = next
-  play('tap')
-  touch()
-}
-
-function add(p: Product) {
-  if (!(p._id in qty.value)) qty.value = { ...qty.value, [p._id]: 1 }
-  touch()
-}
-
-const iconOf = (id: string) => catalog.physical.find((p) => p._id === id)?.icon ?? 'bottle'
-/** Bar-stock (24-nov-2026): lo propuesto y, si el bartender cambió más de 20 %, su motivo. */
-const has = (l: WeeklyOrderLine) =>
-  `Propuesto ${l.suggested ?? 0}${l.fridayStock != null ? ` · stock vie ${containerText(l.fridayStock, l)}` : ''}${l.observation ? ` · «${l.observation}»` : ''}`
 
 /** Recepciones que el mismo bartender compró y recibió: confirma también la directora. */
 const toConfirm = computed(() => orders.value.flatMap((o) => awaitingDirector(o).map((d) => ({ order: o, delivery: d }))))
@@ -126,34 +76,44 @@ async function confirmArrival(o: WeeklyOrder, key: string) {
 async function approve() {
   const o = order.value
   if (!o || busy.value) return
-  if (!(await flush())) {
-    toast.error(message.value || 'No se pudo guardar: vuelve a intentar')
-    return
-  }
-  const none = withQty.value === 0
-  const ok = await confirmStore.ask(
-    none
-      ? {
-          title: '¿Cerrar sin pedido?',
-          message: 'Todo está en cero: esta semana el barco no necesita nada. Queda en el historial.',
-          confirmLabel: 'Cerrar sin pedido',
-          icon: 'fa-circle-check',
-        }
-      : {
-          title: `¿Aprobar el pedido ${o.code}?`,
-          message: `${withQty.value} producto(s). Pasa a Tierra para comprar y enviar.${o.status === 'bar' ? ' El bar todavía no lo había enviado.' : ''}`,
-          confirmLabel: 'Aprobar pedido',
-          icon: 'fa-stamp',
-        },
-  )
+  const none = products.value === 0
+  const ok = await confirmStore.ask({
+    title: none ? '¿Cerrar sin pedido?' : `¿Aprobar el pedido ${o.code}?`,
+    message: none
+      ? 'Todo está en cero: esta semana el barco no necesita nada. Queda en el historial.'
+      : `${products.value} producto(s). Le llega a Compras en tierra.${o.status === 'bar' ? ' El bartender todavía no lo había enviado.' : ''}`,
+    confirmLabel: none ? 'Cerrar sin pedido' : 'Aprobar',
+    icon: none ? 'fa-circle-check' : 'fa-stamp',
+  })
   if (!ok) return
   busy.value = true
   try {
-    const done = await apiApproveWeeklyOrder(o._id, order.value!.version, none)
-    orders.value = replaceOrder(orders.value, done)
-    open(orders.value.find((x) => x.status === 'bar' || x.status === 'directora') ?? null)
+    settle(await apiApproveWeeklyOrder(o._id, o.version, none))
     play('success')
-    toast.success(none ? 'Cerrado sin pedido' : 'Pedido aprobado: ya lo ve Tierra')
+    toast.success(none ? 'Cerrado sin pedido' : 'Pedido aprobado: le llega a Compras en tierra')
+  } catch (err) {
+    play('error')
+    toast.error(apiErrorMessage(err))
+  } finally {
+    busy.value = false
+  }
+}
+
+async function giveBack() {
+  const o = order.value
+  if (!o || busy.value) return
+  const reason = await confirmStore.askReason({
+    title: 'Devolver al bartender',
+    message: 'El bartender lo corrige y te lo vuelve a enviar.',
+    confirmLabel: 'Devolver',
+    icon: 'fa-rotate-left',
+    reason: { label: '¿Qué debe corregir?', placeholder: 'Ej.: sube el Bacardi, viene grupo grande' },
+  })
+  if (reason === null) return
+  busy.value = true
+  try {
+    settle(await apiReturnWeeklyOrder(o._id, o.version, reason))
+    toast.success('Devuelto al bartender')
   } catch (err) {
     play('error')
     toast.error(apiErrorMessage(err))
@@ -205,72 +165,32 @@ function progress(o: WeeklyOrder) {
 
       <template v-else>
         <header class="intro">
-          <h2>
-            Pedido {{ order.code }}
-            <span class="estado estado--warn">{{ order.status === 'bar' ? 'El bar aún no lo envía' : 'Por aprobar' }}</span>
-          </h2>
+          <small class="eyebrow">Pedido · semana {{ weekText }}</small>
+          <h2>Aprobar pedido · {{ order.code }}</h2>
           <p>
-            Sube, baja o borra lo que quieras y toca <b>APROBAR PEDIDO</b> hasta las {{ order.approveDeadline ? formatTime(order.approveDeadline) : '18h00' }}:
-            si no, se aprueba solo con la propuesta. Pasa directo a compras.
+            Apruebas hasta las {{ order.approveDeadline ? formatHour(order.approveDeadline).replace(':', 'h') : '18h00' }}. Si no, se aprueba solo con la propuesta.
           </p>
+          <p v-if="order.status === 'bar'" class="warn">El bartender todavía lo está ajustando.</p>
         </header>
 
-        <section class="lines" aria-label="Productos del pedido">
-          <template v-for="g in grouped" :key="g.key">
-          <h3 class="group-title">{{ g.label }}</h3>
-          <article v-for="l in g.items" :key="l.product" class="row" :class="{ 'row--zero': (qty[l.product] ?? 0) === 0 }">
-            <div class="row-name">
-              <ProductIcon :icon="iconOf(l.product)" :size="22" />
-              <span>
-                <strong>{{ l.name }}</strong>
-                <small>{{ has(l) }}<template v-if="l.barQty !== null"> · el bar pidió {{ l.barQty }}</template></small>
-              </span>
-            </div>
-            <QtyStepper
-              :model-value="qty[l.product] ?? 0"
-              :min="0"
-              allow-zero
-              :unit="plural(l.containerLabel || 'unidad', qty[l.product] ?? 0)"
-              :label="`Cantidad de ${l.name}`"
-              @update:model-value="setQty(l.product, $event)"
-            />
-            <button type="button" class="icon-btn danger" :aria-label="`Quitar ${l.name}`" @click="remove(l.product)">
-              <i class="fa-solid fa-trash" aria-hidden="true" />
-            </button>
-          </article>
-          </template>
-          <h3 v-if="addedProducts.length" class="group-title">Agregados por ti</h3>
-          <article v-for="p in addedProducts" :key="p._id" class="row">
-            <div class="row-name">
-              <ProductIcon :icon="p.icon || 'bottle'" :size="22" />
-              <span><strong>{{ p.name }}</strong><small>Agregado por ti</small></span>
-            </div>
-            <QtyStepper
-              :model-value="qty[p._id] ?? 0"
-              :min="0"
-              allow-zero
-              :unit="plural(p.containerLabel || 'unidad', qty[p._id] ?? 0)"
-              :label="`Cantidad de ${p.name}`"
-              @update:model-value="setQty(p._id, $event)"
-            />
-            <button type="button" class="icon-btn danger" :aria-label="`Quitar ${p.name}`" @click="remove(p._id)">
-              <i class="fa-solid fa-trash" aria-hidden="true" />
-            </button>
-          </article>
-          <p v-if="!lines.length && !addedProducts.length" class="muted">El pedido está vacío.</p>
+        <section class="box">
+          <strong>{{ products }} productos</strong>
+          <span>Ajustes del bartender: {{ adjustments.length }}</span>
+        </section>
+
+        <section v-for="l in adjustments" :key="l.product" class="box">
+          <span><strong>{{ l.name }}</strong> {{ l.suggested ?? 0 }} → {{ l.barQty }}</span>
+          <small v-if="l.observation">"{{ l.observation }}"</small>
         </section>
 
         <div class="actions">
-          <button type="button" class="btn btn-secondary" @click="picking = true">
-            <i class="fa-solid fa-plus" aria-hidden="true" /> Agregar producto
+          <button type="button" class="btn btn-primary btn-lg" :disabled="busy" @click="approve">
+            {{ products ? 'Aprobar' : 'Cerrar sin pedido' }}
           </button>
-          <span v-if="sync !== 'idle'" class="sync" :class="`sync--${sync}`" role="status">
-            {{ sync === 'error' ? message : SYNC_TEXT[sync] }}
-            <button v-if="sync === 'error'" type="button" class="btn btn-text" @click="save">Reintentar</button>
-          </span>
-          <button type="button" class="btn btn-primary btn-lg approve" :disabled="busy" @click="approve">
-            <i class="fa-solid fa-stamp" aria-hidden="true" /> {{ withQty ? 'APROBAR PEDIDO' : 'CERRAR SIN PEDIDO' }}
+          <button v-if="order.status === 'directora'" type="button" class="btn btn-secondary btn-lg" :disabled="busy" @click="giveBack">
+            Devolver al bartender
           </button>
+          <small>Aprobado → le llega a Compras en tierra.</small>
         </div>
       </template>
 
@@ -289,25 +209,10 @@ function progress(o: WeeklyOrder) {
       </section>
     </template>
 
-    <ProductPicker
-      v-if="picking"
-      :products="catalog.physical"
-      title="Agregar al pedido"
-      show="abordo"
-      :taken="Object.keys(qty)"
-      @pick="add"
-      @close="picking = false"
-    />
   </div>
 </template>
 
 <style scoped lang="scss">
-.group-title {
-  margin: 0.6rem 0 0.1rem;
-  font-size: 1rem;
-  color: var(--navy-900);
-}
-
 .confirm-card {
   display: flex;
   flex-direction: column;
@@ -357,69 +262,44 @@ function progress(o: WeeklyOrder) {
   }
 }
 
-.lines {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+.eyebrow {
+  display: block;
+  margin-bottom: 0.15rem;
+  color: var(--ink-600);
 }
 
-.row {
+.warn {
+  margin-top: 0.4rem !important;
+  color: var(--warning-ink) !important;
+  font-weight: 600;
+}
+
+.box {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem 1.2rem;
+  flex-direction: column;
+  gap: 0.15rem;
   padding: 0.75rem 1rem;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface);
 
-  &--zero {
-    opacity: 0.6;
-  }
-}
-
-.row-name {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  flex: 1 1 240px;
-  min-width: 0;
-
-  span {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-  }
-
   small {
     color: var(--ink-600);
-    font-size: 0.85rem;
   }
-}
-
-.icon-btn.danger {
-  min-width: 44px;
-  min-height: 44px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--danger-ink);
-  cursor: pointer;
 }
 
 .actions {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem 1rem;
-}
+  flex-direction: column;
+  gap: 0.6rem;
 
-.approve {
-  margin-left: auto;
-}
+  .btn {
+    width: 100%;
+  }
 
-.sync--error {
-  color: var(--danger-ink);
+  small {
+    color: var(--ink-600);
+  }
 }
 
 .sent {

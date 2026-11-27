@@ -557,6 +557,12 @@ export async function apiSendWeeklyOrder(id: string, version: number) {
   return data.order
 }
 
+/** Directora: "Devolver al bartender" con lo que debe corregir. */
+export async function apiReturnWeeklyOrder(id: string, version: number, reason: string) {
+  const { data } = await http.post<{ order: WeeklyOrder }>(`/weekly-orders/${id}/return`, { version, reason })
+  return data.order
+}
+
 export async function apiApproveWeeklyOrder(id: string, version: number, noNeeds = false) {
   const { data } = await http.post<{ order: WeeklyOrder }>(`/weekly-orders/${id}/approve`, { version, noNeeds })
   return data.order
