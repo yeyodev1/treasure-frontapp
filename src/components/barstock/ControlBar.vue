@@ -278,8 +278,8 @@ const barMax = (rows: Array<{ value: number }>) => Math.max(1, ...rows.map((r) =
               <div>
                 <dt>Facturas</dt>
                 <dd>
-                  <span class="tone" :class="current.payments.badEmails ? 'tone--amarillo' : 'tone--verde'">
-                    {{ current.payments.badEmails ? `${current.payments.badEmails} sin enviar por correo · ya facturadas` : 'todas enviadas' }}
+                  <span class="tone" :class="current.payments.badEmails ? 'tone--amarillo' : current.payments.total ? 'tone--verde' : 'tone--gris'">
+                    {{ current.payments.badEmails ? `${current.payments.badEmails} sin enviar por correo · ya facturadas` : current.payments.total ? 'todas enviadas' : 'sin cobros todavía' }}
                   </span>
                 </dd>
               </div>
